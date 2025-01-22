@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import axios from "axios";
 
 export default function RootRoute() {
   const [refreshTokenMessage, setRefreshTokenMessage] = useState("Loading...");
@@ -6,30 +7,29 @@ export default function RootRoute() {
   useEffect(() => {
     async function fetchCookies() {
       try {
-        const response = await fetch(
+        const response = await axios.get(
           "https://romantic-walleye-moderately.ngrok-free.app/api/user/log-cookies",
           {
-            method: "GET",
             headers: {
-              Accept: "application/json"
+              Accept: "application/json",
             },
+            // Include cookies with the request
+            withCredentials: true,
           }
         );
 
-        if (!response.ok) {
-          throw new Error(`Error: ${response.status} - ${response.statusText}`);
-        }
-
-        const data = await response.json();
+        const data = response.data;
         if (data.refreshToken) {
           setRefreshTokenMessage(`Refresh Token: ${data.refreshToken}`);
         } else {
           setRefreshTokenMessage("No refresh token found");
         }
-      } catch (error) {
+      } catch (error: unknown) {
         setRefreshTokenMessage(
           `Failed to fetch cookies: ${
-            error instanceof Error ? error.message : String(error)
+            axios.isAxiosError(error) && error.response
+              ? `${error.response.status} - ${error.response.statusText}`
+              : error instanceof Error ? error.message : String(error)
           }`
         );
       }

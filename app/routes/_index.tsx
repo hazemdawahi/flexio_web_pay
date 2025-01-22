@@ -1,10 +1,10 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "@remix-run/react"; 
 
 export default function RootRoute() {
   const navigate = useNavigate();
-
+ const [data,setdata]=useState()
   useEffect(() => {
     async function refreshAuth() {
       try {
@@ -19,6 +19,7 @@ export default function RootRoute() {
         );
 
         const data = response.data;
+        setdata(data)
         if (data.success && data.data?.accessToken) {
           // If access token is returned, redirect to the plan page
           navigate("/plan");
@@ -37,6 +38,7 @@ export default function RootRoute() {
 
   return (
     <div className="flex flex-col items-center p-4 font-sans">
+      <h1>data</h1>
       <h1 className="text-2xl font-bold">Authenticating...</h1>
       <div className="mt-4 text-4xl animate-spin">🔄</div>
     </div>

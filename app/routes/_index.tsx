@@ -6,19 +6,30 @@ export default function RootRoute() {
   useEffect(() => {
     async function fetchCookies() {
       try {
-        const response = await fetch("https://romantic-walleye-moderately.ngrok-free.app/api/user/log-cookies");
+        const response = await fetch(
+          "https://romantic-walleye-moderately.ngrok-free.app/api/user/log-cookies",
+          {
+            method: 'GET',
+            headers: {
+              // For a GET request, setting Content-Type is rarely necessary
+              // 'Content-Type': 'application/json',  
+              'Accept': 'application/json'  // Informs the server you expect JSON response
+            },
+            credentials: 'include',  // if you need to include cookies
+          }
+        );
+  
         if (!response.ok) {
           throw new Error(`Error: ${response.status} - ${response.statusText}`);
         }
-      
+  
         const data = await response.json();
-        setCookies(JSON.stringify(data, null, 2)); // Format the JSON data
+        setCookies(JSON.stringify(data, null, 2));
       } catch (error) {
         setCookies(`Failed to fetch cookies: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    
-
+  
     fetchCookies();
   }, []);
 

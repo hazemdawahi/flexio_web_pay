@@ -4,12 +4,13 @@ import { useNavigate } from "@remix-run/react";
 
 export default function RootRoute() {
   const navigate = useNavigate();
- const [data,setdata]=useState()
+  const [data, setData] = useState(null);
+
   useEffect(() => {
     async function refreshAuth() {
       try {
         const response = await axios.get(
-          "https://romantic-walleye-moderately.ngrok-free.app/api/user/refresh",  // Update with your actual endpoint
+          "https://romantic-walleye-moderately.ngrok-free.app/api/user/refresh",  
           {
             headers: {
               Accept: "application/json",
@@ -18,9 +19,10 @@ export default function RootRoute() {
           }
         );
 
-        const data = response.data;
-        setdata(response)
-        if (data.success && data.data?.accessToken) {
+        const responseData = response.data;
+        setData(responseData);
+
+        if (responseData.success && responseData.data?.accessToken) {
           // If access token is returned, redirect to the plan page
           navigate("/plan");
         } else {
@@ -38,7 +40,7 @@ export default function RootRoute() {
 
   return (
     <div className="flex flex-col items-center p-4 font-sans">
-      <pre>data:{data}</pre>
+      <pre>data: {JSON.stringify(data, null, 2)}</pre>
       <h1 className="text-2xl font-bold">Authenticating...</h1>
       <div className="mt-4 text-4xl animate-spin">🔄</div>
     </div>

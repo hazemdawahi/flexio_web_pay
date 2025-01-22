@@ -1,52 +1,44 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import axios from "axios";
+import { useNavigate } from "@remix-run/react"; 
 
 export default function RootRoute() {
-  const [refreshTokenMessage, setRefreshTokenMessage] = useState("Loading...");
+  const navigate = useNavigate();
 
   useEffect(() => {
-    async function fetchCookies() {
+    async function refreshAuth() {
       try {
         const response = await axios.get(
-          "https://romantic-walleye-moderately.ngrok-free.app/api/user/log-cookies",
+          "https://romantic-walleye-moderately.ngrok-free.app/api/user/refresh",  // Update with your actual endpoint
           {
             headers: {
               Accept: "application/json",
             },
-            // Include cookies with the request
-            withCredentials: true,
+            withCredentials: true, // Ensure cookies are sent with the request
           }
         );
 
         const data = response.data;
-        if (data.refreshToken) {
-          setRefreshTokenMessage(`Refresh Token: ${data.refreshToken}`);
+        if (data.success && data.data?.accessToken) {
+          // If access token is returned, redirect to the plan page
+          navigate("/plan");
         } else {
-          setRefreshTokenMessage("No refresh token found");
+          // If no valid token, redirect to login
+          navigate("/login");
         }
-      } catch (error: unknown) {
-        setRefreshTokenMessage(
-          `Failed to fetch cookies: ${
-            axios.isAxiosError(error) && error.response
-              ? `${error.response.status} - ${error.response.statusText}`
-              : error instanceof Error ? error.message : String(error)
-          }`
-        );
+      } catch (error) {
+        // On error (e.g., network issues, invalid token), redirect to login
+        navigate("/login");
       }
     }
 
-    fetchCookies();
-  }, []);
+    refreshAuth();
+  }, [navigate]);
 
   return (
-    <div style={styles.container}>
-      <h1>Refresh Token Status</h1>
-      <pre style={styles.pre}>{refreshTokenMessage}</pre>
+    <div className="flex flex-col items-center p-4 font-sans">
+      <h1 className="text-2xl font-bold">Authenticating...</h1>
+      <div className="mt-4 text-4xl animate-spin">🔄</div>
     </div>
   );
 }
-
-const styles = {
-  container: { fontFamily: "sans-serif", padding: "1rem" },
-  pre: { backgroundColor: "#f4f4f4", padding: "1rem", borderRadius: "5px" },
-};

@@ -38,7 +38,7 @@ export default function RootRoute() {
 
   return (
     <div className="flex flex-col items-center p-4 font-sans">
-      <h1>data</h1>
+      <pre>data:{data}</pre>
       <h1 className="text-2xl font-bold">Authenticating...</h1>
       <div className="mt-4 text-4xl animate-spin">🔄</div>
     </div>

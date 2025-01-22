@@ -10,8 +10,6 @@ export const meta: MetaFunction = () => {
 };
 
 export default function PlanPage() {
-  const [accessToken] = useAtom(accessTokenAtom);
-  const [refreshToken] = useAtom(refreshTokenAtom);
 
   function handlePay(option: number) {
     alert(`You chose to pay in ${option} installments.`);
@@ -22,10 +20,8 @@ export default function PlanPage() {
       <h1>Plan Page</h1>
       <div style={styles.tokensBox}>
         <p>
-          <strong>Access Token:</strong> {accessToken ?? "No access token"}
         </p>
         <p>
-          <strong>Refresh Token:</strong> {refreshToken ?? "No refresh token"}
         </p>
       </div>
       <div style={styles.paymentOptions}>

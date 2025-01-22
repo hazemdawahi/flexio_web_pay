@@ -20,6 +20,7 @@ export default function RootRoute() {
         );
 
         const responseData = response.data;
+        console.log("response.data",response.data)
         setData(responseData);
 
         if (responseData.success && responseData.data?.accessToken) {

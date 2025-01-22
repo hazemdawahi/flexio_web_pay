@@ -10,12 +10,17 @@ export default function RootRoute() {
         if (!response.ok) {
           throw new Error(`Error: ${response.status} - ${response.statusText}`);
         }
+        const contentType = response.headers.get("Content-Type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error("Response is not valid JSON");
+        }
         const data = await response.json();
         setCookies(JSON.stringify(data, null, 2)); // Format the JSON data
-      } catch (error: unknown) {
+      } catch (error) {
         setCookies(`Failed to fetch cookies: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    
 
     fetchCookies();
   }, []);

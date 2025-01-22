@@ -19,7 +19,7 @@ export default function RootRoute() {
         );
 
         const data = response.data;
-        setdata(data)
+        setdata(response)
         if (data.success && data.data?.accessToken) {
           // If access token is returned, redirect to the plan page
           navigate("/plan");

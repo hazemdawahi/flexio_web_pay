@@ -10,7 +10,7 @@ export default function RootRoute() {
     async function refreshAuth() {
       try {
         const response = await axios.get(
-          "https://romantic-walleye-moderately.ngrok-free.app/api/user/refresh",  
+          "https://modern-sites-suffer.loca.lt/api/user/refresh",  
           {
             headers: {
               Accept: "application/json",

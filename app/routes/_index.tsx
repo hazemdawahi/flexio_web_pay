@@ -10,7 +10,7 @@ export default function RootRoute() {
     async function refreshAuth() {
       try {
         const response = await axios.get(
-          "https://modern-sites-suffer.loca.lt/api/user/refresh",  
+          "https://wild-pigs-judge.loca.lt/api/user/refresh",  
           {
             headers: {
               Accept: "application/json",

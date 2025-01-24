@@ -1,49 +1,14 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
-import { useNavigate } from "@remix-run/react"; 
+// src/routes/index.tsx
 
-export default function RootRoute() {
-  const navigate = useNavigate();
-  const [data, setData] = useState(null);
+import React from "react";
 
-  useEffect(() => {
-    async function refreshAuth() {
-      try {
-        const response = await axios.get(
-          "https://wild-pigs-judge.loca.lt/api/user/refresh",  
-          {
-            headers: {
-              Accept: "application/json",
-            },
-            withCredentials: true, // Ensure cookies are sent with the request
-          }
-        );
-
-        const responseData = response.data;
-        console.log("response.data",response.data)
-        setData(responseData);
-
-        if (responseData.success && responseData.data?.accessToken) {
-          // If access token is returned, redirect to the plan page
-          navigate("/plan");
-        } else {
-          // If no valid token, redirect to login
-          navigate("/login");
-        }
-      } catch (error) {
-        // On error (e.g., network issues, invalid token), redirect to login
-        navigate("/login");
-      }
-    }
-
-    refreshAuth();
-  }, [navigate]);
-
+const Index: React.FC = () => {
   return (
-    <div className="flex flex-col items-center p-4 font-sans">
-      <pre>data: {JSON.stringify(data, null, 2)}</pre>
-      <h1 className="text-2xl font-bold">Authenticating...</h1>
-      <div className="mt-4 text-4xl animate-spin">🔄</div>
+    <div className="flex flex-col items-center justify-center min-h-screen p-4 font-sans">
+      <h1 className="text-3xl font-bold">Welcome to the Remix App!</h1>
+      <p className="mt-4 text-lg">Redirecting...</p>
     </div>
   );
-}
+};
+
+export default Index;

@@ -1,5 +1,5 @@
-import { atom } from "jotai";
+// src/state/atoms.ts
+import { atom } from 'jotai';
 
+// Atom to store the access token
 export const accessTokenAtom = atom<string | null>(null);
-export const refreshTokenAtom = atom<string | null>(null);
-export const checkoutIdAtom = atom<string | null>(null);

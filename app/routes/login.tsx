@@ -1,42 +1,90 @@
-import React, { useState } from 'react';
-import FloatingLabelInput from '~/compoments/Floatinglabelinpunt';
+// src/routes/login.tsx
 
-export default function LoginPage() {
-  const [userInput, setUserInput] = useState('');
-  const [otp, setOtp] = useState('');
+import React, { useState } from "react";
+import { useNavigate } from "@remix-run/react"; // Use Remix's useNavigate
+import { useLogin, LoginRequest } from "~/hooks/useLogin";
+import { useVerifyLogin, VerifyLoginRequest } from "~/hooks/useVerifyLogin";
+import { useSession } from "~/context/SessionContext";
+import FloatingLabelInput from "~/compoments/Floatinglabelinpunt";
+
+const LoginPage: React.FC = () => {
+  const [userInput, setUserInput] = useState("");
+  const [otp, setOtp] = useState("");
   const [isOtpVisible, setIsOtpVisible] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const navigate = useNavigate();
+  const loginMutation = useLogin();
+  const verifyLoginMutation = useVerifyLogin();
+  const { setAccessToken } = useSession();
 
   const handleFirstContinue = () => {
-    setError('');
+    setError("");
     if (!userInput) {
-      setError('Please enter your email or phone number.');
+      setError("Please enter your email or phone number.");
       return;
     }
-    // Simulate sending OTP
-    setIsOtpVisible(true);
+
+    const loginRequest: LoginRequest = {
+      identifier: userInput,
+    };
+
+    loginMutation.mutate(loginRequest, {
+      onSuccess: (data) => {
+        if (data.success) {
+          setIsOtpVisible(true);
+        } else {
+          setError(data.error || "Failed to send OTP. Please try again.");
+        }
+      },
+      onError: (error: any) => {
+        setError(error.message || "Failed to send OTP. Please try again.");
+      },
+    });
   };
 
   const handleSecondContinue = () => {
-    setError('');
+    setError("");
     if (!otp || otp.length !== 6) {
-      setError('Please enter a valid 6-digit OTP.');
+      setError("Please enter a valid 6-digit OTP.");
       return;
     }
-    // Simulate OTP verification success
-    alert('OTP Verified. Logged in!');
+
+    const verifyRequest: VerifyLoginRequest = {
+      identifier: userInput,
+      otp,
+    };
+
+    verifyLoginMutation.mutate(verifyRequest, {
+      onSuccess: (data) => {
+        if (data.success && data.data?.accessToken) {
+          // Save the access token in sessionStorage and context
+          sessionStorage.setItem("accessToken", data.data.accessToken);
+          setAccessToken(data.data.accessToken);
+          navigate("/merchant-shopping");
+        } else {
+          setError(data.error || "Invalid OTP. Please try again.");
+        }
+      },
+      onError: (error: any) => {
+        setError(error.message || "Invalid OTP. Please try again.");
+      },
+    });
   };
 
   const handleTryAgain = () => {
     setIsOtpVisible(false);
-    setOtp('');
-    setError('');
+    setOtp("");
+    setError("");
   };
 
+  const isLoading =
+    loginMutation.isPending || verifyLoginMutation.isPending || isConnecting;
+
   return (
-    <div className="mx-auto px-5 py-10 bg-white font-sans">
-      <h1 className="text-4xl  font-bold mb-1">Sign in</h1>
+    <div className="max-w-md mx-auto px-5 py-10 bg-white font-sans">
+      <h1 className="text-4xl font-bold mb-1">Sign in</h1>
       <p className="text-base text-gray-500 mb-5">
         Sign in to your account with your email or mobile number.
       </p>
@@ -46,7 +94,7 @@ export default function LoginPage() {
         label="Email or Phone Number"
         value={userInput}
         onChangeText={setUserInput}
-        error={error && !isOtpVisible ? error : ''}
+        error={error && !isOtpVisible ? error : ""}
         editable={!isLoading}
       />
 
@@ -55,18 +103,18 @@ export default function LoginPage() {
         <>
           <p className="text-sm text-gray-500 mb-6">
             We just sent you a temporary login code. Please check your email or phone.
-            <span 
-              className="text-blue-500 underline cursor-pointer" 
+            <span
+              className="text-blue-500 underline cursor-pointer"
               onClick={handleTryAgain}
             >
-              {' '}Can't find it? Try again.
+              {" "}Can't find it? Try again.
             </span>
           </p>
           <FloatingLabelInput
             label="Enter your code"
             value={otp}
             onChangeText={setOtp}
-            error={error && isOtpVisible ? error : ''}
+            error={error && isOtpVisible ? error : ""}
             editable={!isLoading}
             type="text"
           />
@@ -78,10 +126,14 @@ export default function LoginPage() {
         onClick={isOtpVisible ? handleSecondContinue : handleFirstContinue}
         disabled={isLoading}
         className={`bg-black rounded-lg py-4 px-5 mb-5 text-white font-bold text-lg w-full border-none cursor-pointer focus:outline-none ${
-          isLoading ? 'opacity-50 pointer-events-none' : ''
+          isLoading ? "opacity-50 pointer-events-none" : ""
         }`}
       >
-        {isLoading ? 'Loading...' : (isOtpVisible ? 'Continue with the code' : 'Continue')}
+        {isLoading
+          ? "Loading..."
+          : isOtpVisible
+          ? "Continue with the code"
+          : "Continue"}
       </button>
 
       <p className="text-xs text-gray-500 text-center w-full">
@@ -89,4 +141,6 @@ export default function LoginPage() {
       </p>
     </div>
   );
-}
+};
+
+export default LoginPage;

@@ -1,4 +1,5 @@
 // app/components/PaymentMethodItem.tsx
+
 import React from "react";
 import { PaymentMethod } from "~/hooks/usePaymentMethods";
 import { getCardImage } from "~/utils/util";
@@ -7,7 +8,6 @@ interface PaymentMethodItemProps {
   method: PaymentMethod;
   selectedMethod: PaymentMethod | null;
   onSelect: (method: PaymentMethod) => void;
-  GREEN_COLOR: string;
   isLastItem?: boolean;
 }
 
@@ -15,16 +15,15 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
   method,
   selectedMethod,
   onSelect,
-  GREEN_COLOR,
   isLastItem = false,
 }) => {
   const isSelected = selectedMethod?.id === method.id;
 
   return (
     <div
-      className={`flex items-center p-4 cursor-pointer ${
-        isSelected ? "bg-green-100" : "bg-white"
-      } rounded-lg ${!isLastItem ? "border-b border-gray-200" : ""}`}
+      className={`flex items-center p-4 cursor-pointer rounded-lg ${
+        !isLastItem ? "border-b border-gray-200" : ""
+      } hover:bg-gray-100 transition`}
       onClick={() => onSelect(method)}
     >
       {method.type === "card" ? (

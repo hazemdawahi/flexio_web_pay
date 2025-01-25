@@ -62,7 +62,7 @@ const LoginPage: React.FC = () => {
           // Save the access token in sessionStorage and context
           sessionStorage.setItem("accessToken", data.data.accessToken);
           setAccessToken(data.data.accessToken);
-          navigate("/merchant-shopping");
+          navigate("/purchase-options");
         } else {
           setError(data.error || "Invalid OTP. Please try again.");
         }

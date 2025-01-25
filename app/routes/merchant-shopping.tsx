@@ -6,12 +6,12 @@ import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useSession } from "~/context/SessionContext";
+import { IoIosArrowBack, IoIosClose } from "react-icons/io";
+import { motion, AnimatePresence } from "framer-motion";
 import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft";
 import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
-
-const GREEN_COLOR = "#4cd964";
 
 const MerchantShoppingContent: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -19,6 +19,7 @@ const MerchantShoppingContent: React.FC = () => {
 
   const [instantPowerAmount, setInstantPowerAmount] = useState("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const {
     data: paymentData,
@@ -42,12 +43,10 @@ const MerchantShoppingContent: React.FC = () => {
   const navigate = useNavigate();
 
   // Access the access token and inApp flag from Context
-  const { accessToken, inApp, setAccessToken } = useSession();
-  console.log("inApp value from context:", inApp);
-  console.log("userData", userData);
+  const { accessToken, setAccessToken } = useSession();
 
   useEffect(() => {
-    // Example: Retrieve the token from sessionStorage or any other secure storage
+    // Retrieve the token from sessionStorage or any other secure storage
     const storedToken = sessionStorage.getItem("accessToken");
     const storedInApp = sessionStorage.getItem("inApp");
 
@@ -98,11 +97,7 @@ const MerchantShoppingContent: React.FC = () => {
 
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
-    // Close modal logic
-    const element = document.getElementById("payment-method-modal");
-    if (element) {
-      element.classList.add("hidden");
-    }
+    closeModal();
   }, []);
 
   const calculateTotalAmount = () => {
@@ -122,17 +117,10 @@ const MerchantShoppingContent: React.FC = () => {
   };
 
   const navigateToPlansPage = () => {
-    console.log("Instantaneous Power Amount:", instantPowerAmount);
-
-    const superchargeDetails = additionalFields.map((field, index) => {
-      console.log(
-        `Field ${index + 1}: Supercharge Amount: ${field}, Payment Method ID: ${selectedPaymentMethod?.id}`
-      );
-      return {
-        amount: convertToCents(field), // Convert supercharge amount to cents
-        paymentMethodId: selectedPaymentMethod?.id,
-      };
-    });
+    const superchargeDetails = additionalFields.map((field, index) => ({
+      amount: convertToCents(field), // Convert supercharge amount to cents
+      paymentMethodId: selectedPaymentMethod?.id,
+    }));
 
     if (!userData?.data?.user?.settings) {
       alert("Error: User settings not available.");
@@ -149,14 +137,48 @@ const MerchantShoppingContent: React.FC = () => {
       amount: totalAmountCents,
       instantPowerAmount: instantPowerAmountCents,
       superchargeDetails: JSON.stringify(superchargeDetails),
+      paymentMethodId: selectedPaymentMethod?.id || "",
     }).toString();
 
-    if (smartPay) {
-      navigate(`/PlansPage?${params}`);
-    } else {
-      navigate(`/payment_plans?${params}`);
-    }
+    // Navigate to /plans with query parameters
+    navigate(`/plans?${params}`);
   };
+
+  const openModal = () => {
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+  };
+
+  // Close modal on Esc key press
+  useEffect(() => {
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isModalOpen) {
+        closeModal();
+      }
+    };
+
+    window.addEventListener("keydown", handleEsc);
+
+    return () => {
+      window.removeEventListener("keydown", handleEsc);
+    };
+  }, [isModalOpen]);
+
+  // Prevent scrolling when modal is open
+  useEffect(() => {
+    if (isModalOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isModalOpen]);
 
   // Loading state
   if (isMerchantLoading || isUserLoading || paymentLoading) {
@@ -166,13 +188,6 @@ const MerchantShoppingContent: React.FC = () => {
       </div>
     );
   }
-
-  // Log errors and data for debugging
-  console.log("userError", userError);
-  console.log("paymentError", paymentError);
-  console.log("!userData?.data", !userData?.data);
-  console.log("accessToken", accessToken);
-  console.log("inApp:", inApp);
 
   // Error state
   if (userError || paymentError || !userData?.data) {
@@ -196,28 +211,19 @@ const MerchantShoppingContent: React.FC = () => {
     <div className="min-h-screen bg-white p-4">
       <div className="max-w-xl mx-auto">
         {/* Header Section */}
-        <header className="mb-6">
-          <div className="flex justify-between items-center">
-            {/* Logo */}
-            <div>
-              {/* Replace with your actual logo component or image */}
-              <h2 className="text-xl font-bold">Merchant Shopping</h2>
-            </div>
-            {/* Display inApp value */}
-            <div>
-              <span className="text-sm text-gray-600">
-                In App: {inApp ? "True" : "False"}
-              </span>
-              {(() => {
-                console.log("Header - inApp value:", inApp);
-                return null;
-              })()}
-            </div>
-          </div>
+        <header className="mb-6 flex items-center">
+          {/* Back Button */}
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center text-gray-700 hover:text-gray-900"
+          >
+            <IoIosArrowBack className="mr-2" size={24} />
+            Back
+          </button>
         </header>
 
-        {/* Header */}
-        <h1 className="text-2xl font-bold mb-4 text-center">
+        {/* "How much would you like to spend?" Header */}
+        <h1 className="text-2xl font-bold mb-4">
           How much would you like to spend?
         </h1>
 
@@ -242,13 +248,7 @@ const MerchantShoppingContent: React.FC = () => {
               onChangeText={(value) => updateField(index, value)}
               keyboardType="number"
               selectedMethod={selectedPaymentMethod}
-              onPaymentMethodPress={() => {
-                // Open payment method modal
-                const element = document.getElementById("payment-method-modal");
-                if (element) {
-                  element.classList.remove("hidden");
-                }
-              }}
+              onPaymentMethodPress={openModal}
             />
           </div>
         ))}
@@ -258,7 +258,7 @@ const MerchantShoppingContent: React.FC = () => {
           {/* Supercharge Button */}
           <button
             onClick={addField}
-            className="flex-1 bg-white border border-gray-300 text-black text-base  font-bold py-2 px-4 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex-1 bg-white border border-gray-300 text-black text-base font-bold py-2 px-4 rounded-lg hover:bg-gray-50 transition"
           >
             Supercharge
           </button>
@@ -266,47 +266,82 @@ const MerchantShoppingContent: React.FC = () => {
           {/* Continue Button */}
           <button
             onClick={navigateToPlansPage}
-            className="flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition-colors"
+            className="flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition"
           >
             {totalAmount > 0 ? `Flex $${totalAmount}` : "Flex your payments"}
           </button>
         </div>
 
         {/* Payment Method Modal */}
-        <div
-          id="payment-method-modal"
-          className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center hidden z-50"
-        >
-          <div className="bg-white w-11/12 max-w-md rounded-lg shadow-lg p-4 relative">
-            {/* Close Button */}
-            <button
-              onClick={() => {
-                const element = document.getElementById("payment-method-modal");
-                if (element) {
-                  element.classList.add("hidden");
-                }
-              }}
-              className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-            >
-              &times;
-            </button>
+        <AnimatePresence>
+          {isModalOpen && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                className="fixed inset-0 bg-black bg-opacity-50 z-40"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                onClick={closeModal} // Close modal when clicking on the backdrop
+              ></motion.div>
 
-           
-            {/* Payment Methods List */}
-            <div className="space-y-4 overflow-y-auto max-h-60">
-              {cardPaymentMethods.map((method, index) => (
-                <PaymentMethodItem
-                  key={method.id}
-                  method={method}
-                  selectedMethod={selectedPaymentMethod}
-                  onSelect={handleMethodSelect}
-                  GREEN_COLOR={GREEN_COLOR}
-                  isLastItem={index === cardPaymentMethods.length - 1}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
+              {/* Modal */}
+              <motion.div
+                className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
+                initial={{ y: "100%", opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: "100%", opacity: 0 }}
+                transition={{ duration: 0.3 }}
+              >
+                <motion.div
+                  className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-3/4 overflow-y-auto"
+                  initial={{ y: "100%", opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: "100%", opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
+                >
+                  {/* Modal Header with Enlarged Close Icon */}
+                  <div className="flex justify-end p-4">
+                    <button
+                      onClick={closeModal}
+                      className="text-gray-500 hover:text-gray-700 focus:outline-none"
+                    >
+                      <IoIosClose size={36} /> {/* Increased size from 24 to 36 */}
+                    </button>
+                  </div>
+
+                  {/* Modal Title */}
+                  <h2 className="text-xl font-semibold mb-4 px-4">
+                    Select Payment Method
+                  </h2>
+
+                  {/* Payment Methods List */}
+                  <div className="space-y-4 px-4 pb-4">
+                    {cardPaymentMethods.map((method, index) => (
+                      <PaymentMethodItem
+                        key={method.id}
+                        method={method}
+                        selectedMethod={selectedPaymentMethod}
+                        onSelect={handleMethodSelect}
+                        isLastItem={index === cardPaymentMethods.length - 1}
+                      />
+                    ))}
+
+                    {/* Optionally, you can add a button to add a new payment method */}
+                    {/* <button
+                      onClick={() => navigate("/add-payment-method")}
+                      className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition"
+                    >
+                      Add New Payment Method
+                    </button> */}
+                  </div>
+                </motion.div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

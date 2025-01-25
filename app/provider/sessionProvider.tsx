@@ -43,7 +43,7 @@ const SessionProvider: React.FC<SessionProviderProps> = ({ children }) => {
 
           // Redirect to the merchant shopping page if currently on root
           if (window.location.pathname === "/") {
-            navigate("/merchant-shopping");
+            navigate("/purchase-options");
           }
         } else {
           // If no valid token, redirect to login

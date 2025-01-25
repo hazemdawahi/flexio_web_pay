@@ -95,6 +95,7 @@ export async function fetchUserDetails(token: string): Promise<UserDetailsRespon
       Authorization: `Bearer ${token}`, // Passing the token in the Authorization header
       'Content-Type': 'application/json',
     },
+
   });
 
   console.log("Response Status:", response.status);

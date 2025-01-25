@@ -51,7 +51,9 @@ async function fetchPaymentMethods(token: string): Promise<PaymentMethodsRespons
       headers: {
         Authorization: `Bearer ${token}`, // Passing the token in the Authorization header
       },
-    }
+      
+    },    
+
   );
 
   return response.data;

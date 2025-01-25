@@ -63,6 +63,7 @@ async function fetchMerchantDetail(merchantId: string, token: string): Promise<M
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
+    
   });
 
   if (!response.ok) {

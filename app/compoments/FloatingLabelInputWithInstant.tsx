@@ -70,16 +70,19 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
         } rounded-lg shadow-md p-2`}
         style={borderStyle}
       >
+        {/* Input Field */}
         <div className="relative flex-1">
           <label
-            className={`absolute left-2 transition-all duration-300 ${
-              labelActive ? "top-0 text-sm text-gray-700" : "top-2.5 text-base text-gray-500"
+            className={`absolute left-2 transition-all duration-300 pointer-events-none ${
+              labelActive
+                ? "top-0 text-sm text-gray-700"
+                : "top-2.5 text-base text-gray-500"
             }`}
           >
             {label}
           </label>
           <input
-            type={keyboardType}
+            type={keyboardType === "number" ? "number" : "text"}
             value={value}
             onChange={(e) => onChangeText(e.target.value)}
             onFocus={handleFocus}
@@ -90,16 +93,23 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
             }`}
           />
         </div>
+
+        {/* Instant Power Section */}
         {instantPower !== undefined && (
-          <div className="flex flex-col items-center ml-4">
-            <div className="w-px bg-gray-300 h-9"></div>
-            <div className="text-center">
+          <div className="flex flex-row items-center ml-4">
+            {/* Vertical Separator */}
+            <div className="w-px bg-gray-300 h-8 mx-4"></div>
+
+            {/* Instant Power Value and Label */}
+            <div className="flex flex-col items-center">
               <span className="text-sm font-bold">{formatToDollars(instantPower)}</span>
               <span className="text-xs text-gray-500">Instant Power</span>
             </div>
           </div>
         )}
       </div>
+
+      {/* Error Message */}
       {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
     </div>
   );

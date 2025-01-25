@@ -6,8 +6,8 @@ import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useSession } from "~/context/SessionContext";
-import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
 import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft";
+import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 
@@ -41,19 +41,28 @@ const MerchantShoppingContent: React.FC = () => {
   } = useUserDetails();
   const navigate = useNavigate();
 
-  // Access the access token from Context
-  const { accessToken, setAccessToken } = useSession();
+  // Access the access token and inApp flag from Context
+  const { accessToken, inApp, setAccessToken } = useSession();
+  console.log("inApp value from context:", inApp);
   console.log("userData", userData);
 
   useEffect(() => {
     // Example: Retrieve the token from sessionStorage or any other secure storage
     const storedToken = sessionStorage.getItem("accessToken");
+    const storedInApp = sessionStorage.getItem("inApp");
+
     if (storedToken && !accessToken) {
       setAccessToken(storedToken);
     } else if (!storedToken) {
       console.warn("No access token found. Please log in.");
       // Redirect to login if no token
       navigate("/login");
+    }
+
+    if (storedInApp !== null) {
+      console.log("inApp value from sessionStorage:", storedInApp);
+      // Optionally, you can set the inApp state here if you have a setter
+      // setInApp(storedInApp === "true");
     }
   }, [accessToken, setAccessToken, navigate]);
 
@@ -163,6 +172,7 @@ const MerchantShoppingContent: React.FC = () => {
   console.log("paymentError", paymentError);
   console.log("!userData?.data", !userData?.data);
   console.log("accessToken", accessToken);
+  console.log("inApp:", inApp);
 
   // Error state
   if (userError || paymentError || !userData?.data) {
@@ -185,8 +195,26 @@ const MerchantShoppingContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-white p-4">
       <div className="max-w-xl mx-auto">
-        {/* Logo */}
-        {/* You can add your logo component or image here */}
+        {/* Header Section */}
+        <header className="mb-6">
+          <div className="flex justify-between items-center">
+            {/* Logo */}
+            <div>
+              {/* Replace with your actual logo component or image */}
+              <h2 className="text-xl font-bold">Merchant Shopping</h2>
+            </div>
+            {/* Display inApp value */}
+            <div>
+              <span className="text-sm text-gray-600">
+                In App: {inApp ? "True" : "False"}
+              </span>
+              {(() => {
+                console.log("Header - inApp value:", inApp);
+                return null;
+              })()}
+            </div>
+          </div>
+        </header>
 
         {/* Header */}
         <h1 className="text-2xl font-bold mb-4 text-center">
@@ -201,6 +229,9 @@ const MerchantShoppingContent: React.FC = () => {
           keyboardType="number"
           instantPower={userData.data.user.instantaneousPower}
         />
+
+        {/* Spacer between Instant Power and Supercharge Fields */}
+        <div className="mt-4"></div>
 
         {/* Additional Supercharge Fields */}
         {additionalFields.map((field, index) => (
@@ -222,21 +253,24 @@ const MerchantShoppingContent: React.FC = () => {
           </div>
         ))}
 
-        {/* Supercharge Button */}
-        <button
-          onClick={addField}
-          className="w-full bg-black text-white py-2 px-4 rounded-lg mb-4 hover:bg-gray-800 transition-colors"
-        >
-          Supercharge
-        </button>
+        {/* Buttons Container */}
+        <div className="flex space-x-4 mb-4">
+          {/* Supercharge Button */}
+          <button
+            onClick={addField}
+            className="flex-1 bg-white border border-gray-300 text-black text-base  font-bold py-2 px-4 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            Supercharge
+          </button>
 
-        {/* Continue Button */}
-        <button
-          onClick={navigateToPlansPage}
-          className="w-full bg-black text-white py-3 rounded-lg text-lg font-bold hover:bg-gray-800 transition-colors"
-        >
-          {totalAmount > 0 ? `Flex $${totalAmount}` : "Flex your payments"}
-        </button>
+          {/* Continue Button */}
+          <button
+            onClick={navigateToPlansPage}
+            className="flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition-colors"
+          >
+            {totalAmount > 0 ? `Flex $${totalAmount}` : "Flex your payments"}
+          </button>
+        </div>
 
         {/* Payment Method Modal */}
         <div
@@ -257,17 +291,7 @@ const MerchantShoppingContent: React.FC = () => {
               &times;
             </button>
 
-            {/* Payment Settings Button */}
-            <button
-              onClick={() => {
-                alert("Navigate to Payment Settings");
-                // Implement actual navigation if needed
-              }}
-              className="w-full bg-black text-white py-2 px-4 rounded-lg mb-4 hover:bg-gray-800 transition-colors"
-            >
-              Payment Settings
-            </button>
-
+           
             {/* Payment Methods List */}
             <div className="space-y-4 overflow-y-auto max-h-60">
               {cardPaymentMethods.map((method, index) => (

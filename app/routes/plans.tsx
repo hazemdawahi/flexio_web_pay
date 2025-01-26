@@ -3,10 +3,10 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "@remix-run/react";
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack } from "react-icons/io";
+import SmartPaymentPlans from "~/routes/SmartPaymentPlans";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
-import PaymentOptions from "./PaymentOptions";
-import PlanDetails from "./PlanDetails";
+import PaymentPlan from "./PaymentPlan";
 
 interface SuperchargeDetail {
   amount: string; // amount in cents
@@ -63,18 +63,28 @@ const Plans: React.FC = () => {
   // Define the tabs and their corresponding content
   const tabs = [
     {
-      label: "Plan Details",
+      label: "Payment Plan",
       content: (
         <div className="px-4">
-          <PlanDetails data={data} />
+          <PaymentPlan
+            merchantId={data.merchantId}
+            amount={data.amount}
+            instantPowerAmount={data.instantPowerAmount}
+            superchargeDetails={JSON.stringify(data.superchargeDetails)}
+          />
         </div>
       ),
     },
     {
-      label: "Payment Options",
+      label: "Smart Payment Plan",
       content: (
         <div className="px-4">
-          <PaymentOptions onConfirm={handleConfirm} onCancel={handleCancel} />
+          <SmartPaymentPlans
+            merchantId={data.merchantId}
+            amount={data.amount}
+            instantPowerAmount={data.instantPowerAmount}
+            superchargeDetails={JSON.stringify(data.superchargeDetails)}
+          />
         </div>
       ),
     },

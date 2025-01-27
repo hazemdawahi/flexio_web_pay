@@ -1,7 +1,7 @@
 // src/routes/login.tsx
 
 import React, { useState } from "react";
-import { useNavigate } from "@remix-run/react"; // Use Remix's useNavigate
+import { useNavigate, useLocation } from "@remix-run/react";
 import { useLogin, LoginRequest } from "~/hooks/useLogin";
 import { useVerifyLogin, VerifyLoginRequest } from "~/hooks/useVerifyLogin";
 import { useSession } from "~/context/SessionContext";
@@ -15,6 +15,9 @@ const LoginPage: React.FC = () => {
   const [isConnecting, setIsConnecting] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const source = (location.state as { source?: string })?.source || "";
+
   const loginMutation = useLogin();
   const verifyLoginMutation = useVerifyLogin();
   const { setAccessToken } = useSession();
@@ -62,7 +65,11 @@ const LoginPage: React.FC = () => {
           // Save the access token in sessionStorage and context
           sessionStorage.setItem("accessToken", data.data.accessToken);
           setAccessToken(data.data.accessToken);
-          navigate("/purchase-options");
+          // Navigate to checkout-details without token in URL
+          navigate(`/checkout-details`, {
+            replace: true,
+            state: { source },
+          });
         } else {
           setError(data.error || "Invalid OTP. Please try again.");
         }

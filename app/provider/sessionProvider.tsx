@@ -1,3 +1,4 @@
+// src/components/SessionProvider.tsx
 
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "@remix-run/react";
@@ -43,7 +44,7 @@ const SessionProvider: React.FC<SessionProviderProps> = ({ children }) => {
 
           // Redirect to the merchant shopping page if currently on root
           if (window.location.pathname === "/") {
-            navigate("/purchase-options");
+            navigate("/");
           }
         } else {
           // If no valid token, redirect to login

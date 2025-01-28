@@ -1,10 +1,7 @@
-// src/routes/merchant-shopping.tsx
-
 import React, { useEffect, useState, useCallback } from "react";
-import { useSearchParams, useNavigate } from "@remix-run/react";
+import { useNavigate } from "@remix-run/react";
 import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
-import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack, IoIosClose } from "react-icons/io";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,10 +9,11 @@ import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraf
 import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
+import { useCheckoutDetail, CheckoutDetail } from "~/hooks/useCheckoutDetail";
 
 const MerchantShoppingContent: React.FC = () => {
-  const [searchParams] = useSearchParams();
-  const merchantId = searchParams.get("merchantId") || "";
+  // Retrieve checkoutToken from sessionStorage
+  const checkoutToken = sessionStorage.getItem('checkoutToken') || "";
 
   const [instantPowerAmount, setInstantPowerAmount] = useState("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
@@ -24,35 +22,64 @@ const MerchantShoppingContent: React.FC = () => {
   const {
     data: paymentData,
     isLoading: paymentLoading,
+    isError: isPaymentError,
     error: paymentError,
   } = usePaymentMethods();
+
   const [hasLinkedPaymentMethod, setHasLinkedPaymentMethod] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
 
   const {
-    data: merchantData,
-    isLoading: isMerchantLoading,
-    error: merchantError,
-  } = useMerchantDetail(merchantId);
-  const {
     data: userData,
     isLoading: isUserLoading,
+    isError: isUserError,
     error: userError,
   } = useUserDetails();
+
   const navigate = useNavigate();
 
-  // Access the access token and inApp flag from Context
+  // Access the access token from Context
   const { accessToken, setAccessToken } = useSession();
 
-  useEffect(() => {
-    // Retrieve the token from sessionStorage or any other secure storage
-    const storedToken = sessionStorage.getItem("accessToken");
-    const storedInApp = sessionStorage.getItem("inApp");
+  // Use the useCheckoutDetail hook
+  const {
+    data: checkoutData,
+    isLoading: checkoutLoading,
+    isError: isCheckoutError,
+    error: checkoutError,
+    status: checkoutStatus,
+  } = useCheckoutDetail(checkoutToken);
+  
+  console.log("checkoutData", checkoutData);
 
-    if (storedToken && !accessToken) {
-      setAccessToken(storedToken);
-    } else if (!storedToken) {
+  // Calculate the total amount from checkout details
+  const calculateCheckoutTotalAmount = (checkout: CheckoutDetail): number => {
+    const shipping = checkout.shippingAmount?.amount || 0;
+    const tax = checkout.taxAmount?.amount || 0;
+    const itemsTotal = checkout.items.reduce(
+      (sum, item) => sum + item.price.amount * item.quantity,
+      0
+    );
+    const discountsTotal = checkout.discounts.reduce(
+      (sum, discount) => sum + (discount.amount?.amount || 0),
+      0
+    );
+    return shipping + tax + itemsTotal - discountsTotal;
+  };
+
+  // **Updated Line**
+  const checkoutTotalAmount =
+    checkoutData ? calculateCheckoutTotalAmount(checkoutData) : 0;
+
+  useEffect(() => {
+    // Retrieve the access token and inApp flag from sessionStorage or any other secure storage
+    const storedAccessToken = typeof window !== 'undefined' ? sessionStorage.getItem("accessToken") : null;
+    const storedInApp = typeof window !== 'undefined' ? sessionStorage.getItem("inApp") : null;
+
+    if (storedAccessToken && !accessToken) {
+      setAccessToken(storedAccessToken);
+    } else if (!storedAccessToken) {
       console.warn("No access token found. Please log in.");
       // Redirect to login if no token
       navigate("/login");
@@ -105,7 +132,8 @@ const MerchantShoppingContent: React.FC = () => {
       (acc, field) => acc + parseFloat(field || "0"),
       0
     );
-    return parseFloat(instantPowerAmount || "0") + superchargeTotal;
+    const instantPower = parseFloat(instantPowerAmount || "0");
+    return instantPower + superchargeTotal;
   };
 
   const totalAmount = calculateTotalAmount();
@@ -117,7 +145,7 @@ const MerchantShoppingContent: React.FC = () => {
   };
 
   const navigateToPlansPage = () => {
-    const superchargeDetails = additionalFields.map((field, index) => ({
+    const superchargeDetails = additionalFields.map((field) => ({
       amount: convertToCents(field), // Convert supercharge amount to cents
       paymentMethodId: selectedPaymentMethod?.id,
     }));
@@ -133,7 +161,6 @@ const MerchantShoppingContent: React.FC = () => {
     const instantPowerAmountCents = convertToCents(instantPowerAmount);
 
     const params = new URLSearchParams({
-      merchantId,
       amount: totalAmountCents,
       instantPowerAmount: instantPowerAmountCents,
       superchargeDetails: JSON.stringify(superchargeDetails),
@@ -180,8 +207,22 @@ const MerchantShoppingContent: React.FC = () => {
     };
   }, [isModalOpen]);
 
+  // Determine overall loading state
+  const isLoading =
+    isUserLoading ||
+    paymentLoading ||
+    checkoutLoading ||
+    (checkoutStatus === 'pending');
+
+  // **Updated isErrorState Condition**
+  const isErrorState =
+    isUserError ||
+    isPaymentError ||
+    isCheckoutError ||
+    !userData?.data;
+
   // Loading state
-  if (isMerchantLoading || isUserLoading || paymentLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="loader"></div>
@@ -190,12 +231,13 @@ const MerchantShoppingContent: React.FC = () => {
   }
 
   // Error state
-  if (userError || paymentError || !userData?.data) {
+  if (isErrorState) {
     return (
       <div className="flex items-center justify-center h-screen">
         <p className="text-red-500">
           {userError?.message ||
             paymentError?.message ||
+            checkoutError?.message ||
             "Failed to load data."}
         </p>
       </div>
@@ -222,10 +264,12 @@ const MerchantShoppingContent: React.FC = () => {
           </button>
         </header>
 
-        {/* "How much would you like to spend?" Header */}
+        {/* Updated Header Text with Total Checkout Amount */}
         <h1 className="text-2xl font-bold mb-4">
-          How much would you like to spend?
+          Flex all of  ${checkoutTotalAmount.toFixed(2)}
         </h1>
+
+        {/* **Removed Checkout Total Amount Display** */}
 
         {/* Instant Power Amount Input */}
         <FloatingLabelInputWithInstant
@@ -253,6 +297,8 @@ const MerchantShoppingContent: React.FC = () => {
           </div>
         ))}
 
+        {/* **Removed Total Amount Display** */}
+
         {/* Buttons Container */}
         <div className="flex space-x-4 mb-4">
           {/* Supercharge Button */}
@@ -263,12 +309,19 @@ const MerchantShoppingContent: React.FC = () => {
             Supercharge
           </button>
 
-          {/* Continue Button */}
+          {/* Continue (Flex) Button */}
           <button
             onClick={navigateToPlansPage}
-            className="flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition"
+            className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
+              totalAmount === checkoutTotalAmount
+                ? ""
+                : "opacity-50 cursor-not-allowed"
+            }`}
+            disabled={totalAmount !== checkoutTotalAmount}
           >
-            {totalAmount > 0 ? `Flex $${totalAmount}` : "Flex your payments"}
+            {instantPowerAmount
+              ? `Flex $${parseFloat(instantPowerAmount).toFixed(2)}`
+              : "Flex"}
           </button>
         </div>
 

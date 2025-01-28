@@ -1,12 +1,12 @@
 // src/pages/Plans.tsx
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate, useLocation } from "@remix-run/react"; // Ensure correct import based on your routing library
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack } from "react-icons/io";
 import SmartPaymentPlans from "~/routes/SmartPaymentPlans";
+import PaymentPlan from "~/routes/PaymentPlan";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
-import PaymentPlan from "./PaymentPlan";
 
 interface SuperchargeDetail {
   amount: string; // amount in cents
@@ -14,8 +14,6 @@ interface SuperchargeDetail {
 }
 
 export interface PlansData {
-  merchantId: string;
-  amount: string; // total amount in cents
   instantPowerAmount: string; // in cents
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
@@ -24,33 +22,35 @@ export interface PlansData {
 const Plans: React.FC = () => {
   const [data, setData] = useState<PlansData | null>(null);
   const navigate = useNavigate();
+  const location = useLocation();
   const { accessToken } = useSession(); // Assuming you have access to session
 
-  // Simulate fetching data on mount (replace this with your own data-fetching logic)
   useEffect(() => {
-    const fetchedData: PlansData = {
-      merchantId: "123456",
-      amount: "5000", // $50.00
-      instantPowerAmount: "2000", // $20.00
-      superchargeDetails: [
-        { amount: "1000", paymentMethodId: "pm_1" },
-        { amount: "2000", paymentMethodId: "pm_2" },
-      ],
-      paymentMethodId: "pm_main",
-    };
+    const searchParams = new URLSearchParams(location.search);
+    const instantPowerAmount = searchParams.get("instantPowerAmount");
+    const superchargeDetailsString = searchParams.get("superchargeDetails");
+    const paymentMethodId = searchParams.get("paymentMethodId");
 
-    setData(fetchedData);
-  }, []);
-
-  const handleConfirm = () => {
-    // Handle confirmation logic here, such as initiating a payment
-    navigate("/payment-success");
-  };
-
-  const handleCancel = () => {
-    // Handle cancellation logic, such as navigating back or resetting the state
-    navigate("/merchant-shopping");
-  };
+    if (instantPowerAmount && superchargeDetailsString && paymentMethodId) {
+      try {
+        const superchargeDetails: SuperchargeDetail[] = JSON.parse(superchargeDetailsString);
+        const fetchedData: PlansData = {
+          instantPowerAmount,
+          superchargeDetails,
+          paymentMethodId,
+        };
+        setData(fetchedData);
+      } catch (error) {
+        console.error("Error parsing superchargeDetails:", error);
+        // Optionally, navigate back or display an error message to the user
+        navigate("/error", { replace: true });
+      }
+    } else {
+      console.warn("Missing required query parameters.");
+      // Optionally, navigate back or display an error message to the user
+      navigate("/error", { replace: true });
+    }
+  }, [location.search, navigate]);
 
   if (!data) {
     return (
@@ -67,10 +67,9 @@ const Plans: React.FC = () => {
       content: (
         <div className="px-4">
           <PaymentPlan
-            merchantId={data.merchantId}
-            amount={data.amount}
             instantPowerAmount={data.instantPowerAmount}
-            superchargeDetails={JSON.stringify(data.superchargeDetails)}
+            superchargeDetails={data.superchargeDetails}
+            paymentMethodId={data.paymentMethodId}
           />
         </div>
       ),
@@ -80,10 +79,9 @@ const Plans: React.FC = () => {
       content: (
         <div className="px-4">
           <SmartPaymentPlans
-            merchantId={data.merchantId}
-            amount={data.amount}
             instantPowerAmount={data.instantPowerAmount}
-            superchargeDetails={JSON.stringify(data.superchargeDetails)}
+            superchargeDetails={data.superchargeDetails}
+            paymentMethodId={data.paymentMethodId}
           />
         </div>
       ),
@@ -105,9 +103,8 @@ const Plans: React.FC = () => {
           </button>
         </header>
 
-        {/* Add margin to move the tabs lower */}
+        {/* Tabs Section */}
         <div className="mt-4">
-          {/* Tabs Component */}
           <Tabs tabs={tabs} />
         </div>
       </div>

@@ -144,7 +144,6 @@ async function fetchCheckoutDetail(checkoutId: string, token: string): Promise<C
       'Content-Type': 'application/json',
     },
   });
- console.log("respsone",response)
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Error: ${response.status} ${response.statusText} - ${errorText}`);

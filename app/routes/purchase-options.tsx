@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { HiOutlineShoppingCart, HiOutlineUsers, HiOutlineEye } from "react-icons/hi";
+import { HiOutlineShoppingCart, HiOutlineUsers } from "react-icons/hi";
 import { useNavigate } from "@remix-run/react";
 
 export default function PurchaseOptions() {
@@ -43,23 +43,6 @@ export default function PurchaseOptions() {
           <h2 className="text-2xl font-bold mb-2">Split Purchase</h2>
           <p className="text-gray-600">
             Share the cost with others for more flexible payments.
-          </p>
-        </div>
-      </div>
-
-      {/* Container for Monitor a Product */}
-      <div
-        onClick={() => {
-          sessionStorage.setItem("inApp", "true");
-          alert("Monitoring a product started!");
-        }}
-        className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
-      >
-        <HiOutlineEye className="text-gray-700 text-4xl mr-6" />
-        <div>
-          <h2 className="text-2xl font-bold mb-2">Monitor a Product</h2>
-          <p className="text-gray-600">
-            Start monitoring a product's availability or price.
           </p>
         </div>
       </div>

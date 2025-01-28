@@ -1,111 +1,149 @@
 // app/routes/SmartPaymentPlans.tsx
-import React, { useEffect, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalculatePaymentPlanRequest, useCalculatePaymentPlan } from '~/hooks/useCalculatePaymentPlan';
+import React, { useEffect, useMemo, useCallback } from 'react';
+import { useNavigate } from '@remix-run/react'; // Ensure correct import based on your routing library
+import {
+  CalculatePaymentPlanRequest,
+  useCalculatePaymentPlan,
+  SplitPayment,
+} from '~/hooks/useCalculatePaymentPlan';
 import { usePlaidTokensStatus } from '~/hooks/usePlaidTokens';
 import { useUserDetails } from '~/hooks/useUserDetails';
 import { toast, Toaster } from 'sonner';
+import { Dialog } from '@headlessui/react';
+import { PaymentMethod, usePaymentMethods } from '~/hooks/usePaymentMethods';
+import SelectedPaymentMethod from '~/compoments/SelectedPaymentMethod';
+import PaymentMethodItem from '~/compoments/PaymentMethodItem';
 import PaymentCircle from '~/compoments/PaymentCircle';
 
-const safeParse = (value: string | string[] | undefined): number =>
-  typeof value === 'string' ? parseFloat(value) : 0;
-
-interface SmartPaymentPlansProps {
-  merchantId?: string;
-  amount?: string;
-  instantPowerAmount?: string;
-  superchargeDetails?: string;
+interface SuperchargeDetail {
+  amount: string; // amount in cents
+  paymentMethodId: string;
 }
 
-const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = (props) => {
-  const [searchParams] = useSearchParams();
+interface SmartPaymentPlansProps {
+  instantPowerAmount: string; // in cents
+  superchargeDetails: SuperchargeDetail[];
+  paymentMethodId:string;
+}
+
+type PaymentFrequency = 'monthly' | 'bi-weekly';
+
+const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
+  instantPowerAmount,
+  superchargeDetails,
+  paymentMethodId,
+
+}) => {
   const navigate = useNavigate();
 
-  const merchantId = props.merchantId || searchParams.get('merchantId') || '';
-  const amount = props.amount || searchParams.get('amount') || '0';
-  const instantPowerAmount = props.instantPowerAmount || searchParams.get('instantPowerAmount') || '0';
-  const superchargeDetailsParam = props.superchargeDetails || searchParams.get('superchargeDetails') || '';
+  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0; // Convert cents to dollars
 
-  let superchargeList: any[] = [];
-  if (superchargeDetailsParam) {
-    try {
-      superchargeList = JSON.parse(superchargeDetailsParam as string);
-      console.log("Supercharge Details:", superchargeList);
-    } catch (e) {
-      console.error("Error parsing superchargeDetails:", e);
-    }
-  }
+  // Fixed number of periods to 12 and payment frequency to 'monthly'
+  const numberOfPeriods = '12';
+  const paymentFrequency: PaymentFrequency = 'monthly'; // Fixed to monthly
 
-  const purchaseAmount = safeParse(amount);
-  const instantPower = safeParse(instantPowerAmount);
+  const [isPlanLoading, setIsPlanLoading] = React.useState<boolean>(false);
+  const [isModalOpen, setIsModalOpen] = React.useState<boolean>(false);
 
-  const frequency: 'MONTHLY' | 'BIWEEKLY' = 'MONTHLY';
-  const numberOfPayments: number = 12;
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = React.useState<PaymentMethod | null>(null);
+  const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
+  const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } = useCalculatePaymentPlan();
+  const { data: plaidStatus, isLoading: plaidLoading, isError: plaidError } = usePlaidTokensStatus();
+  const { data: userDetails, isLoading: userLoading, isError: userError } = useUserDetails();
+
+  // Mapping from PaymentFrequency to API expected format
+  const frequencyMap: Record<PaymentFrequency, 'BIWEEKLY' | 'MONTHLY'> = {
+    'bi-weekly': 'BIWEEKLY',
+    'monthly': 'MONTHLY',
+  };
 
   // Memoize planRequest to prevent it from being recreated on every render
-  const planRequest: CalculatePaymentPlanRequest = useMemo(() => ({
-    frequency,
-    numberOfPayments,
-    purchaseAmount,
-    // Optionally include startDate if required
-    // startDate: new Date().toISOString().split("T")[0],
-  }), [frequency, numberOfPayments, purchaseAmount]);
-
-  const {
-    mutate: calculatePlan,
-    data: calculateData,
-    status,
-    error,
-  } = useCalculatePaymentPlan();
-
-  const { data: plaidStatus, isLoading: plaidLoading, isError: plaidError } =
-    usePlaidTokensStatus();
-
-  const { data: userDetails, isLoading: userLoading, isError: userError } =
-    useUserDetails();
+  const planRequest: CalculatePaymentPlanRequest = useMemo(
+    () => ({
+      frequency: frequencyMap[paymentFrequency],
+      numberOfPayments: parseInt(numberOfPeriods, 10),
+      purchaseAmount: instantPowerAmountValue * 100, // Convert dollars back to cents
+      startDate: new Date().toISOString().split('T')[0],
+    }),
+    [paymentFrequency, numberOfPeriods, instantPowerAmountValue]
+  );
 
   useEffect(() => {
-    if (
-      plaidStatus?.success &&
-      plaidStatus?.data &&
-      userDetails?.success &&
-      userDetails?.data?.user.smartPay
-    ) {
+    if (paymentMethodsData?.data?.data?.length && !selectedPaymentMethod) {
+      setSelectedPaymentMethod(paymentMethodsData.data.data[0]);
+    }
+  }, [paymentMethodsData, selectedPaymentMethod]);
+
+  useEffect(() => {
+    if (instantPowerAmountValue > 0) {
+      setIsPlanLoading(true);
       calculatePlan(planRequest, {
         onSuccess: () => {
-          console.log("Payment plan calculated successfully:", calculateData);
+          console.log('Payment plan calculated successfully:', calculatedPlan);
+          setIsPlanLoading(false);
         },
         onError: (error: Error) => {
-          console.error("Error calculating payment plan:", error);
+          console.error('Error calculating payment plan:', error);
+          setIsPlanLoading(false);
           toast.error('Failed to calculate the payment plan. Please try again.');
         },
       });
     }
-    // It's important to include calculateData in onSuccess callback if needed
-    // but avoid adding it to the dependency array to prevent re-triggering useEffect
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plaidStatus, userDetails, calculatePlan, planRequest]);
+  }, [paymentFrequency, numberOfPeriods, instantPowerAmountValue, calculatePlan]);
 
   useEffect(() => {
-    if (status === 'error' && error) {
-      window.alert(`Error: ${error.message}`);
+    if (calculatePlanError) {
+      console.error('Error calculating payment plan:', calculatePlanError);
+      setIsPlanLoading(false);
+      toast.error('Unable to calculate the payment plan. Please try again later.');
     }
-  }, [status, error]);
+  }, [calculatePlanError]);
 
-  const renderSplitPayment = (item: any) => {
-    const dueDate = new Date(item.dueDate);
-    const day = dueDate.getDate();
-    const month = dueDate.toLocaleString('default', { month: 'long' });
-    const percentage = item.percentage || 0;
-    const amount = (item.amount / 100).toFixed(2);
+  const getMaxNumber = (frequency: PaymentFrequency): number => {
+    return frequency === 'bi-weekly' ? 26 : 12;
+  };
+
+  const getNumberOptions = () => {
+    const maxNumber = getMaxNumber(paymentFrequency);
+    return maxNumber
+      ? Array.from({ length: maxNumber }, (_, index) => (
+          <option key={index + 1} value={`${index + 1}`}>
+            {index + 1}
+          </option>
+        ))
+      : [];
+  };
+
+  const mockPayments: SplitPayment[] =
+    calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
+      dueDate: payment.dueDate,
+      amount: payment.amount,
+      percentage: Number(((payment.amount / (instantPowerAmountValue * 100)) * 100).toFixed(2)),
+    })) || [];
+
+  const handleMethodSelect = useCallback((method: PaymentMethod) => {
+    setSelectedPaymentMethod(method);
+    setIsModalOpen(false);
+  }, []);
+
+  const renderPaymentMethodSection = () => {
+    if (paymentMethodsStatus === 'pending') {
+      return (
+        <div className="flex justify-center items-center">
+          <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
+        </div>
+      );
+    }
+
+    if (paymentMethodsStatus === 'error') {
+      return <p className="text-red-500">Error fetching payment methods</p>;
+    }
 
     return (
-      <PaymentCircle
-        key={item.id || Math.random()}
-        day={day}
-        month={month}
-        percentage={percentage}
-        amount={amount}
+      <SelectedPaymentMethod
+        selectedMethod={selectedPaymentMethod}
+        onPress={() => setIsModalOpen(true)}
       />
     );
   };
@@ -113,42 +151,26 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = (props) => {
   const handleProceed = () => {
     navigate('/payment_confirmation', {
       state: {
-        merchantId,
-        amount,
         instantPowerAmount,
-        paymentPlan: calculateData?.data?.splitPayments || [],
-        superchargeDetails: superchargeDetailsParam,
+        paymentPlan: calculatedPlan?.data?.splitPayments || [],
+        superchargeDetails, // Pass as array
       },
     });
   };
 
-  if (plaidLoading || userLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen">
-        <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>
-        <p className="mt-4 text-lg text-gray-700">Loading, please wait...</p>
-      </div>
-    );
-  }
+  // Determine overall loading state
+  const isLoadingState = plaidLoading || userLoading || isPlanLoading;
 
-  if (
+  // Determine error state
+  const isErrorState =
     plaidError ||
+    userError ||
     !plaidStatus?.success ||
     !plaidStatus?.data ||
-    userError ||
     !userDetails?.success ||
-    !userDetails?.data?.user.smartPay
-  ) {
-    return (
-      <div className="flex items-center justify-center h-screen px-4">
-        <p className="text-red-500 text-center text-lg">
-          Smart Payment Plans are disabled. Please ensure your financial data and Smart Pay settings are enabled.
-        </p>
-      </div>
-    );
-  }
+    !userDetails?.data?.user.smartPay;
 
-  if (status === 'pending' || status === 'idle') {
+  if (isLoadingState) {
     return (
       <div className="flex flex-col items-center justify-center h-screen">
         <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-32 w-32"></div>
@@ -157,11 +179,11 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = (props) => {
     );
   }
 
-  if (status === 'error') {
+  if (isErrorState) {
     return (
       <div className="flex items-center justify-center h-screen px-4">
         <p className="text-red-500 text-center text-lg">
-          Failed to calculate payment plan. Please try again.
+          Smart Payment Plans are disabled. Please ensure your financial data and Smart Pay settings are enabled.
         </p>
       </div>
     );
@@ -172,34 +194,73 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = (props) => {
       <div className="flex flex-col flex-1 p-4 bg-white min-h-screen">
         {/* Summary Header */}
         <div className="px-4 mb-4">
-          <h1 className="text-2xl font-bold text-black">Summary</h1>
+          <h1 className="text-2xl font-bold text-black">Smart Payment Plan Summary</h1>
         </div>
 
         {/* Summary Details */}
         <div className="bg-white p-4 rounded-lg mx-4 mb-4 shadow">
           <p className="text-lg text-gray-800 mb-2">
             <span className="font-bold text-black">Number of Payments: </span>
-            {numberOfPayments}
+            {numberOfPeriods}
+          </p>
+          <p className="text-lg text-gray-800 mb-2">
+            <span className="font-bold text-black">Payment Frequency: </span>
+            {paymentFrequency}
           </p>
           <p className="text-lg text-gray-800">
             <span className="font-bold text-black">Total Amount: </span>
-            ${(purchaseAmount / 100).toFixed(2)}
+            ${(instantPowerAmountValue).toFixed(2)}
           </p>
         </div>
 
         {/* Split Payments List */}
-        <div className="flex overflow-x-auto py-4 px-2">
-          {calculateData?.data?.splitPayments?.map(renderSplitPayment)}
+        <div className="flex flex-row overflow-x-auto py-4 px-2 space-x-4">
+          {mockPayments.map((payment, index) => (
+            <PaymentCircle
+              key={index}
+              day={new Date(payment.dueDate).getDate()}
+              month={new Date(payment.dueDate).toLocaleString('default', { month: 'long' })}
+              percentage={payment.percentage}
+              amount={(payment.amount / 100).toFixed(2)}
+            />
+          ))}
         </div>
 
         {/* Proceed Button */}
         <button
-          className="fixed bottom-4 left-4 right-4 bg-black text-white font-bold py-4 rounded-lg"
+          className="w-full bg-black text-white font-bold py-4 rounded-lg hover:bg-gray-800 transition"
           onClick={handleProceed}
         >
           Proceed to Confirmation
         </button>
       </div>
+
+      {/* Payment Methods Modal */}
+      <Dialog open={isModalOpen} onClose={() => setIsModalOpen(false)} className="fixed z-10 inset-0 overflow-y-auto">
+        <div className="flex items-center justify-center min-h-screen px-4">
+          <div className="fixed inset-0 bg-black opacity-30" />
+
+          <Dialog.Panel className="bg-white rounded-lg max-w-md mx-auto z-20 w-full p-6">
+            <Dialog.Title className="text-lg font-bold mb-4">Select Payment Method</Dialog.Title>
+            <div className="max-h-80 overflow-y-auto">
+              {paymentMethodsData?.data?.data?.map((method: PaymentMethod) => (
+                <PaymentMethodItem
+                  key={method.id}
+                  method={method}
+                  selectedMethod={selectedPaymentMethod}
+                  onSelect={handleMethodSelect}
+                />
+              ))}
+            </div>
+            <button
+              onClick={() => setIsModalOpen(false)}
+              className="mt-4 w-full bg-red-500 text-white py-2 rounded-md hover:bg-red-600"
+            >
+              Close
+            </button>
+          </Dialog.Panel>
+        </div>
+      </Dialog>
 
       {/* Toast Container */}
       <Toaster richColors />

@@ -23,6 +23,12 @@ interface LocationState {
   userAmounts: SplitAmount[];
 }
 
+// Define the structure of supercharge details
+interface SuperchargeDetail {
+  amount: string; // amount in cents as string
+  paymentMethodId: string;
+}
+
 const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,12 +36,25 @@ const SplitAmountUserCustomization: React.FC = () => {
   // Extract userAmounts from location state
   const { userAmounts } = (location.state as LocationState) || { userAmounts: [] };
   const userAmountsArray = Array.isArray(userAmounts) ? userAmounts : [];
-   console.log("userAmounts",userAmountsArray)
+  console.log("userAmounts", userAmountsArray);
 
+  // Redirect back if no user amounts are provided
+  useEffect(() => {
+    if (userAmountsArray.length === 0) {
+      toast.error("No user amounts provided.");
+      navigate(-1);
+    }
+  }, [userAmountsArray, navigate]);
+
+  // Proceed only if userAmountsArray has at least one entry
+  if (userAmountsArray.length === 0) {
+    return null; // Prevent rendering until redirect happens
+  }
 
   // Retrieve the current user's split amount
   const currentUserSplit = userAmountsArray[0];
 
+ 
   // Fetch current user details without arguments
   const {
     data: userData,
@@ -45,7 +64,7 @@ const SplitAmountUserCustomization: React.FC = () => {
   } = useUserDetails(); // Removed userId argument
 
   // Access the access token from Context
-  const { accessToken, setAccessToken } = useSession();
+  const { accessToken } = useSession();
 
   // Fetch payment methods
   const {
@@ -104,42 +123,17 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   const totalAmount = calculateTotalAmount();
 
-  // Convert amount string to cents string
-  const convertToCents = (amountStr: string): string => {
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount)) return "0";
-    return Math.round(amount * 100).toString();
-  };
-
   // Handle Instant Power Amount change
   const handleInstantPowerChange = (value: string) => {
-    const newAmount = parseFloat(value) || 0;
-
-    // Ensure the new amount is not negative and does not exceed the user's total amount
-    if (newAmount < 0) {
-      toast.error("Amount cannot be negative.");
-      return;
+    // Allow only numbers and up to two decimal places
+    const regex = /^\d+(\.\d{0,2})?$/;
+    if (regex.test(value) || value === "") {
+      setInstantPowerAmount(value);
     }
-
-    const superchargeTotal = additionalFields.reduce(
-      (acc, field) => acc + parseFloat(field || "0"),
-      0
-    );
-
-    if (newAmount + superchargeTotal > userTotalAmount) {
-      toast.error(
-        `Total of Instant Power and Supercharge amounts cannot exceed your total amount of $${userTotalAmount.toFixed(
-          2
-        )}.`
-      );
-      return;
-    }
-
-    setInstantPowerAmount(newAmount.toFixed(2));
   };
 
-  // Handle navigation to plans page
-  const navigateToPlansPage = () => {
+  // Handle navigation to Split Plans page with query parameters
+  const navigateToSplitPlans = () => {
     // Calculate total amount
     const totalAmount = calculateTotalAmount();
 
@@ -151,23 +145,52 @@ const SplitAmountUserCustomization: React.FC = () => {
       return;
     }
 
-    // Prepare supercharge details
-    const superchargeDetails = additionalFields
+    // Validate that none of the individual fields are invalid
+    const instantPowerParsed = parseFloat(instantPowerAmount) || 0;
+    if (instantPowerParsed < 0) {
+      toast.error("Instant Power Amount cannot be negative.");
+      return;
+    }
+
+    for (let i = 0; i < additionalFields.length; i++) {
+      const fieldAmount = parseFloat(additionalFields[i] || "0");
+      if (isNaN(fieldAmount) || fieldAmount < 0) {
+        toast.error(`Supercharge Amount ${i + 1} is invalid.`);
+        return;
+      }
+    }
+
+    // Prepare supercharge details with amounts in cents
+    const superchargeDetails: SuperchargeDetail[] = additionalFields
       .map((field) => ({
-        amount: convertToCents(field),
-        paymentMethodId: selectedPaymentMethod?.id,
+        amount: instantPowerAmountParsedToCents(field),
+        paymentMethodId: selectedPaymentMethod?.id || "",
       }))
       .filter((detail) => detail.amount !== "0" && detail.paymentMethodId);
 
+    if (superchargeDetails.length === 0) {
+      toast.error("At least one supercharge amount must be greater than $0.");
+      return;
+    }
+
+    // Prepare query parameters
     const params = new URLSearchParams({
-      amount: convertToCents(totalAmount.toString()),
-      instantPowerAmount: convertToCents(instantPowerAmount),
+      instantPowerAmount: instantPowerAmountParsedToCents(instantPowerAmount),
       superchargeDetails: JSON.stringify(superchargeDetails),
+      otherUserAmounts: JSON.stringify(userAmountsArray),
       paymentMethodId: selectedPaymentMethod?.id || "",
     }).toString();
+    console.log("params", { params });
 
-    // Navigate to /plans with query parameters
-    navigate(`/plans?${params}`);
+    // Navigate to /split-plans with query parameters
+    navigate(`/split-plans?${params}`);
+  };
+
+  // Helper function to convert dollars to cents as string
+  const instantPowerAmountParsedToCents = (amount: string): string => {
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed) || parsed < 0) return "0";
+    return Math.round(parsed * 100).toString();
   };
 
   // Add a new Supercharge field
@@ -177,26 +200,14 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   // Update a specific Supercharge field
   const updateField = (index: number, value: string) => {
-    setAdditionalFields((prevFields) => {
-      const updatedFields = [...prevFields];
-      updatedFields[index] = value;
-      return updatedFields;
-    });
-
-    // Validate total after update
-    const newSuperchargeTotal = additionalFields.reduce(
-      (acc, field, idx) => acc + (idx === index ? parseFloat(value || "0") : parseFloat(field || "0")),
-      0
-    );
-    const newInstantPower = parseFloat(instantPowerAmount || "0");
-    const newTotal = newSuperchargeTotal + newInstantPower;
-
-    if (newTotal > userTotalAmount) {
-      toast.error(
-        `Total of Instant Power and Supercharge amounts cannot exceed your total amount of $${userTotalAmount.toFixed(
-          2
-        )}.`
-      );
+    // Allow only numbers and up to two decimal places
+    const regex = /^\d+(\.\d{0,2})?$/;
+    if (regex.test(value) || value === "") {
+      setAdditionalFields((prevFields) => {
+        const updatedFields = [...prevFields];
+        updatedFields[index] = value;
+        return updatedFields;
+      });
     }
   };
 
@@ -288,8 +299,7 @@ const SplitAmountUserCustomization: React.FC = () => {
           label="Instant Power Amount"
           value={instantPowerAmount}
           onChangeText={handleInstantPowerChange}
-          keyboardType="number"
-          instantPower={userData.data?.user.instantaneousPower} // Assuming no default instantaneous power; adjust as needed
+          instantPower={userData.data?.user.instantaneousPower} // Adjust as needed
         />
 
         {/* Spacer between Instant Power and Supercharge Fields */}
@@ -299,10 +309,9 @@ const SplitAmountUserCustomization: React.FC = () => {
         {additionalFields.map((field, index) => (
           <div key={index} className="mb-4">
             <FloatingLabelInputOverdraft
-              label="Supercharge Amount"
+              label={`Supercharge Amount ${index + 1}`}
               value={field}
               onChangeText={(value) => updateField(index, value)}
-              keyboardType="number"
               selectedMethod={selectedPaymentMethod}
               onPaymentMethodPress={openModal}
             />
@@ -321,13 +330,13 @@ const SplitAmountUserCustomization: React.FC = () => {
 
           {/* Continue (Flex) Button */}
           <button
-            onClick={navigateToPlansPage}
+            onClick={navigateToSplitPlans}
             className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
-              totalAmount === parseFloat(currentUserSplit.amount)
+              totalAmount === userTotalAmount
                 ? ""
                 : "opacity-50 cursor-not-allowed"
             }`}
-            disabled={totalAmount !== parseFloat(currentUserSplit.amount)}
+            disabled={totalAmount !== userTotalAmount}
           >
             {instantPowerAmount
               ? `Flex $${parseFloat(instantPowerAmount).toFixed(2)}`

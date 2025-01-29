@@ -1,10 +1,11 @@
-// src/pages/Plans.tsx
+// src/pages/SplitPlans.tsx
+
 import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "@remix-run/react"; // Ensure correct import based on your routing library
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack } from "react-icons/io";
-import SmartPaymentPlans from "~/routes/SmartPaymentPlans";
-import PaymentPlan from "~/routes/PaymentPlan";
+import SplitSmartPaymentPlan from "~/routes/SplitSmartPaymentPlan"; // Corrected import path
+import SplitPaymentPlan from "./split-payment-plan";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
 
@@ -13,13 +14,19 @@ interface SuperchargeDetail {
   paymentMethodId: string;
 }
 
+interface OtherUserAmount {
+  userId: string;
+  amount: string; // amount in cents
+}
+
 export interface PlansData {
   instantPowerAmount: string; // in cents
   superchargeDetails: SuperchargeDetail[];
+  otherUserAmounts: OtherUserAmount[];
   paymentMethodId: string;
 }
 
-const Plans: React.FC = () => {
+const SplitPlans: React.FC = () => {
   const [data, setData] = useState<PlansData | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -29,19 +36,27 @@ const Plans: React.FC = () => {
     const searchParams = new URLSearchParams(location.search);
     const instantPowerAmount = searchParams.get("instantPowerAmount");
     const superchargeDetailsString = searchParams.get("superchargeDetails");
+    const otherUserAmountsString = searchParams.get("otherUserAmounts");
     const paymentMethodId = searchParams.get("paymentMethodId");
 
-    if (instantPowerAmount && superchargeDetailsString && paymentMethodId) {
+    if (
+      instantPowerAmount &&
+      superchargeDetailsString &&
+      otherUserAmountsString &&
+      paymentMethodId
+    ) {
       try {
         const superchargeDetails: SuperchargeDetail[] = JSON.parse(superchargeDetailsString);
+        const otherUserAmounts: OtherUserAmount[] = JSON.parse(otherUserAmountsString);
         const fetchedData: PlansData = {
           instantPowerAmount,
           superchargeDetails,
+          otherUserAmounts,
           paymentMethodId,
         };
         setData(fetchedData);
       } catch (error) {
-        console.error("Error parsing superchargeDetails:", error);
+        console.error("Error parsing query parameters:", error);
       }
     } else {
       console.warn("Missing required query parameters.");
@@ -59,24 +74,26 @@ const Plans: React.FC = () => {
   // Define the tabs and their corresponding content
   const tabs = [
     {
-      label: "Payment Plan",
+      label: "Split Payment Plan",
       content: (
         <div className="px-4">
-          <PaymentPlan
+          <SplitPaymentPlan
             instantPowerAmount={data.instantPowerAmount}
             superchargeDetails={data.superchargeDetails}
+            otherUserAmounts={data.otherUserAmounts}
             paymentMethodId={data.paymentMethodId}
           />
         </div>
       ),
     },
     {
-      label: "Smart Payment Plan",
+      label: "Split Smart Payment Plan",
       content: (
         <div className="px-4">
-          <SmartPaymentPlans
+          <SplitSmartPaymentPlan
             instantPowerAmount={data.instantPowerAmount}
             superchargeDetails={data.superchargeDetails}
+            otherUserAmounts={data.otherUserAmounts}
             paymentMethodId={data.paymentMethodId}
           />
         </div>
@@ -108,4 +125,4 @@ const Plans: React.FC = () => {
   );
 };
 
-export default Plans;
+export default SplitPlans;

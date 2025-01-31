@@ -1,6 +1,6 @@
 // src/routes/SplitSmartPaymentPlan.tsx
 
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from '@remix-run/react'; // Ensure correct import based on your routing library
 import {
   usePaymentMethods,
@@ -37,6 +37,20 @@ interface SplitSmartPaymentPlanProps {
 
 type PaymentFrequency = 'BIWEEKLY' | 'MONTHLY';
 
+interface ConfirmedPaymentPlan {
+  currentUser: {
+    userId: string;
+    totalAmount: number; // in cents (instantPowerAmount + superchargeAmounts)
+    instantPowerAmount: number; // in cents
+    numberOfPayments: number;
+    offsetStartDate: string;
+    paymentFrequency: PaymentFrequency;
+    superchargeDetails: SuperchargeDetail[];
+  };
+  otherUsers: OtherUserAmount[];
+  checkoutToken: string | null;
+}
+
 const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
   instantPowerAmount,
   superchargeDetails,
@@ -45,17 +59,17 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  // Convert instantPowerAmount to dollars
-  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0;
+  // Convert instantPowerAmount to cents
+  const instantPowerAmountValue = Number(instantPowerAmount) || 0;
 
   // Fixed number of periods and payment frequency for Smart Payment Plans
   const numberOfPeriods = '12';
   const paymentFrequency: PaymentFrequency = 'MONTHLY'; // Fixed to 'MONTHLY'
 
-  const [isPlanLoading, setIsPlanLoading] = React.useState<boolean>(false);
-  const [isModalOpen, setIsModalOpen] = React.useState<boolean>(false);
+  const [isPlanLoading, setIsPlanLoading] = useState<boolean>(false);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = React.useState<PaymentMethod | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } = useCalculatePaymentPlan();
   const { data: userDetailsData, isLoading: isUserDetailsLoading, isError: isUserDetailsError, error: userDetailsError } = useUserDetails();
@@ -66,12 +80,22 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
     'MONTHLY': 'MONTHLY',
   };
 
+  // Calculate total supercharge amount
+  const totalSuperchargeAmount = useMemo(() => {
+    return superchargeDetails.reduce((acc, detail) => acc + Number(detail.amount), 0);
+  }, [superchargeDetails]);
+
+  // Calculate total amount (instantPowerAmount + superchargeAmounts)
+  const totalAmount = useMemo(() => {
+    return instantPowerAmountValue + totalSuperchargeAmount;
+  }, [instantPowerAmountValue, totalSuperchargeAmount]);
+
   // Memoize planRequest to prevent it from being recreated on every render
   const planRequest: CalculatePaymentPlanRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: instantPowerAmountValue * 100, // Convert dollars back to cents
+      purchaseAmount: totalAmount, // Total amount in cents
       startDate: new Date().toISOString().split('T')[0],
       otherUserAmounts: otherUserAmounts.map(user => ({
         userId: user.userId,
@@ -82,7 +106,7 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
         paymentMethodId: detail.paymentMethodId,
       })),
     }),
-    [paymentFrequency, numberOfPeriods, instantPowerAmountValue, superchargeDetails, otherUserAmounts]
+    [paymentFrequency, numberOfPeriods, totalAmount, superchargeDetails, otherUserAmounts]
   );
 
   // Set default payment method if not selected
@@ -104,7 +128,7 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
 
   // Calculate the payment plan when dependencies change
   useEffect(() => {
-    if (instantPowerAmountValue > 0) {
+    if (totalAmount > 0) {
       setIsPlanLoading(true);
       calculatePlan(planRequest, {
         onSuccess: () => {
@@ -119,7 +143,7 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
       });
     }
     // Removed 'calculatedPlan' from dependencies to prevent infinite loop
-  }, [calculatePlan, planRequest, instantPowerAmountValue]);
+  }, [calculatePlan, planRequest, totalAmount]);
 
   // Handle errors from calculatePlan
   useEffect(() => {
@@ -138,7 +162,7 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
     calculatedPlan?.data?.splitPayments?.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
-      percentage: Number(((payment.amount / (instantPowerAmountValue * 100)) * 100).toFixed(2)),
+      percentage: Number(((payment.amount / totalAmount) * 100).toFixed(2)),
     })) || [];
 
   // Handle payment method selection
@@ -147,7 +171,27 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
     setIsModalOpen(false);
   }, []);
 
+  // Render the payment method section
+  const renderPaymentMethodSection = () => {
+    if (paymentMethodsStatus === 'pending' ) { // Adjusted to handle both 'pending' and 'loading' states
+      return (
+        <div className="flex justify-center items-center">
+          <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
+        </div>
+      );
+    }
 
+    if (paymentMethodsStatus === 'error') {
+      return <p className="text-red-500">Error fetching payment methods</p>;
+    }
+
+    return (
+      <SelectedPaymentMethod
+        selectedMethod={selectedPaymentMethod}
+        onPress={() => setIsModalOpen(true)}
+      />
+    );
+  };
 
   // Handle proceeding to confirmation
   const handleProceed = () => {
@@ -156,31 +200,46 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
       return;
     }
 
-    navigate('/payment_confirmation', {
-      state: {
-        instantPowerAmount,
-        superchargeDetails,
+    const currentUserId = userDetailsData?.data?.user.id;
+    const checkoutToken = sessionStorage.getItem("checkoutToken");
+
+    if (!currentUserId) {
+      toast.error('User details not available.');
+      return;
+    }
+
+    // Ensure otherUserAmounts do not include the current user
+    const otherUserAmountsFiltered = otherUserAmounts.filter(amount => amount.userId !== currentUserId);
+
+    // Construct the confirmed payment plan object
+    const confirmedPaymentPlan: ConfirmedPaymentPlan = {
+      currentUser: {
+        userId: currentUserId,
+        totalAmount: totalAmount, // instantPowerAmount + superchargeAmounts in cents
+        instantPowerAmount: instantPowerAmountValue, // in cents
+        numberOfPayments: parseInt(numberOfPeriods, 10),
+        offsetStartDate: planRequest.startDate || '',
         paymentFrequency,
-        offsetStartDate: planRequest.startDate,
-        numberOfPayments: planRequest.numberOfPayments,
-        otherUserAmounts,
+        superchargeDetails,
       },
+      otherUsers: otherUserAmountsFiltered,
+      checkoutToken,
+    };
+
+    // Log the confirmed payment plan details
+    console.log('Confirmed Payment Plan:', confirmedPaymentPlan);
+
+    // Navigate to payment confirmation with the confirmed payment plan
+    navigate('/payment_confirmation', {
+      state: confirmedPaymentPlan,
     });
 
-    console.log("State Passed:", {
-      instantPowerAmount,
-      superchargeDetails,
-      paymentFrequency,
-      offsetStartDate: planRequest.startDate,
-      numberOfPayments: planRequest.numberOfPayments,
-      otherUserAmounts,
-      paymentPlan: calculatedPlan.data.splitPayments,
-    });
+    console.log("State Passed to Payment Confirmation:", confirmedPaymentPlan);
   };
 
   // Determine overall loading state
   const isLoadingState = isPlanLoading || isUserDetailsLoading;
-
+  
   // Determine error state
   const isErrorState = calculatePlanError || isUserDetailsError || !userDetailsData?.data?.user.smartPay;
 
@@ -223,7 +282,7 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
           </p>
           <p className="text-lg text-gray-800">
             <span className="font-bold text-black">Total Amount: </span>
-            ${(instantPowerAmountValue).toFixed(2)}
+            ${(totalAmount / 100).toFixed(2)}
           </p>
         </div>
 
@@ -244,8 +303,20 @@ const SplitSmartPaymentPlan: React.FC<SplitSmartPaymentPlanProps> = ({
         <button
           className="w-full bg-black text-white font-bold py-4 rounded-lg hover:bg-gray-800 transition"
           onClick={handleProceed}
+          disabled={totalAmount === 0 || isLoadingState}
         >
-          Proceed to Confirmation
+          {isLoadingState ? (
+            <div className="flex justify-center items-center">
+              <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
+              <span>Processing...</span>
+            </div>
+          ) : (
+            <span>
+              {totalAmount > 0
+                ? `Proceed to Confirmation ($${(totalAmount / 100).toFixed(2)})`
+                : "Proceed to Confirmation"}
+            </span>
+          )}
         </button>
       </div>
 

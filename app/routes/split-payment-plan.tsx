@@ -37,6 +37,20 @@ interface SplitPaymentPlanProps {
 
 type PaymentFrequency = 'BIWEEKLY' | 'MONTHLY';
 
+interface ConfirmedPaymentPlan {
+  currentUser: {
+    userId: string;
+    totalAmount: number; // in cents (instantPowerAmount + superchargeAmounts)
+    instantPowerAmount: number; // in cents
+    numberOfPayments: number;
+    offsetStartDate: string;
+    paymentFrequency: PaymentFrequency;
+    superchargeDetails: SuperchargeDetail[];
+  };
+  otherUsers: OtherUserAmount[];
+  checkoutToken: string | null;
+}
+
 const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
   instantPowerAmount,
   superchargeDetails,
@@ -45,8 +59,8 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  // Convert instantPowerAmount to dollars
-  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0;
+  // Convert instantPowerAmount to cents
+  const instantPowerAmountValue = Number(instantPowerAmount) || 0;
 
   // State for user-selected number of periods and payment frequency
   const [numberOfPeriods, setNumberOfPeriods] = useState<string>('1'); // Adjusted to 1 as per desired structure
@@ -67,12 +81,22 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
     'MONTHLY': 'MONTHLY',
   };
 
+  // Calculate total supercharge amount
+  const totalSuperchargeAmount = useMemo(() => {
+    return superchargeDetails.reduce((acc, detail) => acc + Number(detail.amount), 0);
+  }, [superchargeDetails]);
+
+  // Calculate total amount (instantPowerAmount + superchargeAmounts)
+  const totalAmount = useMemo(() => {
+    return instantPowerAmountValue + totalSuperchargeAmount;
+  }, [instantPowerAmountValue, totalSuperchargeAmount]);
+
   // Memoize planRequest to prevent it from being recreated on every render
   const planRequest: CalculatePaymentPlanRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: instantPowerAmountValue * 100, // Convert dollars back to cents
+      purchaseAmount: totalAmount, // Total amount in cents
       startDate: new Date().toISOString().split('T')[0],
       otherUserAmounts: otherUserAmounts.map(user => ({
         userId: user.userId,
@@ -83,7 +107,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
         paymentMethodId: detail.paymentMethodId,
       })),
     }),
-    [paymentFrequency, numberOfPeriods, instantPowerAmountValue, superchargeDetails, otherUserAmounts]
+    [paymentFrequency, numberOfPeriods, totalAmount, superchargeDetails, otherUserAmounts]
   );
 
   // Set default payment method if not selected
@@ -105,7 +129,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
 
   // Calculate the payment plan when dependencies change
   useEffect(() => {
-    if (instantPowerAmountValue > 0) {
+    if (totalAmount > 0) {
       setIsPlanLoading(true);
       calculatePlan(planRequest, {
         onSuccess: (data) => {
@@ -120,7 +144,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
       });
     }
     // Removed 'calculatedPlan' from dependencies to prevent infinite loop
-  }, [calculatePlan, planRequest, instantPowerAmountValue]);
+  }, [calculatePlan, planRequest, totalAmount]);
 
   // Handle errors or success from calculatePlan
   useEffect(() => {
@@ -139,7 +163,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
     calculatedPlan?.data?.splitPayments?.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
-      percentage: Number(((payment.amount / (instantPowerAmountValue * 100)) * 100).toFixed(2)),
+      percentage: Number(((payment.amount / totalAmount) * 100).toFixed(2)),
     })) || [];
 
   // Handle payment method selection
@@ -150,7 +174,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
 
   // Render the payment method section
   const renderPaymentMethodSection = () => {
-    if (paymentMethodsStatus === 'pending') { // Changed 'pending' to 'loading' if using React Query
+    if (paymentMethodsStatus === 'pending' ) { // Adjusted to handle both 'pending' and 'loading' states
       return (
         <div className="flex justify-center items-center">
           <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
@@ -172,37 +196,52 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
 
   // Handle confirmation of the payment plan
   const handleConfirm = () => {
-    if (!selectedPaymentMethod || instantPowerAmountValue === 0) {
+    if (!selectedPaymentMethod || totalAmount === 0) {
       toast.error('Please select a payment method and ensure the amount is greater than $0.');
       return;
     }
 
     setIsLoading(true);
 
+    const currentUserId = userDetailsData?.data?.user.id;
+    const checkoutToken = sessionStorage.getItem("checkoutToken");
+
+    if (!currentUserId) {
+      toast.error('User details not available.');
+      setIsLoading(false);
+      return;
+    }
+
+    // Ensure otherUserAmounts do not include the current user
+    const otherUserAmountsFiltered = otherUserAmounts.filter(amount => amount.userId !== currentUserId);
+
+    // Construct the confirmed payment plan object
+    const confirmedPaymentPlan: ConfirmedPaymentPlan = {
+      currentUser: {
+        userId: currentUserId,
+        totalAmount: totalAmount, // instantPowerAmount + superchargeAmounts in cents
+        instantPowerAmount: instantPowerAmountValue, // in cents
+        numberOfPayments: parseInt(numberOfPeriods, 10),
+        offsetStartDate: planRequest.startDate || '',
+        paymentFrequency,
+        superchargeDetails,
+      },
+      otherUsers: otherUserAmountsFiltered,
+      checkoutToken,
+    };
+
+    // Log the confirmed payment plan details
+    console.log('Confirmed Payment Plan:', confirmedPaymentPlan);
+
     // Simulating a successful confirmation
     setTimeout(() => {
       setIsLoading(false);
       toast.success('Payment plan confirmed successfully!');
       navigate('/payment_confirmation', {
-        state: {
-          instantPowerAmount,
-          superchargeDetails,
-          paymentFrequency,
-          offsetStartDate: planRequest.startDate,
-          numberOfPayments: planRequest.numberOfPayments,
-          otherUserAmounts,
-          paymentPlan: calculatedPlan?.data?.splitPayments || [],
-        },
+        state: confirmedPaymentPlan,
       });
 
-      console.log("State Passed:", {
-        instantPowerAmount,
-        superchargeDetails,
-        paymentFrequency,
-        offsetStartDate: planRequest.startDate,
-        numberOfPayments: planRequest.numberOfPayments,
-        otherUserAmounts,
-      });
+      console.log("State Passed to Payment Confirmation:", confirmedPaymentPlan);
     }, 1500);
   };
 
@@ -252,7 +291,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
         <div className="flex items-center mb-5">
           <div>
             <h1 className="text-2xl font-bold text-black">
-              Flex your payments for ${instantPowerAmountValue.toFixed(2)}
+              Flex your payments for ${(totalAmount / 100).toFixed(2)}
             </h1>
           </div>
         </div>
@@ -295,7 +334,7 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
         </div>
 
         {/* Payment Plan */}
-        {instantPowerAmountValue > 0 && (
+        {totalAmount > 0 && (
           <div className="mb-5">
             <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
             {isPlanLoading ? (
@@ -321,12 +360,12 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
         {/* Confirm Button */}
         <button
           className={`w-full bg-black text-white font-bold py-3 rounded-lg ${
-            instantPowerAmountValue === 0 || isLoading
+            totalAmount === 0 || isLoading
               ? 'bg-gray-400 cursor-not-allowed'
               : 'hover:bg-gray-800'
           }`}
-          onClick={instantPowerAmountValue > 0 ? handleConfirm : undefined}
-          disabled={instantPowerAmountValue === 0 || isLoading}
+          onClick={totalAmount > 0 ? handleConfirm : undefined}
+          disabled={totalAmount === 0 || isLoading}
         >
           {isLoading ? (
             <div className="flex justify-center items-center">
@@ -335,8 +374,8 @@ const SplitPaymentPlan: React.FC<SplitPaymentPlanProps> = ({
             </div>
           ) : (
             <span>
-              {instantPowerAmountValue > 0
-                ? `Flex $${instantPowerAmountValue.toFixed(2)}`
+              {totalAmount > 0
+                ? `Flex $${(totalAmount / 100).toFixed(2)}`
                 : "Flex your payments"}
             </span>
           )}

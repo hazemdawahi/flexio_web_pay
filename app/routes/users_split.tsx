@@ -8,7 +8,7 @@ import { IoIosArrowBack } from 'react-icons/io';
 // Hooks (replace with your actual implementations)
 import { useFetchMultipleUserDetails } from '~/hooks/useFetchMultipleUserDetails';
 import { useUserDetails } from '~/hooks/useUserDetails';
-import { useCheckoutDetail } from '~/hooks/useCheckoutDetail';
+import { useCheckoutDetail, CheckoutDetail } from '~/hooks/useCheckoutDetail';
 import FloatingLabelInput from '~/compoments/Floatinglabelinpunt';
 
 interface LocationState {
@@ -68,25 +68,15 @@ const MultipleUsersSendWeb: React.FC = () => {
   // State to track if the split is even
   const [isEvenSplit, setIsEvenSplit] = useState(true);
 
-  // Calculate the total amount from checkout details
-  const calculateCheckoutTotalAmount = (checkout: any): number => {
+  // Calculate the total amount from checkout details using the new API structure.
+  // The API returns totalAmount as a string in cents, so we convert to dollars.
+  const calculateCheckoutTotalAmount = (checkout: CheckoutDetail): number => {
     if (!checkout) return 0;
-    const shipping = checkout.shippingAmount?.amount || 0;
-    const tax = checkout.taxAmount?.amount || 0;
-    const itemsTotal = checkout.items.reduce(
-      (sum: number, item: any) => sum + (item.price?.amount || 0) * (item.quantity || 0),
-      0
-    );
-    const discountsTotal =
-      checkout.discounts?.reduce(
-        (sum: number, discount: any) => sum + (discount.amount?.amount || 0),
-        0
-      ) || 0;
-
-    return shipping + tax + itemsTotal - discountsTotal;
+    return parseFloat(checkout.totalAmount.amount) / 100;
   };
 
-  const checkoutTotalAmount = checkoutData ? calculateCheckoutTotalAmount(checkoutData) : 0;
+  // Update: Pass the nested `checkout` object from the response.
+  const checkoutTotalAmount = checkoutData ? calculateCheckoutTotalAmount(checkoutData.checkout) : 0;
 
   // ---------------------------
   //  Initialize data on mount
@@ -186,7 +176,7 @@ const MultipleUsersSendWeb: React.FC = () => {
       return;
     }
 
-    // leftover to be distributed
+    // Leftover to be distributed
     let leftover = checkoutTotalAmount - sumOfLocked;
 
     // We'll build new final amounts from temp
@@ -204,7 +194,7 @@ const MultipleUsersSendWeb: React.FC = () => {
 
       unchangedUserIds.forEach((userId, idx) => {
         if (idx === unchangedUserIds.length - 1) {
-          // last user gets remainder
+          // Last user gets remainder
           const lastAmount = leftover - distributedSoFar;
           newAmounts[userId] = lastAmount.toFixed(2);
         } else {
@@ -370,9 +360,7 @@ const MultipleUsersSendWeb: React.FC = () => {
           </div>
           <button
             onClick={handleSplitEvenly}
-            className={`text-blue-500 font-semibold ${
-              isEvenSplit ? 'underline' : ''
-            } hover:text-blue-700`}
+            className={`text-blue-500 font-semibold ${isEvenSplit ? 'underline' : ''} hover:text-blue-700`}
           >
             Split Evenly
           </button>

@@ -66,7 +66,7 @@ const LoginPage: React.FC = () => {
           sessionStorage.setItem("accessToken", data.data.accessToken);
           setAccessToken(data.data.accessToken);
           // Navigate to checkout-details without token in URL
-          navigate(`/checkout-details`, {
+          navigate(`/purchase-options`, {
             replace: true,
             state: { source },
           });

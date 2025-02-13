@@ -1,9 +1,11 @@
-// SendMoneyWithContacts.tsx
+// src/pages/SendMoneyWithContacts.tsx
+
 import React, { useState, useCallback } from 'react';
 import { FaArrowLeft, FaCheck } from 'react-icons/fa';
 import { useNavigate } from '@remix-run/react';
 import debounce from 'lodash.debounce';
 import InfiniteScroll from 'react-infinite-scroll-component';
+import { Toaster, toast } from 'sonner';
 import { useFetchContactsInfinite } from '~/hooks/useFetchContactsInfinite';
 import ContactItem from '~/compoments/ContactItem';
 
@@ -42,7 +44,7 @@ const SendMoneyWithContacts: React.FC = () => {
           username: contact.username,
           phoneNumber: contact.phoneNumber,
           email: contact.email || '', // Adjust based on API response
-          avatar: contact.logo, // Map 'logo' to 'avatar'
+          avatar: contact.logo || 'https://via.placeholder.com/150', // Map 'logo' to 'avatar'
         })) || []
       )
     : [];
@@ -62,7 +64,7 @@ const SendMoneyWithContacts: React.FC = () => {
   };
 
   // Toggle contact selection
-  const toggleSelection = (contact: Contact) => {
+  const toggleSelection = useCallback((contact: Contact) => {
     setSelectedContacts((prev) => {
       if (prev.some((c) => c.id === contact.id)) {
         return prev.filter((c) => c.id !== contact.id);
@@ -70,7 +72,7 @@ const SendMoneyWithContacts: React.FC = () => {
         return [...prev, contact];
       }
     });
-  };
+  }, []);
 
   // Handle sending money to selected contacts
   const handleSend = () => {
@@ -86,6 +88,7 @@ const SendMoneyWithContacts: React.FC = () => {
         <button
           onClick={() => navigate(-1)}
           className="flex items-center text-gray-700 hover:text-gray-900"
+          aria-label="Go back"
         >
           <FaArrowLeft className="mr-2" size={20} />
           Back
@@ -96,6 +99,7 @@ const SendMoneyWithContacts: React.FC = () => {
       <div className="flex items-center mb-4">
         <input
           type="text"
+          value={searchTerm}
           onChange={handleSearchChange}
           placeholder="Search contacts"
           className="flex-grow p-3 border border-gray-300 rounded-l-lg focus:outline-none"
@@ -108,6 +112,7 @@ const SendMoneyWithContacts: React.FC = () => {
               ? 'bg-green-500 hover:bg-green-600'
               : 'bg-gray-400 cursor-not-allowed'
           }`}
+          aria-label="Send money"
         >
           <FaCheck size={16} />
           <span className="ml-2">Send</span>
@@ -133,6 +138,7 @@ const SendMoneyWithContacts: React.FC = () => {
                 <button
                   onClick={() => toggleSelection(contact)}
                   className="ml-2 text-green-600 hover:text-green-800"
+                  aria-label={`Remove ${contact.username}`}
                 >
                   <FaCheck />
                 </button>
@@ -185,6 +191,8 @@ const SendMoneyWithContacts: React.FC = () => {
           ))}
         </InfiniteScroll>
       )}
+
+      <Toaster richColors position="top-right" />
     </div>
   );
 };

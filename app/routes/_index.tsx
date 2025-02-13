@@ -5,15 +5,12 @@ import { useSession } from "../context/SessionContext";
 import { useNavigate, useSearchParams } from "@remix-run/react";
 
 const Index: React.FC = () => {
-  // Initialize navigation
   const navigate = useNavigate();
-
-  // Extract query parameters
   const [searchParams] = useSearchParams();
-  const token = searchParams.get("token") || ""; // 'token' serves as 'checkoutId'
-  const source = searchParams.get("source") || ""; // 'source' parameter
-   console.log("source",source)
-  // Access session information (accessToken is separate from 'token')
+  const token = searchParams.get("token") || "";
+  const source = searchParams.get("source") || "";
+  console.log("source", source);
+
   const { setAccessToken } = useSession();
 
   useEffect(() => {
@@ -22,24 +19,13 @@ const Index: React.FC = () => {
       sessionStorage.setItem("checkoutToken", token);
     }
 
-    // Decide where to navigate based on accessToken
-    const accessToken = sessionStorage.getItem("accessToken");
-    if (accessToken) {
-      // If accessToken exists, navigate to checkout details
-      navigate(`/checkout-details`, {
-        replace: true,
-        state: { source },
-      });
-    } else {
-      // If no accessToken, navigate to login page
-      navigate(`/login`, {
-        replace: true,
-        state: { source },
-      });
-    }
+    // Navigate directly to the purchase-options page
+    navigate(`/purchase-options`, {
+      replace: true,
+      state: { source },
+    });
   }, [navigate, token, source, setAccessToken]);
 
-  // Optionally, render a simple loading state while redirecting
   return (
     <div className="flex items-center justify-center min-h-screen">
       <p className="text-xl">Redirecting...</p>

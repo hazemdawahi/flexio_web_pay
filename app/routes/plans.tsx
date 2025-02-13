@@ -1,6 +1,5 @@
-// src/pages/Plans.tsx
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "@remix-run/react"; // Ensure correct import based on your routing library
+import { useNavigate, useLocation } from "@remix-run/react";
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack } from "react-icons/io";
 import SmartPaymentPlans from "~/routes/SmartPaymentPlans";
@@ -23,29 +22,30 @@ const Plans: React.FC = () => {
   const [data, setData] = useState<PlansData | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { accessToken } = useSession(); // Assuming you have access to session
+  const { accessToken } = useSession();
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    const instantPowerAmount = searchParams.get("instantPowerAmount");
+    const instantPowerAmount = searchParams.get("instantPowerAmount") || "";
     const superchargeDetailsString = searchParams.get("superchargeDetails");
-    const paymentMethodId = searchParams.get("paymentMethodId");
+    const paymentMethodId = searchParams.get("paymentMethodId") || "";
 
-    if (instantPowerAmount && superchargeDetailsString && paymentMethodId) {
+    let superchargeDetails: SuperchargeDetail[] = [];
+    if (superchargeDetailsString) {
       try {
-        const superchargeDetails: SuperchargeDetail[] = JSON.parse(superchargeDetailsString);
-        const fetchedData: PlansData = {
-          instantPowerAmount,
-          superchargeDetails,
-          paymentMethodId,
-        };
-        setData(fetchedData);
+        superchargeDetails = JSON.parse(superchargeDetailsString);
       } catch (error) {
         console.error("Error parsing superchargeDetails:", error);
       }
-    } else {
-      console.warn("Missing required query parameters.");
     }
+
+    const fetchedData: PlansData = {
+      instantPowerAmount,
+      superchargeDetails,
+      paymentMethodId,
+    };
+
+    setData(fetchedData);
   }, [location.search, navigate]);
 
   if (!data) {
@@ -56,7 +56,6 @@ const Plans: React.FC = () => {
     );
   }
 
-  // Define the tabs and their corresponding content
   const tabs = [
     {
       label: "Payment Plan",
@@ -87,9 +86,7 @@ const Plans: React.FC = () => {
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-white">
-        {/* Header Section */}
         <header className="flex items-center p-4">
-          {/* Back Button */}
           <button
             onClick={() => navigate(-1)}
             className="flex items-center text-gray-700 hover:text-gray-900"
@@ -98,8 +95,6 @@ const Plans: React.FC = () => {
             Back
           </button>
         </header>
-
-        {/* Tabs Section */}
         <div className="mt-4">
           <Tabs tabs={tabs} />
         </div>

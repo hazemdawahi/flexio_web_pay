@@ -1,6 +1,6 @@
 // src/routes/login.tsx
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { useLogin, LoginRequest } from "~/hooks/useLogin";
 import { useVerifyLogin, VerifyLoginRequest } from "~/hooks/useVerifyLogin";
@@ -21,6 +21,14 @@ const LoginPage: React.FC = () => {
   const loginMutation = useLogin();
   const verifyLoginMutation = useVerifyLogin();
   const { setAccessToken } = useSession();
+
+  // If an access token already exists, redirect directly to purchase-options.
+  useEffect(() => {
+    const token = sessionStorage.getItem("accessToken");
+    if (token) {
+      navigate(`/purchase-options`, { replace: true, state: { source } });
+    }
+  }, [navigate, source]);
 
   const handleFirstContinue = () => {
     setError("");
@@ -65,8 +73,8 @@ const LoginPage: React.FC = () => {
           // Save the access token in sessionStorage and context
           sessionStorage.setItem("accessToken", data.data.accessToken);
           setAccessToken(data.data.accessToken);
-          // Navigate to checkout-details without token in URL
-          navigate(`/checkout-details`, {
+          // Navigate to purchase-options page instead of checkout-details
+          navigate(`/purchase-options`, {
             replace: true,
             state: { source },
           });

@@ -1,4 +1,3 @@
-// app/components/FloatingLabelInputWithInstant.tsx
 import React, { useState, useEffect } from "react";
 
 interface FloatingLabelInputWithInstantProps {
@@ -14,6 +13,7 @@ interface FloatingLabelInputWithInstantProps {
   nokeyboard?: boolean;
   instantPower?: number;
   keyboardType?: "text" | "number";
+  powerType?: "instantaneous" | "yearly";
 }
 
 const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps> = ({
@@ -29,6 +29,7 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
   nokeyboard = false,
   instantPower,
   keyboardType = "text",
+  powerType = "instantaneous",
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   const [labelActive, setLabelActive] = useState(false);
@@ -94,16 +95,18 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
           />
         </div>
 
-        {/* Instant Power Section */}
+        {/* Power Section */}
         {instantPower !== undefined && (
           <div className="flex flex-row items-center ml-4">
             {/* Vertical Separator */}
             <div className="w-px bg-gray-300 h-8 mx-4"></div>
 
-            {/* Instant Power Value and Label */}
+            {/* Power Value and Label */}
             <div className="flex flex-col items-center">
               <span className="text-sm font-bold">{formatToDollars(instantPower)}</span>
-              <span className="text-xs text-gray-500">Instant Power</span>
+              <span className="text-xs text-gray-500">
+                {powerType === "yearly" ? "Yearly Power" : "Instant Power"}
+              </span>
             </div>
           </div>
         )}

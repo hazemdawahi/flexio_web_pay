@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { HiOutlineShoppingCart, HiOutlineUsers } from "react-icons/hi";
 import { useNavigate } from "@remix-run/react";
+import ProtectedRoute from "~/compoments/ProtectedRoute"; // Ensure the path is correct
 
-export default function PurchaseOptions() {
+// PurchaseOptionsContent contains your original UI
+const PurchaseOptionsContent: React.FC = () => {
   const navigate = useNavigate();
   const [inApp, setInApp] = useState<boolean>(false);
 
@@ -19,9 +21,9 @@ export default function PurchaseOptions() {
         <h1 className="text-3xl font-bold">What do you want to do?</h1>
       </header>
 
-      {/* Container for Complete Checkout */}
+      {/* Container for Complete Checkout (navigates to power options) */}
       <div
-        onClick={() => navigate("/merchant-shopping")}
+        onClick={() => navigate("/power-options")}
         className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
       >
         <HiOutlineShoppingCart className="text-gray-700 text-4xl mr-6" />
@@ -55,4 +57,15 @@ export default function PurchaseOptions() {
       )}
     </div>
   );
-}
+};
+
+// Wrap PurchaseOptionsContent with ProtectedRoute
+const PurchaseOptions: React.FC = () => {
+  return (
+    <ProtectedRoute>
+      <PurchaseOptionsContent />
+    </ProtectedRoute>
+  );
+};
+
+export default PurchaseOptions;

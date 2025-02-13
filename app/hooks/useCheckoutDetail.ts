@@ -1,149 +1,51 @@
 // src/hooks/useCheckoutDetail.ts
 import { useQuery } from '@tanstack/react-query';
 
-// Define interfaces for Checkout Details
-
-export interface Consumer {
-  id: string;
-  email: string;
-  givenNames: string;
-  surname: string;
-  phoneNumber: string;
-}
-
-export interface Address {
-  id: string;
-  name: string;
-  line1: string;
-  line2: string;
-  area1: string;
-  area2: string;
-  region: string;
-  postcode: string;
-  countryCode: string;
-  phoneNumber: string;
-}
-
-export interface Courier {
-  id: string;
-  shippedAt: string;
-  name: string;
-  tracking: string;
-  priority: string;
-}
-
 export interface Amount {
   id: string;
-  amount: number;
+  amount: string; // The API returns amount as a string (e.g., "10000")
   currency: string;
-}
-
-export interface ItemPrice {
-  id: string;
-  amount: number;
-  currency: string;
-}
-
-export interface Item {
-  id: string;
-  name: string;
-  sku: string;
-  quantity: number;
-  pageUrl: string;
-  imageUrl: string;
-  price: ItemPrice;
-  categories: string[];
-  estimatedShipmentDate: string;
-}
-
-export interface DiscountAmount {
-  id: string;
-  amount: number;
-  currency: string;
-}
-
-export interface Discount {
-  id: string;
-  displayName: string;
-  amount: DiscountAmount;
-  description: string;
-}
-
-export interface MerchantBrand {
-  id: string;
-  displayName: string | null;
-  customerEmail: string | null;
-  displayLogo: string | null;
-  customerSupportPhone: string | null;
-  coverPhoto: string | null;
-  category: string | null;
-  returnPolicyUrl: string | null;
-  refundPolicyUrl: string | null;
-  createdAt: string;
-  updatedAt: string;
-  maxAmount: number | null;
-  minAmount: number | null;
-}
-
-export interface Merchant {
-  id: string;
-  createdAt: string;
-  updatedAt: string;
-  stripeRequirements: boolean;
-  verified: boolean;
-  accountId: string;
-  secretKey: string;
-  mid: string;
-  googleId: string | null;
-  mcc: string;
-  name: string | null;
-  url: string;
-  avgOrderValue: string;
-  integrationPlatform: string;
-  annualRevenue: string;
-  industry: string | null;
-  detailsSubmitted: boolean;
-  requirementDeadline: string | null;
-  verifiedDate: string | null;
-  brand: MerchantBrand;
-  addresses: any[]; // Adjust the type if addresses have a specific structure
-  hibernateLazyInitializer: Record<string, unknown>;
+  // Optional property based on the sample response
+  hibernateLazyInitializer?: Record<string, unknown>;
 }
 
 export interface CheckoutDetail {
   id: string;
-  consumer: Consumer;
-  billing: Address;
-  shipping: Address;
-  courier: Courier;
-  shippingAmount: Amount;
-  taxAmount: Amount;
-  items: Item[];
-  discounts: Discount[];
-  description: string;
+  redirectCheckoutUrl: string | null;
   token: string;
-  tokenExpires: string;
-  redirectCheckoutUrl: string;
-  merchant: Merchant;
+  reference: string;
+  sandbox: boolean;
+  status: string;
+  offsetStartDate: string | null;
+  paymentFrequency: string;
+  numberOfPayments: number;
+  totalAmount: Amount;
+  expires: string;
+  state: string | null;
   createdAt: string;
   updatedAt: string;
+  user: any; // Adjust this type as needed if user data becomes available
 }
 
 export interface CheckoutDetailResponse {
-  success: boolean;
-  data: CheckoutDetail | null;
-  error: string | null;
+  checkout: CheckoutDetail;
+  remainingRefund: number;
+  remainingCapture: number;
 }
 
-// Fetch checkout details by ID
-async function fetchCheckoutDetail(checkoutId: string, token: string): Promise<CheckoutDetailResponse> {
-  const response = await fetch(`http://192.168.1.32:8080/api/checkouts/${checkoutId}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
+// Fetch checkout details by token (using the token in the URL)
+async function fetchCheckoutDetail(checkoutToken: string, accessToken: string): Promise<CheckoutDetailResponse> {
+  const response = await fetch(
+    `http://192.168.1.32:8080/api/checkout/details-by-token/${checkoutToken}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Error: ${response.status} ${response.statusText} - ${errorText}`);
@@ -154,17 +56,17 @@ async function fetchCheckoutDetail(checkoutId: string, token: string): Promise<C
 }
 
 // Custom hook to fetch checkout detail using useQuery
-export function useCheckoutDetail(checkoutId: string) {
+export function useCheckoutDetail(checkoutToken: string) {
   // Retrieve the access token from sessionStorage
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
+  const accessToken = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
 
   return useQuery<CheckoutDetailResponse, Error>({
-    queryKey: ['checkoutDetail', checkoutId],
+    queryKey: ['checkoutDetail', checkoutToken],
     queryFn: () => {
-      if (!token) throw new Error('No access token available');
-      return fetchCheckoutDetail(checkoutId, token);
+      if (!accessToken) throw new Error('No access token available');
+      return fetchCheckoutDetail(checkoutToken, accessToken);
     },
-    enabled: !!checkoutId && !!token,
+    enabled: !!checkoutToken && !!accessToken,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }

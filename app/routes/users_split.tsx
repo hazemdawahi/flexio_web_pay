@@ -1,5 +1,3 @@
-// src/pages/MultipleUsersSendWeb.tsx
-
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from '@remix-run/react';
 import { Toaster, toast } from 'sonner';
@@ -22,6 +20,18 @@ interface User {
   isCurrentUser?: boolean;
 }
 
+// Define the type for each split entry
+export interface SplitEntry {
+  userId: string;
+  amount: string;
+}
+
+// Define the type for the split data object
+export interface SplitData {
+  type: 'split';
+  userAmounts: SplitEntry[];
+}
+
 const MultipleUsersSendWeb: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -30,7 +40,7 @@ const MultipleUsersSendWeb: React.FC = () => {
   const { userIds } = (location.state as LocationState) || { userIds: [] };
   const userIdsArray = Array.isArray(userIds) ? userIds : [];
 
-  // Fetch multiple user details using React Query or your data fetching library
+  // Fetch multiple user details
   const {
     data: multipleUsersData,
     isLoading: isMultipleUsersLoading,
@@ -46,7 +56,9 @@ const MultipleUsersSendWeb: React.FC = () => {
 
   // Fetch checkout details
   const checkoutToken =
-    typeof window !== 'undefined' ? sessionStorage.getItem('checkoutToken') || '' : '';
+    typeof window !== 'undefined'
+      ? sessionStorage.getItem('checkoutToken') || ''
+      : '';
   const {
     data: checkoutData,
     isLoading: isCheckoutLoading,
@@ -56,7 +68,7 @@ const MultipleUsersSendWeb: React.FC = () => {
   // State: array of user info
   const [users, setUsers] = useState<User[]>([]);
 
-  // State: final amounts that are displayed (read-only or final after save)
+  // State: final amounts (read-only or final after save)
   const [amounts, setAmounts] = useState<{ [key: string]: string }>({});
 
   // State: temporary amounts (when adjusting)
@@ -68,21 +80,20 @@ const MultipleUsersSendWeb: React.FC = () => {
   // State to track if the split is even
   const [isEvenSplit, setIsEvenSplit] = useState(true);
 
-  // Calculate the total amount from checkout details using the new API structure.
-  // The API returns totalAmount as a string in cents, so we convert to dollars.
+  // Calculate the total amount from checkout details (API returns cents)
   const calculateCheckoutTotalAmount = (checkout: CheckoutDetail): number => {
     if (!checkout) return 0;
     return parseFloat(checkout.totalAmount.amount) / 100;
   };
 
-  // Update: Pass the nested `checkout` object from the response.
-  const checkoutTotalAmount = checkoutData ? calculateCheckoutTotalAmount(checkoutData.checkout) : 0;
+  const checkoutTotalAmount = checkoutData
+    ? calculateCheckoutTotalAmount(checkoutData.checkout)
+    : 0;
 
   // ---------------------------
   //  Initialize data on mount
   // ---------------------------
   useEffect(() => {
-    // Build array of users
     const mappedUsers: User[] = [];
 
     // Current user
@@ -113,14 +124,13 @@ const MultipleUsersSendWeb: React.FC = () => {
     if (mappedUsers.length > 0) {
       const total = checkoutTotalAmount;
       const numUsers = mappedUsers.length;
-      const baseAmount = Math.floor((total / numUsers) * 100) / 100; // Round down
+      const baseAmount = Math.floor((total / numUsers) * 100) / 100;
       const newAmounts: { [key: string]: string } = {};
       let accumulated = 0;
 
       for (let i = 0; i < numUsers; i++) {
         const user = mappedUsers[i];
         if (i === numUsers - 1) {
-          // Last user gets remainder
           const last = (total - accumulated).toFixed(2);
           newAmounts[user.id] = last;
         } else {
@@ -131,8 +141,8 @@ const MultipleUsersSendWeb: React.FC = () => {
       }
 
       setAmounts(newAmounts);
-      setTempAmounts(newAmounts); // Mirror this into temp as well
-      setIsEvenSplit(true); // Initial split is even
+      setTempAmounts(newAmounts);
+      setIsEvenSplit(true);
     }
   }, [currentUserData, multipleUsersData, checkoutTotalAmount]);
 
@@ -140,61 +150,49 @@ const MultipleUsersSendWeb: React.FC = () => {
   //  Toggle between "Adjust" and "Save Changes" mode
   // ------------------------------------------------
   const handleAdjustToggle = () => {
-    // If we are not currently adjusting => switch to adjusting
     if (!isAdjusting) {
       setIsAdjusting(true);
-      // Make sure tempAmounts are copied from amounts (to see the original)
       setTempAmounts(amounts);
       return;
     }
 
-    // If we are currently adjusting => "Save Changes"
-    // 1) Compare which fields changed
+    // Save changes: determine locked (changed) fields
     const lockedEntries: { userId: string; value: number }[] = [];
     const unchangedUserIds: string[] = [];
 
     for (const user of users) {
       const oldVal = parseFloat(amounts[user.id] || '0');
       const newVal = parseFloat(tempAmounts[user.id] || '0');
-      // If user typed something different, we consider it "locked in"
       if (Math.abs(newVal - oldVal) > 0.000001) {
         lockedEntries.push({ userId: user.id, value: newVal });
       } else {
-        // Not changed
         unchangedUserIds.push(user.id);
       }
     }
 
-    // 2) Sum of changed fields
     let sumOfLocked = lockedEntries.reduce((acc, entry) => acc + entry.value, 0);
-
-    // 3) Check if sumOfLocked > total => error
     if (sumOfLocked > checkoutTotalAmount) {
       toast.error(
-        `Your changes exceed the total amount of $${checkoutTotalAmount.toFixed(2)}. Please adjust.`
+        `Your changes exceed the total amount of $${checkoutTotalAmount.toFixed(
+          2
+        )}. Please adjust.`
       );
       return;
     }
 
-    // Leftover to be distributed
     let leftover = checkoutTotalAmount - sumOfLocked;
-
-    // We'll build new final amounts from temp
     const newAmounts: { [key: string]: string } = {};
 
-    // Initialize changed fields
     for (const user of users) {
       newAmounts[user.id] = tempAmounts[user.id];
     }
 
-    // 4) Distribute leftover among unchanged fields
     if (unchangedUserIds.length > 0) {
       const perUser = Math.floor((leftover / unchangedUserIds.length) * 100) / 100;
       let distributedSoFar = 0;
 
       unchangedUserIds.forEach((userId, idx) => {
         if (idx === unchangedUserIds.length - 1) {
-          // Last user gets remainder
           const lastAmount = leftover - distributedSoFar;
           newAmounts[userId] = lastAmount.toFixed(2);
         } else {
@@ -203,7 +201,6 @@ const MultipleUsersSendWeb: React.FC = () => {
         }
       });
     } else {
-      // If no unchanged fields remain, but leftover is > 0, add it to the last changed field
       if (leftover > 0 && lockedEntries.length > 0) {
         const lastIndex = lockedEntries.length - 1;
         lockedEntries[lastIndex].value += leftover;
@@ -212,22 +209,24 @@ const MultipleUsersSendWeb: React.FC = () => {
       }
     }
 
-    // 5) Now confirm final total again
-    const finalSum = Object.values(newAmounts).reduce((acc, val) => acc + parseFloat(val), 0);
+    const finalSum = Object.values(newAmounts).reduce(
+      (acc, val) => acc + parseFloat(val),
+      0
+    );
     if (Math.abs(finalSum - checkoutTotalAmount) > 0.01) {
-      // In rare floating edge cases, correct it
       toast.error(
-        `Adjusted total $${finalSum.toFixed(2)} does not match required $${checkoutTotalAmount.toFixed(
+        `Adjusted total $${finalSum.toFixed(
+          2
+        )} does not match required $${checkoutTotalAmount.toFixed(
           2
         )}. Please adjust manually.`
       );
       return;
     }
 
-    // 6) Save to amounts, end adjusting
     setAmounts(newAmounts);
     setIsAdjusting(false);
-    setIsEvenSplit(false); // Manual adjustment means it's no longer even
+    setIsEvenSplit(false);
     toast.success('Amounts successfully updated!');
   };
 
@@ -239,14 +238,13 @@ const MultipleUsersSendWeb: React.FC = () => {
 
     const total = checkoutTotalAmount;
     const numUsers = users.length;
-    const baseAmount = Math.floor((total / numUsers) * 100) / 100; // Round down
+    const baseAmount = Math.floor((total / numUsers) * 100) / 100;
     const newAmounts: { [key: string]: string } = {};
     let accumulated = 0;
 
     for (let i = 0; i < numUsers; i++) {
       const user = users[i];
       if (i === numUsers - 1) {
-        // Last user gets remainder
         const last = (total - accumulated).toFixed(2);
         newAmounts[user.id] = last;
       } else {
@@ -267,14 +265,16 @@ const MultipleUsersSendWeb: React.FC = () => {
   //  Handle final "Split" call
   // ---------------------------
   const handleSplit = async () => {
-    // Double-check total
-    const sumOfAmounts = Object.values(amounts).reduce((sum, val) => sum + parseFloat(val), 0);
+    const sumOfAmounts = Object.values(amounts).reduce(
+      (sum, val) => sum + parseFloat(val),
+      0
+    );
 
     if (Math.abs(sumOfAmounts - checkoutTotalAmount) > 0.01) {
       toast.error(
-        `Total $${sumOfAmounts.toFixed(2)} does not match the required $${checkoutTotalAmount.toFixed(
+        `Total $${sumOfAmounts.toFixed(
           2
-        )}.`
+        )} does not match the required $${checkoutTotalAmount.toFixed(2)}.`
       );
       return;
     }
@@ -285,8 +285,14 @@ const MultipleUsersSendWeb: React.FC = () => {
       amount: amounts[user.id],
     }));
 
-    // Navigate to SplitAmountUserCustomization.tsx with the list
-    navigate('/SplitAmountUserCustomization', { state: { userAmounts } });
+    // Create split data with type "split"
+    const splitData: SplitData = {
+      type: 'split',
+      userAmounts,
+    };
+
+    // Navigate to the Power Options page, passing the split data
+    navigate('/power-options', { state: { splitData } });
   };
 
   // ------------------------------
@@ -342,7 +348,6 @@ const MultipleUsersSendWeb: React.FC = () => {
     <div className="min-h-screen bg-white p-6">
       {/* Header */}
       <header className="mb-6">
-        {/* Back Button */}
         <button
           onClick={() => navigate(-1)}
           className="flex items-center text-gray-700 hover:text-gray-900 font-semibold"
@@ -350,8 +355,6 @@ const MultipleUsersSendWeb: React.FC = () => {
           <IoIosArrowBack size={24} className="mr-2" />
           Back
         </button>
-
-        {/* Title and Split Evenly Button */}
         <div className="mt-4 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">
@@ -360,7 +363,9 @@ const MultipleUsersSendWeb: React.FC = () => {
           </div>
           <button
             onClick={handleSplitEvenly}
-            className={`text-blue-500 font-semibold ${isEvenSplit ? 'underline' : ''} hover:text-blue-700`}
+            className={`text-blue-500 font-semibold ${
+              isEvenSplit ? 'underline' : ''
+            } hover:text-blue-700`}
           >
             Split Evenly
           </button>
@@ -370,9 +375,7 @@ const MultipleUsersSendWeb: React.FC = () => {
       {/* Users List */}
       <div className="space-y-6">
         {users.map((user) => {
-          // If adjusting, show tempAmounts; otherwise, show final amounts
           const displayValue = isAdjusting ? tempAmounts[user.id] : amounts[user.id];
-
           return (
             <div
               key={user.id}
@@ -390,12 +393,11 @@ const MultipleUsersSendWeb: React.FC = () => {
                   value={displayValue || ''}
                   onChangeText={(text) => {
                     if (isAdjusting) {
-                      // Only update temp if adjusting
                       setTempAmounts((prev) => ({ ...prev, [user.id]: text }));
-                      setIsEvenSplit(false); // Manual adjustment means it's no longer even
+                      setIsEvenSplit(false);
                     }
                   }}
-                  editable={isAdjusting} // read-only unless adjusting
+                  editable={isAdjusting}
                 />
               </div>
             </div>
@@ -404,15 +406,12 @@ const MultipleUsersSendWeb: React.FC = () => {
 
         {/* Buttons Row */}
         <div className="mt-8 flex space-x-4">
-          {/* Adjust or Save Changes button */}
           <button
             onClick={handleAdjustToggle}
             className="flex-1 bg-white border border-gray-300 text-black font-bold py-4 rounded-md hover:bg-gray-100 transition text-lg"
           >
             {isAdjusting ? 'Save Changes' : 'Adjust'}
           </button>
-
-          {/* Split button */}
           <button
             onClick={handleSplit}
             className="flex-1 bg-black text-white font-bold py-4 rounded-md hover:bg-gray-800 transition text-lg"
@@ -422,7 +421,6 @@ const MultipleUsersSendWeb: React.FC = () => {
         </div>
       </div>
 
-      {/* React Sonner Toaster */}
       <Toaster richColors position="top-right" />
     </div>
   );

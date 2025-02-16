@@ -1,13 +1,36 @@
 import React, { useEffect, useState } from "react";
 import { HiOutlineLightningBolt, HiOutlineCalendar } from "react-icons/hi";
 import { FaArrowLeft } from "react-icons/fa";
-import { useNavigate } from "@remix-run/react";
+import { useLocation, useNavigate } from "@remix-run/react";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useUserDetails } from "~/hooks/useUserDetails";
 
+// Define types for split data
+export interface SplitEntry {
+  userId: string;
+  amount: string;
+}
+
+// This interface now just holds userAmounts (if provided)
+export interface SplitData {
+  userAmounts: SplitEntry[];
+}
+
 const PowerOptionsContent: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [inApp, setInApp] = useState<boolean>(false);
+  
+  // Optional split data coming from the previous page
+  const [splitData, setSplitData] = useState<SplitData | null>(null);
+
+  // Check for split data in location.state
+  useEffect(() => {
+    const stateData = (location.state as { splitData?: SplitData }) || {};
+    if (stateData.splitData) {
+      setSplitData(stateData.splitData);
+    }
+  }, [location.state]);
 
   // Retrieve user details via the custom hook
   const {
@@ -26,9 +49,26 @@ const PowerOptionsContent: React.FC = () => {
     setInApp(value === "true");
   }, []);
 
+  /**
+   * Helper function to handle an option click.
+   * If split data exists, state will be passed to the split customization page.
+   * Otherwise, state data (with payment type) is passed to MerchantShopping.
+   *
+   * @param powerType The custom type to pass (e.g. "instantaneous" or "yearly")
+   */
+  const handleOptionClick = (powerType: "instantaneous" | "yearly") => {
+    if (splitData && splitData.userAmounts && splitData.userAmounts.length > 0) {
+      navigate("/SplitAmountUserCustomization", {
+        state: { userAmounts: splitData.userAmounts, type: powerType },
+      });
+    } else {
+      navigate("/merchant-shopping", { state: { type: powerType } });
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-white p-4">
-      {/* Header with go-back arrow and header text */}
+      {/* Header with go-back arrow and title */}
       <header className="w-full max-w-3xl mb-8">
         <button
           onClick={() => navigate(-1)}
@@ -51,7 +91,7 @@ const PowerOptionsContent: React.FC = () => {
 
       {/* Instantaneous Power Option */}
       <div
-        onClick={() => navigate("/merchant-shopping/instantaneous")}
+        onClick={() => handleOptionClick("instantaneous")}
         className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
       >
         <HiOutlineLightningBolt className="text-black text-4xl mr-6" />
@@ -76,7 +116,7 @@ const PowerOptionsContent: React.FC = () => {
 
       {/* Yearly Power Option */}
       <div
-        onClick={() => navigate("/merchant-shopping/yearly")}
+        onClick={() => handleOptionClick("yearly")}
         className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
       >
         <HiOutlineCalendar className="text-black text-4xl mr-6" />

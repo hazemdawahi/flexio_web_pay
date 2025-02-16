@@ -1,47 +1,77 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { useNavigate, useParams } from "@remix-run/react";
+import { useNavigate, useLocation } from "@remix-run/react";
 import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useSession } from "~/context/SessionContext";
-import { IoIosArrowBack, IoIosClose } from "react-icons/io";
+import { IoIosArrowBack } from "react-icons/io";
 import { motion, AnimatePresence } from "framer-motion";
 import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft";
 import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
+import { Toaster } from "sonner";
+
+// Optional state interface: type can be passed via state (if needed)
+interface LocationState {
+  // Optionally, state can include a payment type ("instantaneous" or "yearly")
+  type?: "instantaneous" | "yearly";
+}
 
 const MerchantShoppingContent: React.FC = () => {
-  // Read the dynamic payment type parameter from the URL
-  const { paymentType } = useParams<{ paymentType: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
-
+  
+  // Read payment type from state; default to "instantaneous" if not provided.
+  const stateData = (location.state as LocationState) || {};
+  const paymentType = stateData.type || "instantaneous";
+  
   // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken") || "";
-
+  
   // Payment amount state (used for both instantaneous and yearly)
   const [paymentAmount, setPaymentAmount] = useState("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const { data: paymentData, isLoading: paymentLoading, isError: isPaymentError, error: paymentError } = usePaymentMethods();
+  
+  const {
+    data: paymentData,
+    isLoading: paymentLoading,
+    isError: isPaymentError,
+    error: paymentError,
+  } = usePaymentMethods();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
-  const { data: userData, isLoading: isUserLoading, isError: isUserError, error: userError } = useUserDetails();
+  
+  const {
+    data: userData,
+    isLoading: isUserLoading,
+    isError: isUserError,
+    error: userError,
+  } = useUserDetails();
   const { accessToken } = useSession();
-  const { data: checkoutData, isLoading: checkoutLoading, isError: isCheckoutError, error: checkoutError, status: checkoutStatus } = useCheckoutDetail(checkoutToken);
-
+  
+  const {
+    data: checkoutData,
+    isLoading: checkoutLoading,
+    isError: isCheckoutError,
+    error: checkoutError,
+    status: checkoutStatus,
+  } = useCheckoutDetail(checkoutToken);
+  
   // Calculate the total checkout amount
-  const checkoutTotalAmount = checkoutData ? parseFloat(checkoutData.checkout.totalAmount.amount) : 0;
-
-  const addField = () => setAdditionalFields(prev => [...prev, ""]);
+  const checkoutTotalAmount = checkoutData
+    ? parseFloat(checkoutData.checkout.totalAmount.amount)
+    : 0;
+  
+  const addField = () => setAdditionalFields((prev) => [...prev, ""]);
   const updateField = (index: number, value: string) => {
-    setAdditionalFields(prev => {
+    setAdditionalFields((prev) => {
       const updated = [...prev];
       updated[index] = value;
       return updated;
     });
   };
-
+  
   useEffect(() => {
     const cardPaymentMethods = paymentData?.data.data.filter(
       (method: PaymentMethod) => method.type === "card"
@@ -50,22 +80,24 @@ const MerchantShoppingContent: React.FC = () => {
       setSelectedPaymentMethod(cardPaymentMethods[0]);
     }
   }, [paymentData, selectedPaymentMethod]);
-
-  // When paymentType is yearly, prefill paymentAmount with the available yearly power (if not set)
+  
+  // When paymentType is "yearly", prefill paymentAmount with available yearly power (if not set)
   const isYearly = paymentType === "yearly";
-  const availablePower = isYearly ? userData?.data?.user?.yearlyPower : userData?.data?.user?.instantaneousPower;
+  const availablePower = isYearly
+    ? userData?.data?.user?.yearlyPower
+    : userData?.data?.user?.instantaneousPower;
   useEffect(() => {
     if (isYearly && availablePower && paymentAmount === "") {
       setPaymentAmount(availablePower.toString());
     }
   }, [isYearly, availablePower, paymentAmount]);
-
+  
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
     closeModal();
   }, []);
-
-  // Calculate total amount from payment amount and additional supercharge fields
+  
+  // Calculate total amount from paymentAmount and additional supercharge fields
   const calculateTotalAmount = () => {
     const superchargeTotal = additionalFields.reduce(
       (acc: number, field: string) => acc + parseFloat(field || "0"),
@@ -75,54 +107,48 @@ const MerchantShoppingContent: React.FC = () => {
     return payment + superchargeTotal;
   };
   const totalAmount = calculateTotalAmount();
-
+  
   const convertToCents = (amountStr: string): string => {
     const amount = parseFloat(amountStr);
     if (isNaN(amount)) return "0";
     return Math.round(amount * 100).toString();
   };
-
+  
+  // Instead of building query params, we pass the needed data via state
   const navigateToPlansPage = () => {
     const superchargeDetails = additionalFields.map((field: string) => ({
       amount: convertToCents(field),
       paymentMethodId: selectedPaymentMethod?.id,
     }));
-
+  
     if (!userData?.data?.user?.settings) {
       alert("Error: User settings not available.");
       return;
     }
-
+  
     const totalAmountCents = convertToCents(totalAmount.toString());
     const paymentAmountCents = convertToCents(paymentAmount);
-
-    // Build query parameters with fixed keys and conditionally add one key:
-    const paramsObj: Record<string, string> = {
+  
+    // Build an object to pass via state
+    const stateData = {
       amount: totalAmountCents,
-      superchargeDetails: JSON.stringify(superchargeDetails),
+      superchargeDetails,
       paymentMethodId: selectedPaymentMethod?.id || "",
-      paymentType: paymentType || "instantaneous",
+      paymentType, // "instantaneous" or "yearly"
+      // Also pass the payment amount key based on type:
+      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmountCents,
     };
-
+  
     if (isYearly) {
-      paramsObj["yearlyPowerAmount"] = paymentAmountCents;
+      navigate("/yearly-payment-plan", { state: stateData });
     } else {
-      paramsObj["instantPowerAmount"] = paymentAmountCents;
-    }
-
-    const params = new URLSearchParams(paramsObj).toString();
-
-    // Navigate based on payment type
-    if (isYearly) {
-      navigate(`/yearly-payment-plan?${params}`);
-    } else {
-      navigate(`/plans?${params}`);
+      navigate("/plans", { state: stateData });
     }
   };
-
+  
   const openModal = () => setIsModalOpen(true);
   const closeModal = () => setIsModalOpen(false);
-
+  
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isModalOpen) closeModal();
@@ -130,15 +156,18 @@ const MerchantShoppingContent: React.FC = () => {
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isModalOpen]);
-
+  
   useEffect(() => {
     document.body.style.overflow = isModalOpen ? "hidden" : "";
-    return () => (document.body.style.overflow = "");
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, [isModalOpen]);
-
-  const isLoading = isUserLoading || paymentLoading || checkoutLoading || checkoutStatus === "pending";
+  
+  const isLoading =
+    isUserLoading || paymentLoading || checkoutLoading || checkoutStatus === "pending";
   const isErrorState = isUserError || isPaymentError || isCheckoutError || !userData?.data;
-
+  
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -150,34 +179,41 @@ const MerchantShoppingContent: React.FC = () => {
     return (
       <div className="flex items-center justify-center h-screen">
         <p className="text-red-500">
-          {userError?.message || paymentError?.message || checkoutError?.message || "Failed to load data."}
+          {userError?.message ||
+            paymentError?.message ||
+            checkoutError?.message ||
+            "Failed to load data."}
         </p>
       </div>
     );
   }
-
-  const cardPaymentMethods = paymentData?.data.data.filter(
-    (method: PaymentMethod) => method.type === "card"
-  ) || [];
-
+  
+  const cardPaymentMethods =
+    paymentData?.data.data.filter((method: PaymentMethod) => method.type === "card") || [];
+  
   const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
-
+  
   return (
     <div className="min-h-screen bg-white p-4">
       <div className="max-w-xl mx-auto">
         {/* Header */}
         <header className="mb-6 flex items-center">
-          <button onClick={() => navigate(-1)} className="flex items-center text-gray-700 hover:text-gray-900">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center text-gray-700 hover:text-gray-900"
+          >
             <IoIosArrowBack className="mr-2" size={24} />
             Back
           </button>
         </header>
-        <h1 className="text-2xl font-bold mb-4">Flex all of ${checkoutTotalAmount.toFixed(2)}</h1>
+        <h1 className="text-2xl font-bold mb-4">
+          Flex all of ${checkoutTotalAmount.toFixed(2)}
+        </h1>
         <FloatingLabelInputWithInstant
           label={inputLabel}
           value={paymentAmount}
           onChangeText={setPaymentAmount}
-          keyboardType="number"
+          keyboardType="text"
           instantPower={availablePower}
           powerType={isYearly ? "yearly" : "instantaneous"}
         />
@@ -188,7 +224,7 @@ const MerchantShoppingContent: React.FC = () => {
               label="Supercharge Amount"
               value={field}
               onChangeText={(value) => updateField(index, value)}
-              keyboardType="number"
+              keyboardType="text"
               selectedMethod={selectedPaymentMethod}
               onPaymentMethodPress={openModal}
             />
@@ -203,10 +239,14 @@ const MerchantShoppingContent: React.FC = () => {
           </button>
           <button
             onClick={navigateToPlansPage}
-            className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${totalAmount === checkoutTotalAmount ? "" : "opacity-50 cursor-not-allowed"}`}
+            className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
+              totalAmount === checkoutTotalAmount ? "" : "opacity-50 cursor-not-allowed"
+            }`}
             disabled={totalAmount !== checkoutTotalAmount}
           >
-            {paymentAmount ? `Flex $${parseFloat(paymentAmount).toFixed(2)}` : "Flex"}
+            {paymentAmount
+              ? `Flex $${parseFloat(paymentAmount).toFixed(2)}`
+              : "Flex"}
           </button>
         </div>
         <AnimatePresence>
@@ -236,8 +276,11 @@ const MerchantShoppingContent: React.FC = () => {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex justify-end p-4">
-                    <button onClick={closeModal} className="text-gray-500 hover:text-gray-700 focus:outline-none">
-                      <IoIosClose size={36} />
+                    <button
+                      onClick={() => navigate("/payment-settings")}
+                      className="bg-black text-white font-bold py-2 px-4 rounded-lg"
+                    >
+                      Payment Settings
                     </button>
                   </div>
                   <h2 className="text-xl font-semibold mb-4 px-4">Select Payment Method</h2>
@@ -258,6 +301,7 @@ const MerchantShoppingContent: React.FC = () => {
           )}
         </AnimatePresence>
       </div>
+      <Toaster richColors position="top-right" />
     </div>
   );
 };

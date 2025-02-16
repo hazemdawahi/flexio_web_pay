@@ -1,17 +1,16 @@
-// src/pages/SplitAmountUserCustomization.tsx
-
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { Toaster, toast } from "sonner";
 import { IoIosArrowBack, IoIosClose } from "react-icons/io";
 import { motion, AnimatePresence } from "framer-motion";
-import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft"; // Corrected import path
-import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant"; // Corrected import path
-import PaymentMethodItem from "~/compoments/PaymentMethodItem"; // Corrected import path
-import ProtectedRoute from "~/compoments/ProtectedRoute"; // Corrected import path
+import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft";
+import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
+import PaymentMethodItem from "~/compoments/PaymentMethodItem";
+import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useSession } from "~/context/SessionContext";
+import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 
 // Define the shape of the passed data
 interface SplitAmount {
@@ -21,6 +20,8 @@ interface SplitAmount {
 
 interface LocationState {
   userAmounts: SplitAmount[];
+  // Optional field for the type: "instantaneous" or "yearly"
+  type?: "instantaneous" | "yearly";
 }
 
 // Define the structure of supercharge details
@@ -33,10 +34,10 @@ const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Extract userAmounts from location state
-  const { userAmounts } = (location.state as LocationState) || { userAmounts: [] };
+  // Extract userAmounts and type from location.state
+  const { userAmounts, type } = (location.state as LocationState) || { userAmounts: [] };
   const userAmountsArray = Array.isArray(userAmounts) ? userAmounts : [];
-  console.log("userAmounts", userAmountsArray);
+  console.log("userAmounts", userAmountsArray, "type:", type);
 
   // Redirect back if no user amounts are provided
   useEffect(() => {
@@ -46,24 +47,32 @@ const SplitAmountUserCustomization: React.FC = () => {
     }
   }, [userAmountsArray, navigate]);
 
-  // Proceed only if userAmountsArray has at least one entry
   if (userAmountsArray.length === 0) {
-    return null; // Prevent rendering until redirect happens
+    return null;
   }
 
-  // Retrieve the current user's split amount
+  // Assume the first entry is for the current user
   const currentUserSplit = userAmountsArray[0];
 
- 
-  // Fetch current user details without arguments
+  // Fetch current user details
   const {
     data: userData,
     isLoading: isUserLoading,
     isError: isUserError,
     error: userError,
-  } = useUserDetails(); // Removed userId argument
+  } = useUserDetails();
 
-  // Access the access token from Context
+  // Get checkout details if needed
+  const checkoutToken =
+    typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
+  const {
+    data: checkoutData,
+    isLoading: checkoutLoading,
+    isError: isCheckoutError,
+    error: checkoutError,
+  } = useCheckoutDetail(checkoutToken);
+
+  // Get access token from Context
   const { accessToken } = useSession();
 
   // Fetch payment methods
@@ -77,13 +86,29 @@ const SplitAmountUserCustomization: React.FC = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
 
-  const [instantPowerAmount, setInstantPowerAmount] = useState<string>("0.00");
+  // Payment amount state (for split customization)
+  const [paymentAmount, setPaymentAmount] = useState<string>("0.00");
+  // Additional supercharge fields (optional)
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
+  // Determine if this is a yearly payment based on type passed in location state
+  const isYearly = type === "yearly";
+
+  // Based on payment type, set available power from user details
+  const availablePower = isYearly
+    ? userData?.data?.user?.yearlyPower
+    : userData?.data?.user?.instantaneousPower;
+
+  // For yearly, prefill paymentAmount if still default
+  useEffect(() => {
+    if (isYearly && availablePower && paymentAmount === "0.00") {
+      setPaymentAmount(availablePower.toString());
+    }
+  }, [isYearly, availablePower, paymentAmount]);
+
   // Set userTotalAmount from currentUserSplit
   const [userTotalAmount, setUserTotalAmount] = useState<number>(0);
-
   useEffect(() => {
     if (currentUserSplit.amount) {
       const amt = parseFloat(currentUserSplit.amount);
@@ -95,8 +120,7 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   // Filter card payment methods
   const cardPaymentMethods =
-    paymentData?.data.data.filter((method: PaymentMethod) => method.type === "card") ||
-    [];
+    paymentData?.data.data.filter((method: PaymentMethod) => method.type === "card") || [];
 
   // Set default payment method if not selected
   useEffect(() => {
@@ -111,47 +135,38 @@ const SplitAmountUserCustomization: React.FC = () => {
     closeModal();
   }, []);
 
-  // Calculate the total amount from instantPowerAmount and additionalFields
+  // Calculate the total amount from paymentAmount and additionalFields
   const calculateTotalAmount = () => {
     const superchargeTotal = additionalFields.reduce(
       (acc, field) => acc + parseFloat(field || "0"),
       0
     );
-    const instantPower = parseFloat(instantPowerAmount || "0");
-    return instantPower + superchargeTotal;
+    const payment = parseFloat(paymentAmount || "0");
+    return payment + superchargeTotal;
   };
 
   const totalAmount = calculateTotalAmount();
 
-  // Handle Instant Power Amount change
-  const handleInstantPowerChange = (value: string) => {
-    // Allow only numbers and up to two decimal places
+  // Handle changes in the main payment amount field
+  const handlePaymentAmountChange = (value: string) => {
     const regex = /^\d+(\.\d{0,2})?$/;
     if (regex.test(value) || value === "") {
-      setInstantPowerAmount(value);
+      setPaymentAmount(value);
     }
   };
 
-  // Handle navigation to Split Plans page with query parameters
+  // Navigate to the next page
   const navigateToSplitPlans = () => {
-    // Calculate total amount
-    const totalAmount = calculateTotalAmount();
-
-    // Validate total amount
-    if (Math.abs(totalAmount - userTotalAmount) > 0.01) {
-      toast.error(
-        `Total amount must equal your total amount of $${userTotalAmount.toFixed(2)}.`
-      );
+    const total = calculateTotalAmount();
+    if (Math.abs(total - userTotalAmount) > 0.01) {
+      toast.error(`Total amount must equal your total amount of $${userTotalAmount.toFixed(2)}.`);
       return;
     }
-
-    // Validate that none of the individual fields are invalid
-    const instantPowerParsed = parseFloat(instantPowerAmount) || 0;
-    if (instantPowerParsed < 0) {
-      toast.error("Instant Power Amount cannot be negative.");
+    const paymentParsed = parseFloat(paymentAmount) || 0;
+    if (paymentParsed < 0) {
+      toast.error("Payment amount cannot be negative.");
       return;
     }
-
     for (let i = 0; i < additionalFields.length; i++) {
       const fieldAmount = parseFloat(additionalFields[i] || "0");
       if (isNaN(fieldAmount) || fieldAmount < 0) {
@@ -160,99 +175,78 @@ const SplitAmountUserCustomization: React.FC = () => {
       }
     }
 
-    // Prepare supercharge details with amounts in cents
+    // Prepare supercharge details (if any)
     const superchargeDetails: SuperchargeDetail[] = additionalFields
       .map((field) => ({
-        amount: instantPowerAmountParsedToCents(field),
+        amount: paymentAmountParsedToCents(field),
         paymentMethodId: selectedPaymentMethod?.id || "",
       }))
       .filter((detail) => detail.amount !== "0" && detail.paymentMethodId);
 
-    if (superchargeDetails.length === 0) {
-      toast.error("At least one supercharge amount must be greater than $0.");
-      return;
-    }
-
-    // Prepare query parameters
-    const params = new URLSearchParams({
-      instantPowerAmount: instantPowerAmountParsedToCents(instantPowerAmount),
+    // Build query parameters—use different key names based on type
+    const paramsObj: Record<string, string> = {
+      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmountParsedToCents(paymentAmount),
       superchargeDetails: JSON.stringify(superchargeDetails),
       otherUserAmounts: JSON.stringify(userAmountsArray),
       paymentMethodId: selectedPaymentMethod?.id || "",
-    }).toString();
+    };
+    const params = new URLSearchParams(paramsObj).toString();
     console.log("params", { params });
 
-    // Navigate to /split-plans with query parameters
-    navigate(`/split-plans?${params}`);
+    if (isYearly) {
+      navigate(`/yearly-payment-plan?${params}`);
+    } else {
+      navigate(`/plans?${params}`);
+    }
   };
 
-  // Helper function to convert dollars to cents as string
-  const instantPowerAmountParsedToCents = (amount: string): string => {
+  // Helper: convert dollars to cents as string
+  const paymentAmountParsedToCents = (amount: string): string => {
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed < 0) return "0";
     return Math.round(parsed * 100).toString();
   };
 
-  // Add a new Supercharge field
+  // Add a new Supercharge field (optional)
   const addField = () => {
     setAdditionalFields([...additionalFields, "0.00"]);
   };
 
   // Update a specific Supercharge field
   const updateField = (index: number, value: string) => {
-    // Allow only numbers and up to two decimal places
     const regex = /^\d+(\.\d{0,2})?$/;
     if (regex.test(value) || value === "") {
-      setAdditionalFields((prevFields) => {
-        const updatedFields = [...prevFields];
-        updatedFields[index] = value;
-        return updatedFields;
+      setAdditionalFields((prev) => {
+        const updated = [...prev];
+        updated[index] = value;
+        return updated;
       });
     }
   };
 
-  // Open and close modal functions
-  const openModal = () => {
-    setIsModalOpen(true);
-  };
+  // Modal functions
+  const openModal = () => setIsModalOpen(true);
+  const closeModal = () => setIsModalOpen(false);
 
-  const closeModal = () => {
-    setIsModalOpen(false);
-  };
-
-  // Close modal on Esc key press
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isModalOpen) {
-        closeModal();
-      }
+      if (event.key === "Escape" && isModalOpen) closeModal();
     };
-
     window.addEventListener("keydown", handleEsc);
-
-    return () => {
-      window.removeEventListener("keydown", handleEsc);
-    };
+    return () => window.removeEventListener("keydown", handleEsc);
   }, [isModalOpen]);
 
-  // Prevent scrolling when modal is open
   useEffect(() => {
-    if (isModalOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-
+    document.body.style.overflow = isModalOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
   }, [isModalOpen]);
 
-  // Loading and Error states
-  const isLoading = isUserLoading || paymentLoading;
-  const isErrorState = isUserError || isPaymentError || !userData?.data;
+  const isLoading = isUserLoading || paymentLoading || checkoutLoading;
+  const isErrorState =
+    isUserError || isPaymentError || isCheckoutError || !userData?.data;
 
-  // Loading state UI
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
@@ -260,26 +254,26 @@ const SplitAmountUserCustomization: React.FC = () => {
       </div>
     );
   }
-
-  // Error state UI
   if (isErrorState) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
         <p className="text-red-500">
           {userError?.message ||
             paymentError?.message ||
+            checkoutError?.message ||
             "Failed to load data."}
         </p>
       </div>
     );
   }
 
+  const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
+
   return (
     <div className="min-h-screen bg-white p-6">
       <div className="max-w-xl mx-auto">
         {/* Header Section */}
         <header className="mb-6 flex items-center">
-          {/* Back Button */}
           <button
             onClick={() => navigate(-1)}
             className="flex items-center text-gray-700 hover:text-gray-900"
@@ -289,23 +283,24 @@ const SplitAmountUserCustomization: React.FC = () => {
           </button>
         </header>
 
-        {/* Header Text with Current User's Total Amount */}
+        {/* Header Text with current user's total amount */}
         <h1 className="text-2xl font-bold mb-4">
           Customize Your Amount: ${currentUserSplit.amount}
         </h1>
 
-        {/* Instant Power Amount Input */}
+        {/* Payment Amount Input */}
         <FloatingLabelInputWithInstant
-          label="Instant Power Amount"
-          value={instantPowerAmount}
-          onChangeText={handleInstantPowerChange}
-          instantPower={userData.data?.user.instantaneousPower} // Adjust as needed
+          label={inputLabel}
+          value={paymentAmount}
+          onChangeText={handlePaymentAmountChange}
+          instantPower={availablePower}
+          powerType={isYearly ? "yearly" : "instantaneous"}
         />
 
-        {/* Spacer between Instant Power and Supercharge Fields */}
+        {/* Spacer */}
         <div className="mt-4"></div>
 
-        {/* Additional Supercharge Fields */}
+        {/* Optional Additional Supercharge Fields */}
         {additionalFields.map((field, index) => (
           <div key={index} className="mb-4">
             <FloatingLabelInputOverdraft
@@ -318,28 +313,23 @@ const SplitAmountUserCustomization: React.FC = () => {
           </div>
         ))}
 
-        {/* Buttons Container */}
+        {/* Buttons */}
         <div className="flex space-x-4 mb-4 mt-6">
-          {/* Supercharge Button */}
           <button
             onClick={addField}
             className="flex-1 bg-white border border-gray-300 text-black text-base font-bold py-2 px-4 rounded-lg hover:bg-gray-50 transition"
           >
             Supercharge
           </button>
-
-          {/* Continue (Flex) Button */}
           <button
             onClick={navigateToSplitPlans}
             className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
-              totalAmount === userTotalAmount
-                ? ""
-                : "opacity-50 cursor-not-allowed"
+              totalAmount === userTotalAmount ? "" : "opacity-50 cursor-not-allowed"
             }`}
             disabled={totalAmount !== userTotalAmount}
           >
-            {instantPowerAmount
-              ? `Flex $${parseFloat(instantPowerAmount).toFixed(2)}`
+            {paymentAmount
+              ? `Flex $${parseFloat(paymentAmount).toFixed(2)}`
               : "Flex"}
           </button>
         </div>
@@ -348,17 +338,14 @@ const SplitAmountUserCustomization: React.FC = () => {
         <AnimatePresence>
           {isModalOpen && (
             <>
-              {/* Backdrop */}
               <motion.div
                 className="fixed inset-0 bg-black bg-opacity-50 z-40"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 0.5 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                onClick={closeModal} // Close modal when clicking on the backdrop
+                onClick={closeModal}
               ></motion.div>
-
-              {/* Modal */}
               <motion.div
                 className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
                 initial={{ y: "100%", opacity: 0 }}
@@ -372,24 +359,19 @@ const SplitAmountUserCustomization: React.FC = () => {
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: "100%", opacity: 0 }}
                   transition={{ duration: 0.3 }}
-                  onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside the modal
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {/* Modal Header with Enlarged Close Icon */}
                   <div className="flex justify-end p-4">
                     <button
-                      onClick={closeModal}
-                      className="text-gray-500 hover:text-gray-700 focus:outline-none"
+                      onClick={() => navigate("/payment-settings")}
+                      className="bg-black text-white font-bold py-2 px-4 rounded-lg"
                     >
-                      <IoIosClose size={36} /> {/* Increased size from 24 to 36 */}
+                      Payment Settings
                     </button>
                   </div>
-
-                  {/* Modal Title */}
                   <h2 className="text-xl font-semibold mb-4 px-4">
                     Select Payment Method
                   </h2>
-
-                  {/* Payment Methods List */}
                   <div className="space-y-4 px-4 pb-4">
                     {cardPaymentMethods.map((method, index) => (
                       <PaymentMethodItem
@@ -400,14 +382,6 @@ const SplitAmountUserCustomization: React.FC = () => {
                         isLastItem={index === cardPaymentMethods.length - 1}
                       />
                     ))}
-
-                    {/* Optionally, add a button to add a new payment method */}
-                    {/* <button
-                      onClick={() => navigate("/add-payment-method")}
-                      className="w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition"
-                    >
-                      Add New Payment Method
-                    </button> */}
                   </div>
                 </motion.div>
               </motion.div>
@@ -415,14 +389,11 @@ const SplitAmountUserCustomization: React.FC = () => {
           )}
         </AnimatePresence>
       </div>
-
-      {/* React Sonner Toaster */}
       <Toaster richColors position="top-right" />
     </div>
   );
 };
 
-// Wrap the SplitAmountUserCustomization with ProtectedRoute
 const SplitAmountPage: React.FC = () => {
   return (
     <ProtectedRoute>

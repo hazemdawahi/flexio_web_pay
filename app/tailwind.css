@@ -32,6 +32,7 @@ body::-webkit-scrollbar {
   animation: spin 1s ease-in-out infinite;
 }
 
+
 @layer base {
   :root {
     --background: 0 0% 100%;

@@ -1,5 +1,5 @@
 // app/components/PaymentPlanMocking.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, forwardRef } from 'react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { useNavigate } from 'react-router-dom';
@@ -15,7 +15,20 @@ interface PaymentPlanMockingProps {
   showEditButton?: boolean;
   showChangeDateButton?: boolean;
   onDateSelected?: (date: Date) => void;
+  initialDate?: Date; // New prop to receive the currently selected starting date
 }
+
+// Custom input component using forwardRef that always displays "Change Starting Date"
+const ExampleCustomInput = forwardRef(
+  (
+    { onClick, className }: { onClick?: () => void; className?: string },
+    ref: React.Ref<HTMLButtonElement>
+  ) => (
+    <button className={className} onClick={onClick} ref={ref}>
+      Change Starting Date
+    </button>
+  )
+);
 
 const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
   payments = [],
@@ -23,16 +36,24 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
   showEditButton = false,
   showChangeDateButton = false,
   onDateSelected,
+  initialDate,
 }) => {
-  const [isDatePickerVisible, setDatePickerVisible] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  // Use the initialDate prop as the starting value; default to today if not provided.
+  const [selectedDate, setSelectedDate] = useState<Date>(initialDate || new Date());
   const navigate = useNavigate();
+
+  // Update the internal state when the parent's initialDate changes.
+  useEffect(() => {
+    if (initialDate) {
+      setSelectedDate(initialDate);
+    }
+  }, [initialDate]);
 
   if (isCollapsed) {
     return null;
   }
 
-  // Calculate total amount
+  // Calculate total amount from the payments list
   const totalAmount = payments
     .reduce((total: number, payment: SplitPayment) => total + payment.amount, 0)
     .toFixed(2);
@@ -42,7 +63,6 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
   };
 
   const handleDateChange = (date: Date | null) => {
-    setDatePickerVisible(false);
     if (date) {
       setSelectedDate(date);
       onDateSelected && onDateSelected(date);
@@ -60,13 +80,16 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
         <span className="text-lg font-semibold">{`${payments.length} Total Payments`}</span>
         <div className="flex space-x-2">
           {showChangeDateButton && (
-            <button
-              onClick={() => setDatePickerVisible(true)}
-              className="px-3 py-1 bg-black text-white rounded hover:bg-gray-800 transition-colors"
-              style={{ width: '120px', height: '40px' }}
-            >
-              Change Date
-            </button>
+            <DatePicker
+              selected={selectedDate}
+              onChange={handleDateChange}
+              minDate={today}
+              maxDate={maxDate}
+              withPortal
+              customInput={
+                <ExampleCustomInput className="px-3 py-1 bg-black text-white rounded hover:bg-gray-800 transition-colors" />
+              }
+            />
           )}
           {showEditButton && (
             <button
@@ -105,7 +128,9 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
                       day: 'numeric',
                     })}
                   </p>
-                  <p className="text-sm text-gray-600">${(payment.amount / 100).toFixed(2)}</p>
+                  <p className="text-sm text-gray-600">
+                    ${(payment.amount / 100).toFixed(2)}
+                  </p>
                 </div>
               </div>
             );
@@ -113,33 +138,18 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
 
           {/* Total Amount */}
           <div className="flex items-start mt-4">
-            {/* Dot */}
             <div className="flex flex-col items-center">
               <div className="w-5 h-5 bg-white border-2 border-black rounded-full z-10"></div>
             </div>
-
-            {/* Total Details */}
             <div className="ml-4">
               <p className="text-md font-semibold">Total</p>
-              <p className="text-sm text-gray-800">${(Number(totalAmount) / 100).toFixed(2)}</p>
+              <p className="text-sm text-gray-800">
+                ${(Number(totalAmount) / 100).toFixed(2)}
+              </p>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Date Picker */}
-      {isDatePickerVisible && (
-        <div className="mt-6">
-          <DatePicker
-            selected={selectedDate || today}
-            onChange={handleDateChange}
-            minDate={today}
-            maxDate={maxDate}
-            inline
-            className="w-full"
-          />
-        </div>
-      )}
     </div>
   );
 };

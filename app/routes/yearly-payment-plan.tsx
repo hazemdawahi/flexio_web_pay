@@ -1,13 +1,14 @@
+// app/routes/YearlyPaymentPlan.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useSearchParams } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
 import { useCalculatePaymentPlan, SplitPayment } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
-import { Dialog } from "@headlessui/react";
 import { toast, Toaster } from "sonner";
 import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface SuperchargeDetail {
   amount: string; // amount in cents
@@ -47,16 +48,22 @@ const YearlyPaymentPlan: React.FC = () => {
   // Convert the yearly amount (in cents) to dollars
   const yearlyPowerAmountValue = Number(yearlyPowerAmount) / 100 || 0;
 
-  // State for user-selected number of periods and payment frequency
-  const [numberOfPeriods, setNumberOfPeriods] = useState<string>("1");
-  const [paymentFrequency, setPaymentFrequency] = useState<"BIWEEKLY" | "MONTHLY">("MONTHLY");
+  // State for number of months (periods) and other UI states
+  const [numberOfMonths, setNumberOfMonths] = useState<string>("12");
+  // Payment frequency is always monthly
+  const paymentFrequency: "MONTHLY" = "MONTHLY";
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPlanLoading, setIsPlanLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Added state variables (if needed later)
+  // Additional state variables (if needed later)
   const [paymentAmount, setPaymentAmount] = useState<string>("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
+
+  // New state: starting date for the payment plan (stored as a string in YYYY-MM-DD format)
+  const [startDate, setStartDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
 
   const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } =
@@ -66,20 +73,16 @@ const YearlyPaymentPlan: React.FC = () => {
   // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
-  const frequencyMap: Record<"BIWEEKLY" | "MONTHLY", "BIWEEKLY" | "MONTHLY"> = {
-    BIWEEKLY: "BIWEEKLY",
-    MONTHLY: "MONTHLY",
-  };
-
+  // Build the plan request with the current starting date.
   const planRequest = useMemo(
     () => ({
-      frequency: frequencyMap[paymentFrequency],
-      numberOfPayments: parseInt(numberOfPeriods, 10),
-      // purchaseAmount in cents (yearlyPowerAmountValue was converted from cents to dollars above)
+      frequency: paymentFrequency,
+      numberOfPayments: parseInt(numberOfMonths, 10),
+      // purchaseAmount in cents
       purchaseAmount: yearlyPowerAmountValue * 100,
-      startDate: new Date().toISOString().split("T")[0],
+      startDate: startDate,
     }),
-    [paymentFrequency, numberOfPeriods, yearlyPowerAmountValue]
+    [paymentFrequency, numberOfMonths, yearlyPowerAmountValue, startDate]
   );
 
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -105,7 +108,7 @@ const YearlyPaymentPlan: React.FC = () => {
         },
       });
     }
-  }, [paymentFrequency, numberOfPeriods, yearlyPowerAmountValue, calculatePlan]);
+  }, [paymentFrequency, numberOfMonths, yearlyPowerAmountValue, startDate, calculatePlan]);
 
   useEffect(() => {
     if (calculatePlanError) {
@@ -175,7 +178,7 @@ const YearlyPaymentPlan: React.FC = () => {
       return;
     }
     const offsetStartDate = planRequest.startDate;
-    const numberOfPayments = parseInt(numberOfPeriods, 10);
+    const numberOfPayments = parseInt(numberOfMonths, 10);
     setIsLoading(true);
     setTimeout(() => {
       setIsLoading(false);
@@ -205,16 +208,24 @@ const YearlyPaymentPlan: React.FC = () => {
     }, 1500);
   };
 
-  const getMaxNumber = (frequency: "BIWEEKLY" | "MONTHLY"): number =>
-    frequency === "BIWEEKLY" ? 26 : 12;
-  const getNumberOptions = () => {
-    const maxNumber = getMaxNumber(paymentFrequency);
-    return Array.from({ length: maxNumber }, (_, index) => (
-      <option key={index + 1} value={`${index + 1}`}>
-        {index + 1}
-      </option>
-    ));
+  // Build options for months from 12 to 60.
+  const getMonthOptions = () => {
+    const options = [];
+    for (let month = 12; month <= 60; month++) {
+      options.push(
+        <option key={month} value={month.toString()}>
+          {month}
+        </option>
+      );
+    }
+    return options;
   };
+
+  // Filter card-type payment methods (exclude bank accounts)
+  const cardMethods: PaymentMethod[] =
+    paymentMethodsData?.data?.data?.filter(
+      (method: PaymentMethod) => method.type === "card"
+    ) || [];
 
   return (
     <>
@@ -225,36 +236,19 @@ const YearlyPaymentPlan: React.FC = () => {
             Flex your yearly payments for ${yearlyPowerAmountValue.toFixed(2)}
           </h1>
         </div>
-        {/* Pickers */}
+        {/* Number of Months Picker */}
         <div className="flex flex-col md:flex-row items-center mb-5 space-y-4 md:space-y-0 md:space-x-4">
-          <div className="w-full md:w-1/2">
-            <label htmlFor="numberOfPeriods" className="block text-sm font-medium text-gray-700 mb-1">
-              Number of Periods
+          <div className="w-full">
+            <label htmlFor="numberOfMonths" className="block text-sm font-medium text-gray-700 mb-1">
+              Number of Months
             </label>
             <select
-              id="numberOfPeriods"
-              value={numberOfPeriods}
-              onChange={(e) => setNumberOfPeriods(e.target.value)}
+              id="numberOfMonths"
+              value={numberOfMonths}
+              onChange={(e) => setNumberOfMonths(e.target.value)}
               className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             >
-              {getNumberOptions()}
-            </select>
-          </div>
-          <div className="w-full md:w-1/2">
-            <label htmlFor="paymentFrequency" className="block text-sm font-medium text-gray-700 mb-1">
-              Payment Frequency
-            </label>
-            <select
-              id="paymentFrequency"
-              value={paymentFrequency}
-              onChange={(e) => setPaymentFrequency(e.target.value as "BIWEEKLY" | "MONTHLY")}
-              disabled={numberOfPeriods === "1"}
-              className={`block w-full p-2 border ${
-                numberOfPeriods === "1" ? "bg-gray-100" : "border-gray-300"
-              } rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
-            >
-              <option value="BIWEEKLY">Bi-weekly</option>
-              <option value="MONTHLY">Monthly</option>
+              {getMonthOptions()}
             </select>
           </div>
         </div>
@@ -271,6 +265,12 @@ const YearlyPaymentPlan: React.FC = () => {
                 payments={mockPayments}
                 showChangeDateButton={true}
                 isCollapsed={false}
+                // Pass the current startDate as a Date object so that it is preselected.
+                initialDate={new Date(startDate)}
+                onDateSelected={(date: Date) => {
+                  // When the starting date changes, update the state.
+                  setStartDate(date.toISOString().split("T")[0]);
+                }}
               />
             )}
           </div>
@@ -302,31 +302,52 @@ const YearlyPaymentPlan: React.FC = () => {
           )}
         </button>
       </div>
-      {/* Payment Methods Modal */}
-      <Dialog open={isModalOpen} onClose={() => setIsModalOpen(false)} className="fixed z-10 inset-0 overflow-y-auto">
-        <div className="flex items-center justify-center min-h-screen px-4">
-          <div className="fixed inset-0 bg-black opacity-30" />
-          <Dialog.Panel className="bg-white rounded-lg max-w-md mx-auto z-20 w-full p-6">
-            <Dialog.Title className="text-lg font-bold mb-4">Select Payment Method</Dialog.Title>
-            <div className="max-h-80 overflow-y-auto">
-              {paymentMethodsData?.data?.data?.map((method: PaymentMethod) => (
-                <PaymentMethodItem
-                  key={method.id}
-                  method={method}
-                  selectedMethod={selectedPaymentMethod}
-                  onSelect={handleMethodSelect}
-                />
-              ))}
-            </div>
-            <button
+      {/* Animated Payment Methods Modal */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 z-40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
               onClick={() => setIsModalOpen(false)}
-              className="mt-4 w-full bg-red-500 text-white py-2 rounded-md hover:bg-red-600"
+            />
+            <motion.div
+              className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ duration: 0.3 }}
             >
-              Close
-            </button>
-          </Dialog.Panel>
-        </div>
-      </Dialog>
+              <motion.div
+                className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-3/4 overflow-y-auto"
+                initial={{ y: "100%", opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: "100%", opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-4">
+                  <h2 className="text-lg font-bold mb-4">Select Payment Method</h2>
+                  <div className="max-h-80 overflow-y-auto">
+                    {cardMethods.map((method: PaymentMethod, index: number) => (
+                      <PaymentMethodItem
+                        key={method.id}
+                        method={method}
+                        selectedMethod={selectedPaymentMethod}
+                        onSelect={handleMethodSelect}
+                        isLastItem={cardMethods.length === 1 || index === cardMethods.length - 1}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
       <Toaster richColors />
     </>
   );

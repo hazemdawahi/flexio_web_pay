@@ -1,20 +1,14 @@
 // app/routes/payment-plan.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from '@remix-run/react'; // Ensure correct import based on your routing library
-import {
-  usePaymentMethods,
-  PaymentMethod,
-} from '~/hooks/usePaymentMethods';
-import {
-  useCalculatePaymentPlan,
-  SplitPayment,
-} from '~/hooks/useCalculatePaymentPlan';
+import { useNavigate } from '@remix-run/react';
+import { usePaymentMethods, PaymentMethod } from '~/hooks/usePaymentMethods';
+import { useCalculatePaymentPlan, SplitPayment } from '~/hooks/useCalculatePaymentPlan';
 import { useUserDetails } from '~/hooks/useUserDetails';
-import { Dialog } from '@headlessui/react';
 import { toast, Toaster } from 'sonner';
-import SelectedPaymentMethod from '~/compoments/SelectedPaymentMethod'; // Corrected 'compoments' to 'components'
-import PaymentPlanMocking from '~/compoments/PaymentPlanMocking'; // Corrected 'compoments' to 'components'
-import PaymentMethodItem from '~/compoments/PaymentMethodItem'; // Corrected 'compoments' to 'components'
+import SelectedPaymentMethod from '~/compoments/SelectedPaymentMethod';
+import PaymentPlanMocking from '~/compoments/PaymentPlanMocking';
+import PaymentMethodItem from '~/compoments/PaymentMethodItem';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const SERVER_BASE_URL = 'http://192.168.1.32:8080';
 
@@ -37,10 +31,9 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   paymentMethodId,
 }) => {
   const navigate = useNavigate();
-
   const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0; // Convert cents to dollars
 
-  // State for user-selected number of periods and payment frequency
+  // State for number of periods and payment frequency
   const [numberOfPeriods, setNumberOfPeriods] = useState<string>('1');
   const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>('MONTHLY');
 
@@ -56,21 +49,24 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
+  // New state: starting date for the payment plan (in YYYY-MM-DD format)
+  const [startDate, setStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
+
   // Mapping from PaymentFrequency to API expected format
   const frequencyMap: Record<PaymentFrequency, 'BIWEEKLY' | 'MONTHLY'> = {
-    'BIWEEKLY': 'BIWEEKLY',
-    'MONTHLY': 'MONTHLY',
+    BIWEEKLY: 'BIWEEKLY',
+    MONTHLY: 'MONTHLY',
   };
 
-  // Memoize planRequest to prevent it from being recreated on every render
+  // Memoize planRequest with the current starting date.
   const planRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
       purchaseAmount: instantPowerAmountValue * 100, // Convert dollars back to cents
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: startDate,
     }),
-    [paymentFrequency, numberOfPeriods, instantPowerAmountValue]
+    [paymentFrequency, numberOfPeriods, instantPowerAmountValue, startDate]
   );
 
   useEffect(() => {
@@ -95,7 +91,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentFrequency, numberOfPeriods, instantPowerAmountValue, calculatePlan]);
+  }, [paymentFrequency, numberOfPeriods, instantPowerAmountValue, startDate, calculatePlan]);
 
   useEffect(() => {
     if (calculatePlanError) {
@@ -152,39 +148,34 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
       return;
     }
 
-    // Define additional data to log and pass
     const offsetStartDate = planRequest.startDate;
     const numberOfPayments = parseInt(numberOfPeriods, 10);
-
     setIsLoading(true);
 
-    // Simulate API call or processing delay
     setTimeout(() => {
       setIsLoading(false);
       toast.success('Payment plan confirmed successfully!');
-      
-      // Navigate to /payment-success with additional state
       navigate('/payment-success', {
         state: {
           instantPowerAmount,
           paymentPlan: calculatedPlan?.data?.splitPayments || [],
-          superchargeDetails, // Pass as array
+          superchargeDetails,
           paymentFrequency,
           offsetStartDate,
           numberOfPayments,
-          selectedPaymentMethod, // Optionally pass the selected payment method
-          checkoutToken, // Include checkoutToken here
+          selectedPaymentMethod,
+          checkoutToken,
         },
       });
       console.log("state", {
         instantPowerAmount,
         paymentPlan: calculatedPlan?.data?.splitPayments || [],
-        superchargeDetails, // Pass as array
+        superchargeDetails,
         paymentFrequency,
         offsetStartDate,
         numberOfPayments,
         selectedPaymentMethod,
-        checkoutToken, // Log checkoutToken
+        checkoutToken,
       });
     }, 1500);
   };
@@ -201,6 +192,12 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
       </option>
     ));
   };
+
+  // Filter card-type payment methods (exclude bank accounts)
+  const cardMethods: PaymentMethod[] =
+    paymentMethodsData?.data?.data?.filter(
+      (method: PaymentMethod) => method.type === "card"
+    ) || [];
 
   return (
     <>
@@ -251,7 +248,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
           </div>
         </div>
 
-        {/* Payment Plan */}
+        {/* Payment Plan Section */}
         {instantPowerAmountValue > 0 && (
           <div className="mb-5">
             <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
@@ -264,12 +261,17 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
                 payments={mockPayments}
                 showChangeDateButton={true}
                 isCollapsed={false}
+                // Pass the current startDate (as a Date object) to PaymentPlanMocking.
+                initialDate={new Date(startDate)}
+                onDateSelected={(date: Date) => {
+                  setStartDate(date.toISOString().split("T")[0]);
+                }}
               />
             )}
           </div>
         )}
 
-        {/* Payment Method */}
+        {/* Payment Method Section */}
         <div className="mb-5">
           <h2 className="text-xl font-semibold mb-3">Payment Method</h2>
           {renderPaymentMethodSection()}
@@ -300,34 +302,53 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         </button>
       </div>
 
-      {/* Payment Methods Modal */}
-      <Dialog open={isModalOpen} onClose={() => setIsModalOpen(false)} className="fixed z-10 inset-0 overflow-y-auto">
-        <div className="flex items-center justify-center min-h-screen px-4">
-          <div className="fixed inset-0 bg-black opacity-30" />
-          
-          <Dialog.Panel className="bg-white rounded-lg max-w-md mx-auto z-20 w-full p-6">
-            <Dialog.Title className="text-lg font-bold mb-4">Select Payment Method</Dialog.Title>
-            <div className="max-h-80 overflow-y-auto">
-              {paymentMethodsData?.data?.data?.map((method: PaymentMethod) => (
-                <PaymentMethodItem
-                  key={method.id}
-                  method={method}
-                  selectedMethod={selectedPaymentMethod}
-                  onSelect={handleMethodSelect}
-                />
-              ))}
-            </div>
-            <button
+      {/* Animated Payment Methods Modal */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 z-40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
               onClick={() => setIsModalOpen(false)}
-              className="mt-4 w-full bg-red-500 text-white py-2 rounded-md hover:bg-red-600"
+            />
+            <motion.div
+              className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+              transition={{ duration: 0.3 }}
             >
-              Close
-            </button>
-          </Dialog.Panel>
-        </div>
-      </Dialog>
+              <motion.div
+                className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-3/4 overflow-y-auto"
+                initial={{ y: "100%", opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: "100%", opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-4">
+                  <h2 className="text-lg font-bold mb-4">Select Payment Method</h2>
+                  <div className="max-h-80 overflow-y-auto">
+                    {cardMethods.map((method: PaymentMethod, index: number) => (
+                      <PaymentMethodItem
+                        key={method.id}
+                        method={method}
+                        selectedMethod={selectedPaymentMethod}
+                        onSelect={handleMethodSelect}
+                        isLastItem={cardMethods.length === 1 || index === cardMethods.length - 1}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
-      {/* Toast Container */}
       <Toaster richColors />
     </>
   );

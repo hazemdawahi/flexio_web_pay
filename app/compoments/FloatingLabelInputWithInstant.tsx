@@ -68,11 +68,11 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
       <div
         className={`flex flex-row items-center border ${
           error ? "border-red-500" : "border-gray-300"
-        } rounded-lg shadow-md p-2`}
+        } rounded-lg shadow-md`}
         style={borderStyle}
       >
-        {/* Input Field */}
-        <div className="relative flex-1">
+        {/* Input Container */}
+        <div className="relative flex-1 border-r rounded-l-lg p-2">
           <label
             className={`absolute left-2 transition-all duration-300 pointer-events-none ${
               labelActive
@@ -89,25 +89,17 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
             onFocus={handleFocus}
             onBlur={handleBlur}
             disabled={nokeyboard}
-            className={`w-full py-2 px-2 border-none focus:outline-none ${
-              nokeyboard ? "text-gray-700" : "text-black"
-            }`}
+            className="w-full py-2 px-2 border-none focus:outline-none bg-transparent"
           />
         </div>
 
         {/* Power Section */}
         {instantPower !== undefined && (
-          <div className="flex flex-row items-center ml-4">
-            {/* Vertical Separator */}
-            <div className="w-px bg-gray-300 h-8 mx-4"></div>
-
-            {/* Power Value and Label */}
-            <div className="flex flex-col items-center">
-              <span className="text-sm font-bold">{formatToDollars(instantPower)}</span>
-              <span className="text-xs text-gray-500">
-                {powerType === "yearly" ? "Yearly Power" : "Instant Power"}
-              </span>
-            </div>
+          <div className="flex flex-col items-center justify-center p-2">
+            <span className="text-sm font-bold">{formatToDollars(instantPower)}</span>
+            <span className="text-xs text-gray-500">
+              {powerType === "yearly" ? "Yearly Power" : "Instant Power"}
+            </span>
           </div>
         )}
       </div>

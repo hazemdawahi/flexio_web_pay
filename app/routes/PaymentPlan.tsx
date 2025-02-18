@@ -12,15 +12,22 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const SERVER_BASE_URL = 'http://192.168.1.32:8080';
 
+// Define a type for other user amounts
+interface SplitEntry {
+  userId: string;
+  amount: string;
+}
+
 interface SuperchargeDetail {
   amount: string; // amount in cents
   paymentMethodId: string;
 }
 
 interface PaymentPlanProps {
-  instantPowerAmount: string; // in cents
+  instantPowerAmount: string; // expected in cents (e.g., "1000" for $10.00) or dollars if you adjust the logic below
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
+  otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts
 }
 
 type PaymentFrequency = 'BIWEEKLY' | 'MONTHLY';
@@ -29,9 +36,18 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   instantPowerAmount,
   superchargeDetails,
   paymentMethodId,
+  otherUserAmounts = [],
 }) => {
   const navigate = useNavigate();
-  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0; // Convert cents to dollars
+
+  // Debug: Log the received prop
+  console.log("Received instantPowerAmount prop:", instantPowerAmount);
+
+  // If your parent passes the amount in cents, use the following line:
+  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0;
+  
+  // If the parent now passes the amount in dollars, use this instead:
+  // const instantPowerAmountValue = Number(instantPowerAmount) || 0;
 
   // State for number of periods and payment frequency
   const [numberOfPeriods, setNumberOfPeriods] = useState<string>('1');
@@ -63,7 +79,10 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: instantPowerAmountValue * 100, // Convert dollars back to cents
+      // If your API expects the purchase amount in cents:
+      purchaseAmount: instantPowerAmountValue * 100,
+      // If your API expects the amount in dollars, use:
+      // purchaseAmount: instantPowerAmountValue,
       startDate: startDate,
     }),
     [paymentFrequency, numberOfPeriods, instantPowerAmountValue, startDate]
@@ -152,30 +171,34 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     const numberOfPayments = parseInt(numberOfPeriods, 10);
     setIsLoading(true);
 
+    // Log the other users' amounts when the user presses Flex
+    console.log("Other User Amounts:", otherUserAmounts);
+
     setTimeout(() => {
       setIsLoading(false);
       toast.success('Payment plan confirmed successfully!');
       navigate('/payment-success', {
         state: {
           instantPowerAmount,
-          paymentPlan: calculatedPlan?.data?.splitPayments || [],
           superchargeDetails,
           paymentFrequency,
           offsetStartDate,
           numberOfPayments,
-          selectedPaymentMethod,
+          // Pass only the selected payment method's id
+          selectedPaymentMethod: selectedPaymentMethod.id,
           checkoutToken,
+          otherUserAmounts, // Sending otherUserAmounts along with the state
         },
       });
-      console.log("state", {
+      console.log("State sent to /payment-success", {
         instantPowerAmount,
-        paymentPlan: calculatedPlan?.data?.splitPayments || [],
         superchargeDetails,
         paymentFrequency,
         offsetStartDate,
         numberOfPayments,
-        selectedPaymentMethod,
+        selectedPaymentMethod: selectedPaymentMethod.id,
         checkoutToken,
+        otherUserAmounts,
       });
     }, 1500);
   };

@@ -1,5 +1,3 @@
-// src/pages/SendMoneyWithContacts.tsx
-
 import React, { useState, useCallback } from 'react';
 import { FaArrowLeft, FaCheck } from 'react-icons/fa';
 import { useNavigate } from '@remix-run/react';
@@ -13,8 +11,8 @@ interface Contact {
   id: string;
   username: string;
   phoneNumber: string;
-  email?: string; // Optional if not provided by API
-  avatar: string; // Mapped from 'logo' in API response
+  email: string; // Updated to required
+  avatar: string;
 }
 
 const ITEMS_PER_LOAD = 20;
@@ -24,7 +22,6 @@ const SendMoneyWithContacts: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
 
-  // Initialize the useFetchContactsInfinite hook
   const {
     data,
     error,
@@ -36,20 +33,20 @@ const SendMoneyWithContacts: React.FC = () => {
     refetch,
   } = useFetchContactsInfinite(ITEMS_PER_LOAD, [], searchTerm);
 
-  // Derive all contacts from the fetched pages
+  // Flatten all pages into one contacts array
   const allContacts: Contact[] = data
     ? data.pages.flatMap((page) =>
         page.data?.content.map((contact: any) => ({
           id: contact.id,
           username: contact.username,
           phoneNumber: contact.phoneNumber,
-          email: contact.email || '', // Adjust based on API response
-          avatar: contact.logo || 'https://via.placeholder.com/150', // Map 'logo' to 'avatar'
+          email: contact.email || '', // Ensure a string value
+          avatar: contact.logo || 'https://via.placeholder.com/150',
         })) || []
       )
     : [];
 
-  // Handle search with debounce
+  // Debounced search
   const handleSearch = useCallback(
     debounce((term: string) => {
       setSearchTerm(term);

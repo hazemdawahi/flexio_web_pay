@@ -15,6 +15,12 @@ import SelectedPaymentMethod from '~/compoments/SelectedPaymentMethod';
 import PaymentMethodItem from '~/compoments/PaymentMethodItem';
 import PaymentCircle from '~/compoments/PaymentCircle';
 
+// Define a type for other user amounts
+interface SplitEntry {
+  userId: string;
+  amount: string;
+}
+
 interface SuperchargeDetail {
   amount: string; // amount in cents
   paymentMethodId: string;
@@ -24,6 +30,7 @@ interface SmartPaymentPlansProps {
   instantPowerAmount: string; // in cents
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
+  otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts
 }
 
 type PaymentFrequency = 'monthly' | 'bi-weekly';
@@ -32,6 +39,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   instantPowerAmount,
   superchargeDetails,
   paymentMethodId,
+  otherUserAmounts = [], // Default to an empty array if not provided
 }) => {
   const navigate = useNavigate();
 
@@ -155,38 +163,45 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       toast.error('Checkout token is missing. Please try again.');
       return;
     }
+    if (!selectedPaymentMethod) {
+      toast.error('Please select a payment method.');
+      return;
+    }
 
     const offsetStartDate = planRequest.startDate;
     const numberOfPayments = parseInt(numberOfPeriods, 10);
 
+    // Log the other users' amounts
+    console.log("Other User Amounts:", otherUserAmounts);
+
     navigate('/payment_confirmation', {
       state: {
         instantPowerAmount,
-        paymentPlan: calculatedPlan?.data?.splitPayments || [],
         superchargeDetails, // Pass as array
         paymentFrequency,
         offsetStartDate,
         numberOfPayments,
+        // Only pass the selected payment method's id
+        selectedPaymentMethod: selectedPaymentMethod.id,
         checkoutToken, // Include checkoutToken here
+        otherUserAmounts, // Send otherUserAmounts along with the state
       },
     });
 
-    console.log("state", {
+    console.log("State sent to /payment_confirmation", {
       instantPowerAmount,
-      paymentPlan: calculatedPlan?.data?.splitPayments || [],
-      superchargeDetails, // Pass as array
+      superchargeDetails,
       paymentFrequency,
       offsetStartDate,
       numberOfPayments,
-      selectedPaymentMethod,
-      checkoutToken, // Log checkoutToken
+      selectedPaymentMethod: selectedPaymentMethod.id,
+      checkoutToken,
+      otherUserAmounts,
     });
   };
 
   // Determine overall loading state
   const isLoadingState = plaidLoading || userLoading || isPlanLoading;
-
-  // Determine error state
   const isErrorState =
     plaidError ||
     userError ||
@@ -292,7 +307,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         </div>
       </Dialog>
 
-      {/* Toast Container */}
       <Toaster richColors />
     </>
   );

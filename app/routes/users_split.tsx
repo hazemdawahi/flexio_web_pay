@@ -11,9 +11,11 @@ import FloatingLabelInput from '~/compoments/Floatinglabelinpunt';
 
 interface LocationState {
   userIds: string[];
+  // Optionally, a type can be passed (for example "yearly")
+  type?: "instantaneous" | "yearly" | "split";
 }
 
-interface User {
+export interface User {
   id: string;
   username: string;
   logo: string;
@@ -35,10 +37,14 @@ export interface SplitData {
 const MultipleUsersSendWeb: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Extract userIds from location state
-  const { userIds } = (location.state as LocationState) || { userIds: [] };
+  
+  // Extract userIds (and optionally type) from location state
+  const state = (location.state as LocationState) || { userIds: [] };
+  const { userIds, type } = state;
   const userIdsArray = Array.isArray(userIds) ? userIds : [];
+  
+  // Define isYearly flag (defaults to false if type is not "yearly")
+  const isYearly = type === "yearly";
 
   // Fetch multiple user details
   const {
@@ -83,7 +89,7 @@ const MultipleUsersSendWeb: React.FC = () => {
   // Calculate the total amount from checkout details (API returns cents)
   const calculateCheckoutTotalAmount = (checkout: CheckoutDetail): number => {
     if (!checkout) return 0;
-    return parseFloat(checkout.totalAmount.amount) / 100;
+    return parseFloat(checkout.totalAmount.amount);
   };
 
   const checkoutTotalAmount = checkoutData
@@ -118,6 +124,11 @@ const MultipleUsersSendWeb: React.FC = () => {
       mappedUsers.push(...otherUsers);
     }
 
+    if (mappedUsers.length === 0) {
+      toast.error("No users found for splitting.");
+      navigate(-1);
+      return;
+    }
     setUsers(mappedUsers);
 
     // Compute initial even split
@@ -144,7 +155,7 @@ const MultipleUsersSendWeb: React.FC = () => {
       setTempAmounts(newAmounts);
       setIsEvenSplit(true);
     }
-  }, [currentUserData, multipleUsersData, checkoutTotalAmount]);
+  }, [currentUserData, multipleUsersData, checkoutTotalAmount, navigate]);
 
   // ------------------------------------------------
   //  Toggle between "Adjust" and "Save Changes" mode
@@ -291,8 +302,9 @@ const MultipleUsersSendWeb: React.FC = () => {
       userAmounts,
     };
 
-    // Navigate to the Power Options page, passing the split data
-    navigate('/power-options', { state: { splitData } });
+    console.log("Data to send:", splitData, users);
+    // Navigate to the Power Options page, passing both split data and the full users array
+    navigate('/power-options', { state: { splitData, users } });
   };
 
   // ------------------------------
@@ -341,9 +353,8 @@ const MultipleUsersSendWeb: React.FC = () => {
     );
   }
 
-  // ----------------------------------
-  //  Main Render: read-only vs editing
-  // ----------------------------------
+  const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
+
   return (
     <div className="min-h-screen bg-white p-6">
       {/* Header */}
@@ -363,9 +374,7 @@ const MultipleUsersSendWeb: React.FC = () => {
           </div>
           <button
             onClick={handleSplitEvenly}
-            className={`text-blue-500 font-semibold ${
-              isEvenSplit ? 'underline' : ''
-            } hover:text-blue-700`}
+            className={`text-blue-500 font-semibold ${isEvenSplit ? 'underline' : ''} hover:text-blue-700`}
           >
             Split Evenly
           </button>

@@ -1,4 +1,3 @@
-// app/routes/YearlyPaymentPlan.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useSearchParams } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
@@ -15,10 +14,19 @@ interface SuperchargeDetail {
   paymentMethodId: string;
 }
 
+export interface User {
+  id: string;
+  username: string;
+  logo: string;
+  isCurrentUser?: boolean;
+}
+
 interface YearlyPaymentPlanProps {
   yearlyPowerAmount: string; // in cents
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
+  // Instead of passing users, we now expect the split data to contain otherUserAmounts.
+  // For clarity, we will parse the query parameter "otherUserAmounts".
 }
 
 const SERVER_BASE_URL = "http://192.168.1.32:8080";
@@ -44,23 +52,40 @@ const YearlyPaymentPlan: React.FC = () => {
   }
   const paymentMethodId =
     stateData.paymentMethodId || searchParams.get("paymentMethodId") || "";
+  // Receive otherUserAmounts from query parameters
+  const otherUserAmountsStr = searchParams.get("otherUserAmounts") || "[]";
+  let otherUserAmounts = [];
+  try {
+    otherUserAmounts = JSON.parse(otherUserAmountsStr);
+  } catch (error) {
+    otherUserAmounts = [];
+  }
+
+  // Log the received parameters on mount
+  useEffect(() => {
+    console.log("Received parameters:", {
+      yearlyPowerAmount,
+      superchargeDetails,
+      paymentMethodId,
+      otherUserAmounts,
+    });
+  }, [yearlyPowerAmount, superchargeDetails, paymentMethodId, otherUserAmounts]);
 
   // Convert the yearly amount (in cents) to dollars
   const yearlyPowerAmountValue = Number(yearlyPowerAmount) / 100 || 0;
 
   // State for number of months (periods) and other UI states
   const [numberOfMonths, setNumberOfMonths] = useState<string>("12");
-  // Payment frequency is always monthly
   const paymentFrequency: "MONTHLY" = "MONTHLY";
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPlanLoading, setIsPlanLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Additional state variables (if needed later)
+  // Additional state variables
   const [paymentAmount, setPaymentAmount] = useState<string>("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
 
-  // New state: starting date for the payment plan (stored as a string in YYYY-MM-DD format)
+  // Starting date for the payment plan (YYYY-MM-DD)
   const [startDate, setStartDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
@@ -73,13 +98,12 @@ const YearlyPaymentPlan: React.FC = () => {
   // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
-  // Build the plan request with the current starting date.
+  // Build the plan request.
   const planRequest = useMemo(
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: parseInt(numberOfMonths, 10),
-      // purchaseAmount in cents
-      purchaseAmount: yearlyPowerAmountValue * 100,
+      purchaseAmount: yearlyPowerAmountValue * 100, // in cents
       startDate: startDate,
     }),
     [paymentFrequency, numberOfMonths, yearlyPowerAmountValue, startDate]
@@ -183,28 +207,19 @@ const YearlyPaymentPlan: React.FC = () => {
     setTimeout(() => {
       setIsLoading(false);
       toast.success("Payment plan confirmed successfully!");
-      navigate("/payment-success", {
-        state: {
-          yearlyPowerAmount,
-          paymentPlan: calculatedPlan?.data?.splitPayments || [],
-          superchargeDetails,
-          paymentFrequency,
-          offsetStartDate,
-          numberOfPayments,
-          selectedPaymentMethod,
-          checkoutToken,
-        },
-      });
-      console.log("State:", {
+      // Build state to pass. We'll include otherUserAmounts (from query param) along with other data.
+      const stateToPass = {
         yearlyPowerAmount,
-        paymentPlan: calculatedPlan?.data?.splitPayments || [],
         superchargeDetails,
         paymentFrequency,
         offsetStartDate,
         numberOfPayments,
-        selectedPaymentMethod,
+        selectedPaymentMethod: selectedPaymentMethod.id,
         checkoutToken,
-      });
+        otherUserAmounts, // Received from query parameter "otherUserAmounts"
+      };
+      console.log("Flex pressed. State to pass:", stateToPass);
+      navigate("/payment-success", { state: stateToPass });
     }, 1500);
   };
 
@@ -221,7 +236,7 @@ const YearlyPaymentPlan: React.FC = () => {
     return options;
   };
 
-  // Filter card-type payment methods (exclude bank accounts)
+  // Filter card-type payment methods
   const cardMethods: PaymentMethod[] =
     paymentMethodsData?.data?.data?.filter(
       (method: PaymentMethod) => method.type === "card"
@@ -265,10 +280,8 @@ const YearlyPaymentPlan: React.FC = () => {
                 payments={mockPayments}
                 showChangeDateButton={true}
                 isCollapsed={false}
-                // Pass the current startDate as a Date object so that it is preselected.
                 initialDate={new Date(startDate)}
                 onDateSelected={(date: Date) => {
-                  // When the starting date changes, update the state.
                   setStartDate(date.toISOString().split("T")[0]);
                 }}
               />
@@ -302,7 +315,7 @@ const YearlyPaymentPlan: React.FC = () => {
           )}
         </button>
       </div>
-      {/* Animated Payment Methods Modal */}
+      {/* Payment Methods Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <>
@@ -329,19 +342,27 @@ const YearlyPaymentPlan: React.FC = () => {
                 transition={{ duration: 0.3 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="p-4">
-                  <h2 className="text-lg font-bold mb-4">Select Payment Method</h2>
-                  <div className="max-h-80 overflow-y-auto">
-                    {cardMethods.map((method: PaymentMethod, index: number) => (
-                      <PaymentMethodItem
-                        key={method.id}
-                        method={method}
-                        selectedMethod={selectedPaymentMethod}
-                        onSelect={handleMethodSelect}
-                        isLastItem={cardMethods.length === 1 || index === cardMethods.length - 1}
-                      />
-                    ))}
-                  </div>
+                <div className="flex justify-end p-4">
+                  <button
+                    onClick={() => navigate("/payment-settings")}
+                    className="bg-black text-white font-bold py-2 px-4 rounded-lg"
+                  >
+                    Payment Settings
+                  </button>
+                </div>
+                <h2 className="text-xl font-semibold mb-4 px-4">
+                  Select Payment Method
+                </h2>
+                <div className="space-y-4 px-4 pb-4">
+                  {cardMethods.map((method, index) => (
+                    <PaymentMethodItem
+                      key={method.id}
+                      method={method}
+                      selectedMethod={selectedPaymentMethod}
+                      onSelect={handleMethodSelect}
+                      isLastItem={index === cardMethods.length - 1}
+                    />
+                  ))}
                 </div>
               </motion.div>
             </motion.div>

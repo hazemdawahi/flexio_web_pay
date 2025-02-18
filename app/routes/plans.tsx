@@ -1,3 +1,4 @@
+// app/routes/Plans.tsx
 import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { useSession } from "~/context/SessionContext";
@@ -6,6 +7,12 @@ import SmartPaymentPlans from "~/routes/SmartPaymentPlans";
 import PaymentPlan from "~/routes/PaymentPlan";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
+
+// Define the shape of a SplitEntry
+export interface SplitEntry {
+  userId: string;
+  amount: string;
+}
 
 interface SuperchargeDetail {
   amount: string; // amount in cents
@@ -16,6 +23,7 @@ export interface PlansData {
   instantPowerAmount: string; // in cents
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
+  otherUserAmounts: SplitEntry[];
 }
 
 const Plans: React.FC = () => {
@@ -25,28 +33,44 @@ const Plans: React.FC = () => {
   const { accessToken } = useSession();
 
   useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const instantPowerAmount = searchParams.get("instantPowerAmount") || "";
-    const superchargeDetailsString = searchParams.get("superchargeDetails");
-    const paymentMethodId = searchParams.get("paymentMethodId") || "";
+    // First, try to get data from location.state
+    if (location.state && Object.keys(location.state).length > 0) {
+      setData(location.state as PlansData);
+    } else {
+      // If no state was passed, fallback to reading query parameters
+      const searchParams = new URLSearchParams(location.search);
+      const instantPowerAmount = searchParams.get("instantPowerAmount") || "";
+      const superchargeDetailsString = searchParams.get("superchargeDetails");
+      const paymentMethodId = searchParams.get("paymentMethodId") || "";
+      const otherUserAmountsString = searchParams.get("otherUserAmounts");
 
-    let superchargeDetails: SuperchargeDetail[] = [];
-    if (superchargeDetailsString) {
-      try {
-        superchargeDetails = JSON.parse(superchargeDetailsString);
-      } catch (error) {
-        console.error("Error parsing superchargeDetails:", error);
+      let superchargeDetails: SuperchargeDetail[] = [];
+      if (superchargeDetailsString) {
+        try {
+          superchargeDetails = JSON.parse(superchargeDetailsString);
+        } catch (error) {
+          console.error("Error parsing superchargeDetails:", error);
+        }
       }
+
+      let otherUserAmounts: SplitEntry[] = [];
+      if (otherUserAmountsString) {
+        try {
+          otherUserAmounts = JSON.parse(otherUserAmountsString);
+        } catch (error) {
+          console.error("Error parsing otherUserAmounts:", error);
+        }
+      }
+
+      const fetchedData: PlansData = {
+        instantPowerAmount,
+        superchargeDetails,
+        paymentMethodId,
+        otherUserAmounts,
+      };
+      setData(fetchedData);
     }
-
-    const fetchedData: PlansData = {
-      instantPowerAmount,
-      superchargeDetails,
-      paymentMethodId,
-    };
-
-    setData(fetchedData);
-  }, [location.search, navigate]);
+  }, [location]);
 
   if (!data) {
     return (
@@ -65,6 +89,7 @@ const Plans: React.FC = () => {
             instantPowerAmount={data.instantPowerAmount}
             superchargeDetails={data.superchargeDetails}
             paymentMethodId={data.paymentMethodId}
+            otherUserAmounts={data.otherUserAmounts}
           />
         </div>
       ),
@@ -77,6 +102,7 @@ const Plans: React.FC = () => {
             instantPowerAmount={data.instantPowerAmount}
             superchargeDetails={data.superchargeDetails}
             paymentMethodId={data.paymentMethodId}
+            otherUserAmounts={data.otherUserAmounts}
           />
         </div>
       ),

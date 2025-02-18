@@ -4,6 +4,7 @@ import { FaArrowLeft } from "react-icons/fa";
 import { useLocation, useNavigate } from "@remix-run/react";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useUserDetails } from "~/hooks/useUserDetails";
+import { toast, Toaster } from "sonner";
 
 // Define types for split data
 export interface SplitEntry {
@@ -16,6 +17,13 @@ export interface SplitData {
   userAmounts: SplitEntry[];
 }
 
+export interface User {
+  id: string;
+  username: string;
+  logo: string;
+  isCurrentUser?: boolean;
+}
+
 const PowerOptionsContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -23,13 +31,16 @@ const PowerOptionsContent: React.FC = () => {
   
   // Optional split data coming from the previous page
   const [splitData, setSplitData] = useState<SplitData | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
 
-  // Check for split data in location.state
+  // Check for split data and users in location.state
   useEffect(() => {
-    const stateData = (location.state as { splitData?: SplitData }) || {};
+    const stateData = (location.state as { splitData?: SplitData; users?: User[] }) || {};
     if (stateData.splitData) {
       setSplitData(stateData.splitData);
     }
+    // Set users if provided; otherwise, default to an empty array.
+    setUsers(stateData.users || []);
   }, [location.state]);
 
   // Retrieve user details via the custom hook
@@ -50,16 +61,14 @@ const PowerOptionsContent: React.FC = () => {
   }, []);
 
   /**
-   * Helper function to handle an option click.
-   * If split data exists, state will be passed to the split customization page.
-   * Otherwise, state data (with payment type) is passed to MerchantShopping.
-   *
-   * @param powerType The custom type to pass (e.g. "instantaneous" or "yearly")
+   * Handle option click. If split data exists (from a split flow),
+   * navigate to the split customization page and pass both split data and users.
+   * Otherwise, navigate to the merchant shopping page.
    */
   const handleOptionClick = (powerType: "instantaneous" | "yearly") => {
     if (splitData && splitData.userAmounts && splitData.userAmounts.length > 0) {
       navigate("/SplitAmountUserCustomization", {
-        state: { userAmounts: splitData.userAmounts, type: powerType },
+        state: { splitData, users, type: powerType },
       });
     } else {
       navigate("/merchant-shopping", { state: { type: powerType } });
@@ -138,6 +147,7 @@ const PowerOptionsContent: React.FC = () => {
           </p>
         </div>
       </div>
+      <Toaster richColors position="top-right" />
     </div>
   );
 };

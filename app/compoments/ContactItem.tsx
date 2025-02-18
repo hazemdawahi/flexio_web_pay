@@ -5,7 +5,7 @@ interface Contact {
   id: string;
   username: string;
   phoneNumber: string;
-  email: string;
+  email: string; // Updated to required
   avatar: string;
 }
 

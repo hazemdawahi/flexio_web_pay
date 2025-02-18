@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { Toaster, toast } from "sonner";
-import { IoIosArrowBack, IoIosClose } from "react-icons/io";
+import { IoIosArrowBack } from "react-icons/io";
 import { motion, AnimatePresence } from "framer-motion";
 import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft";
 import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
@@ -12,19 +12,31 @@ import { useUserDetails } from "~/hooks/useUserDetails";
 import { useSession } from "~/context/SessionContext";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 
-// Define the shape of the passed data
-interface SplitAmount {
+// Reuse the same User and SplitData types
+export interface User {
+  id: string;
+  username: string;
+  logo: string;
+  isCurrentUser?: boolean;
+}
+
+export interface SplitEntry {
   userId: string;
   amount: string;
 }
 
-interface LocationState {
-  userAmounts: SplitAmount[];
-  // Optional field for the type: "instantaneous" or "yearly"
-  type?: "instantaneous" | "yearly";
+export interface SplitData {
+  type: string; // e.g., "split"
+  userAmounts: SplitEntry[];
 }
 
-// Define the structure of supercharge details
+// Define the shape of the passed data
+interface LocationState {
+  splitData: SplitData;
+  users: User[];
+  type?: "instantaneous" | "yearly" | "split";
+}
+
 interface SuperchargeDetail {
   amount: string; // amount in cents as string
   paymentMethodId: string;
@@ -34,22 +46,18 @@ const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Extract userAmounts and type from location.state
-  const { userAmounts, type } = (location.state as LocationState) || { userAmounts: [] };
-  const userAmountsArray = Array.isArray(userAmounts) ? userAmounts : [];
-  console.log("userAmounts", userAmountsArray, "type:", type);
+  // Extract splitData, users, and type from location.state
+  const state = location.state as LocationState;
+  const { splitData, users, type } = state || { splitData: null, users: [], type: "split" };
 
-  // Redirect back if no user amounts are provided
-  useEffect(() => {
-    if (userAmountsArray.length === 0) {
-      toast.error("No user amounts provided.");
-      navigate(-1);
-    }
-  }, [userAmountsArray, navigate]);
-
-  if (userAmountsArray.length === 0) {
+  if (!splitData || !users || users.length === 0) {
+    toast.error("No user split data provided.");
+    navigate(-1);
     return null;
   }
+
+  const userAmountsArray = splitData.userAmounts;
+  console.log("userAmounts", userAmountsArray, "type:", type);
 
   // Assume the first entry is for the current user
   const currentUserSplit = userAmountsArray[0];

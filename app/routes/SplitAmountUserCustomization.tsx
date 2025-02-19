@@ -103,17 +103,10 @@ const SplitAmountUserCustomization: React.FC = () => {
   // Determine if this is a yearly payment based on type passed in location state
   const isYearly = type === "yearly";
 
-  // Based on payment type, set available power from user details
+  // Based on payment type, set available power from user details (not used to prefill amount)
   const availablePower = isYearly
     ? userData?.data?.user?.yearlyPower
     : userData?.data?.user?.instantaneousPower;
-
-  // For yearly, prefill paymentAmount if still default
-  useEffect(() => {
-    if (isYearly && availablePower && paymentAmount === "0.00") {
-      setPaymentAmount(availablePower.toString());
-    }
-  }, [isYearly, availablePower, paymentAmount]);
 
   // Set userTotalAmount from currentUserSplit
   const [userTotalAmount, setUserTotalAmount] = useState<number>(0);

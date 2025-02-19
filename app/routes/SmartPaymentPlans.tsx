@@ -1,6 +1,6 @@
 // app/routes/SmartPaymentPlans.tsx
 import React, { useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from '@remix-run/react'; // Ensure correct import based on your routing library
+import { useNavigate } from '@remix-run/react';
 import {
   CalculatePaymentPlanRequest,
   useCalculatePaymentPlan,
@@ -14,6 +14,22 @@ import { PaymentMethod, usePaymentMethods } from '~/hooks/usePaymentMethods';
 import SelectedPaymentMethod from '~/compoments/SelectedPaymentMethod';
 import PaymentMethodItem from '~/compoments/PaymentMethodItem';
 import PaymentCircle from '~/compoments/PaymentCircle';
+import { useCompleteCheckout, CompleteCheckoutPayload } from '~/hooks/useCompleteCheckout';
+
+const SERVER_BASE_URL = 'http://192.168.1.32:8080';
+
+// Helper function to convert a dollar string to an integer value in cents.
+// For example, "50.00" becomes 5000.
+const convertDollarStringToCents = (amount: string): number => {
+  const [dollars, cents = ""] = amount.split(".");
+  const paddedCents = cents.padEnd(2, "0").slice(0, 2);
+  return parseInt(dollars + paddedCents, 10);
+};
+
+// For each amount input, if it contains a decimal point we assume it's in dollars and convert to cents;
+// otherwise we assume it's already in cents.
+const getCents = (amount: string): number =>
+  amount.includes('.') ? convertDollarStringToCents(amount) : Number(amount);
 
 // Define a type for other user amounts
 interface SplitEntry {
@@ -22,12 +38,12 @@ interface SplitEntry {
 }
 
 interface SuperchargeDetail {
-  amount: string; // amount in cents
+  amount: string; // amount in dollars as entered by the user (e.g., "50.00") or in cents if no decimal is present
   paymentMethodId: string;
 }
 
 interface SmartPaymentPlansProps {
-  instantPowerAmount: string; // in cents
+  instantPowerAmount: string; // in dollars as entered by the user (e.g., "500.00") or in cents (e.g., "50000")
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
   otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts
@@ -39,43 +55,46 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   instantPowerAmount,
   superchargeDetails,
   paymentMethodId,
-  otherUserAmounts = [], // Default to an empty array if not provided
+  otherUserAmounts = [],
 }) => {
   const navigate = useNavigate();
 
-  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0; // Convert cents to dollars
+  // Determine the raw cent value:
+  const instantPowerAmountCents = getCents(instantPowerAmount);
+  // For display purposes, convert cents to dollars.
+  const instantPowerAmountValue = instantPowerAmountCents / 100;
 
-  // Fixed number of periods to 12 and payment frequency to 'monthly'
+  // Fixed values for this route
   const numberOfPeriods = '12';
-  const paymentFrequency: PaymentFrequency = 'monthly'; // Fixed to monthly
+  const paymentFrequency: PaymentFrequency = 'monthly';
 
   const [isPlanLoading, setIsPlanLoading] = React.useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = React.useState<boolean>(false);
-
   const [selectedPaymentMethod, setSelectedPaymentMethod] = React.useState<PaymentMethod | null>(null);
+
   const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } = useCalculatePaymentPlan();
   const { data: plaidStatus, isLoading: plaidLoading, isError: plaidError } = usePlaidTokensStatus();
   const { data: userDetails, isLoading: userLoading, isError: userError } = useUserDetails();
 
   // Retrieve checkoutToken from sessionStorage
-  const checkoutToken = sessionStorage.getItem("checkoutToken");
+  const checkoutToken = sessionStorage.getItem('checkoutToken');
 
-  // Mapping from PaymentFrequency to API expected format
+  // Mapping from our PaymentFrequency to the API expected format
   const frequencyMap: Record<PaymentFrequency, 'BIWEEKLY' | 'MONTHLY'> = {
     'bi-weekly': 'BIWEEKLY',
     'monthly': 'MONTHLY',
   };
 
-  // Memoize planRequest to prevent it from being recreated on every render
+  // Build the plan request – the API expects purchaseAmount in cents.
   const planRequest: CalculatePaymentPlanRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: instantPowerAmountValue * 100, // Convert dollars back to cents
+      purchaseAmount: getCents(instantPowerAmount),
       startDate: new Date().toISOString().split('T')[0],
     }),
-    [paymentFrequency, numberOfPeriods, instantPowerAmountValue]
+    [paymentFrequency, numberOfPeriods, instantPowerAmount]
   );
 
   useEffect(() => {
@@ -129,7 +148,9 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
-      percentage: Number(((payment.amount / (instantPowerAmountValue * 100)) * 100).toFixed(2)),
+      percentage: Number(
+        ((payment.amount / getCents(instantPowerAmount)) * 100).toFixed(2)
+      ),
     })) || [];
 
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
@@ -145,11 +166,9 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         </div>
       );
     }
-
     if (paymentMethodsStatus === 'error') {
       return <p className="text-red-500">Error fetching payment methods</p>;
     }
-
     return (
       <SelectedPaymentMethod
         selectedMethod={selectedPaymentMethod}
@@ -157,6 +176,9 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       />
     );
   };
+
+  // Use the complete checkout mutation hook.
+  const { mutate: completeCheckout, status: checkoutStatus, error: checkoutError } = useCompleteCheckout();
 
   const handleProceed = () => {
     if (!checkoutToken) {
@@ -168,39 +190,57 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       return;
     }
 
-    const offsetStartDate = planRequest.startDate;
     const numberOfPayments = parseInt(numberOfPeriods, 10);
+    const instantAmount = getCents(instantPowerAmount);
+    const yearlyAmount = instantAmount * numberOfPayments;
 
-    // Log the other users' amounts
-    console.log("Other User Amounts:", otherUserAmounts);
+    // Transform supercharge details to use the correct key "paymentMethodId"
+    const transformedSuperchargeDetails = superchargeDetails.map(detail => ({
+      paymentMethodId: detail.paymentMethodId,
+      amount: getCents(detail.amount),
+    }));
 
-    navigate('/payment_confirmation', {
-      state: {
-        instantPowerAmount,
-        superchargeDetails, // Pass as array
-        paymentFrequency,
-        offsetStartDate,
-        numberOfPayments,
-        // Only pass the selected payment method's id
-        selectedPaymentMethod: selectedPaymentMethod.id,
-        checkoutToken, // Include checkoutToken here
-        otherUserAmounts, // Send otherUserAmounts along with the state
-      },
-    });
-
-    console.log("State sent to /payment_confirmation", {
-      instantPowerAmount,
-      superchargeDetails,
-      paymentFrequency,
-      offsetStartDate,
-      numberOfPayments,
+    // Build the payload – all amounts in cents.
+    const payload: CompleteCheckoutPayload = {
+      checkoutToken: checkoutToken,
+      instantAmount,
+      yearlyAmount,
       selectedPaymentMethod: selectedPaymentMethod.id,
-      checkoutToken,
-      otherUserAmounts,
+      superchargeDetails: transformedSuperchargeDetails,
+      paymentFrequency: frequencyMap[paymentFrequency],
+      numberOfPayments: numberOfPayments,
+      offsetStartDate: planRequest.startDate,
+      otherUsers: otherUserAmounts.map(user => ({
+        userId: user.userId,
+        amount: getCents(user.amount),
+      })),
+    };
+
+    completeCheckout(payload, {
+      onSuccess: (data) => {
+        console.log('Checkout successful:', data);
+        toast.success('Payment plan confirmed successfully!');
+        navigate('/payment_confirmation', {
+          state: {
+            instantPowerAmount,
+            superchargeDetails,
+            paymentFrequency,
+            offsetStartDate: planRequest.startDate,
+            numberOfPayments,
+            selectedPaymentMethod: selectedPaymentMethod.id,
+            checkoutToken,
+            otherUserAmounts,
+          },
+        });
+      },
+      onError: (error: Error) => {
+        console.error('Error during checkout:', error);
+        toast.error('Failed to complete checkout. Please try again.');
+      },
     });
   };
 
-  // Determine overall loading state
+  // Determine overall loading state.
   const isLoadingState = plaidLoading || userLoading || isPlanLoading;
   const isErrorState =
     plaidError ||
@@ -249,7 +289,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
           </p>
           <p className="text-lg text-gray-800">
             <span className="font-bold text-black">Total Amount: </span>
-            ${(instantPowerAmountValue).toFixed(2)}
+            ${ (instantPowerAmountCents / 100).toFixed(2) }
           </p>
         </div>
 
@@ -273,10 +313,18 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
 
         {/* Proceed Button */}
         <button
-          className="w-full bg-black text-white font-bold py-4 rounded-lg hover:bg-gray-800 transition"
+          className="w-full bg-black text-white font-bold py-4 rounded-lg hover:bg-gray-800 transition disabled:bg-gray-400 disabled:cursor-not-allowed"
           onClick={handleProceed}
+          disabled={checkoutStatus === 'pending'}
         >
-          Proceed to Confirmation
+          {checkoutStatus === 'pending' ? (
+            <div className="flex items-center justify-center">
+              <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
+              <span>Processing...</span>
+            </div>
+          ) : (
+            'Proceed to Confirmation'
+          )}
         </button>
       </div>
 
@@ -284,7 +332,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       <Dialog open={isModalOpen} onClose={() => setIsModalOpen(false)} className="fixed z-10 inset-0 overflow-y-auto">
         <div className="flex items-center justify-center min-h-screen px-4">
           <div className="fixed inset-0 bg-black opacity-30" />
-
           <Dialog.Panel className="bg-white rounded-lg max-w-md mx-auto z-20 w-full p-6">
             <Dialog.Title className="text-lg font-bold mb-4">Select Payment Method</Dialog.Title>
             <div className="max-h-80 overflow-y-auto">

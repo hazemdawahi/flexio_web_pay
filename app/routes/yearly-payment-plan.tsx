@@ -1,3 +1,4 @@
+// app/routes/YearlyPaymentPlan.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useSearchParams } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
@@ -8,26 +9,32 @@ import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import { motion, AnimatePresence } from "framer-motion";
+import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 interface SuperchargeDetail {
-  amount: string; // amount in cents
+  amount: string; // amount in dollars as entered by the user (e.g., "500.00") or in cents if already provided
   paymentMethodId: string;
 }
 
-export interface User {
-  id: string;
-  username: string;
-  logo: string;
-  isCurrentUser?: boolean;
-}
-
-interface YearlyPaymentPlanProps {
-  yearlyPowerAmount: string; // in cents
+export interface YearlyPaymentPlanProps {
+  yearlyPowerAmount: string; // in dollars as entered by the user or in cents if no decimal
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
-  // Instead of passing users, we now expect the split data to contain otherUserAmounts.
-  // For clarity, we will parse the query parameter "otherUserAmounts".
+  // We also expect the split data via query parameter "otherUserAmounts"
 }
+
+// Helper function to convert a dollar string to an integer value in cents.
+// For example, "50.00" becomes 5000.
+const convertDollarStringToCents = (amount: string): number => {
+  const [dollars, cents = ""] = amount.split(".");
+  const paddedCents = cents.padEnd(2, "0").slice(0, 2);
+  return parseInt(dollars + paddedCents, 10);
+};
+
+// Use this helper to get the cent value. If the string includes a decimal, convert it;
+// otherwise, assume it's already in cents.
+const getCents = (amount: string): number =>
+  amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount);
 
 const SERVER_BASE_URL = "http://192.168.1.32:8080";
 
@@ -52,16 +59,16 @@ const YearlyPaymentPlan: React.FC = () => {
   }
   const paymentMethodId =
     stateData.paymentMethodId || searchParams.get("paymentMethodId") || "";
-  // Receive otherUserAmounts from query parameters
+  // Receive otherUserAmounts from query parameters (if provided)
   const otherUserAmountsStr = searchParams.get("otherUserAmounts") || "[]";
-  let otherUserAmounts = [];
+  let otherUserAmounts: any[] = [];
   try {
     otherUserAmounts = JSON.parse(otherUserAmountsStr);
   } catch (error) {
     otherUserAmounts = [];
   }
 
-  // Log the received parameters on mount
+  // Log received parameters on mount
   useEffect(() => {
     console.log("Received parameters:", {
       yearlyPowerAmount,
@@ -71,17 +78,17 @@ const YearlyPaymentPlan: React.FC = () => {
     });
   }, [yearlyPowerAmount, superchargeDetails, paymentMethodId, otherUserAmounts]);
 
-  // Convert the yearly amount (in cents) to dollars
-  const yearlyPowerAmountValue = Number(yearlyPowerAmount) / 100 || 0;
+  // Use getCents so that if the amount is already in cents it remains unchanged.
+  const yearlyAmountCents = getCents(yearlyPowerAmount);
+  const yearlyPowerAmountValue = yearlyAmountCents / 100 || 0;
 
   // State for number of months (periods) and other UI states
   const [numberOfMonths, setNumberOfMonths] = useState<string>("12");
   const paymentFrequency: "MONTHLY" = "MONTHLY";
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPlanLoading, setIsPlanLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Additional state variables
+  // Additional state variables (if needed)
   const [paymentAmount, setPaymentAmount] = useState<string>("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
 
@@ -90,6 +97,7 @@ const YearlyPaymentPlan: React.FC = () => {
     new Date().toISOString().split("T")[0]
   );
 
+  // Note: usePaymentMethods returns a status of "error" | "success" | "pending"
   const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } =
     useCalculatePaymentPlan();
@@ -98,15 +106,15 @@ const YearlyPaymentPlan: React.FC = () => {
   // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
-  // Build the plan request.
+  // Build the plan request. The API expects purchaseAmount in cents.
   const planRequest = useMemo(
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: parseInt(numberOfMonths, 10),
-      purchaseAmount: yearlyPowerAmountValue * 100, // in cents
+      purchaseAmount: getCents(yearlyPowerAmount), // in cents for payload
       startDate: startDate,
     }),
-    [paymentFrequency, numberOfMonths, yearlyPowerAmountValue, startDate]
+    [paymentFrequency, numberOfMonths, yearlyPowerAmount, startDate]
   );
 
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -132,7 +140,7 @@ const YearlyPaymentPlan: React.FC = () => {
         },
       });
     }
-  }, [paymentFrequency, numberOfMonths, yearlyPowerAmountValue, startDate, calculatePlan]);
+  }, [yearlyPowerAmountValue, planRequest, calculatePlan]);
 
   useEffect(() => {
     if (calculatePlanError) {
@@ -149,7 +157,9 @@ const YearlyPaymentPlan: React.FC = () => {
     calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
-      percentage: Number(((payment.amount / (yearlyPowerAmountValue * 100)) * 100).toFixed(2)),
+      percentage: Number(
+        ((payment.amount / getCents(yearlyPowerAmount)) * 100).toFixed(2)
+      ),
     })) || [];
 
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
@@ -176,21 +186,8 @@ const YearlyPaymentPlan: React.FC = () => {
     );
   };
 
-  const calculateTotalAmount = () => {
-    const superchargeTotal = additionalFields.reduce(
-      (acc: number, field: string) => acc + parseFloat(field || "0"),
-      0
-    );
-    const payment = parseFloat(paymentAmount || "0");
-    return payment + superchargeTotal;
-  };
-  const totalAmount = calculateTotalAmount();
-
-  const convertToCents = (amountStr: string): string => {
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount)) return "0";
-    return Math.round(amount * 100).toString();
-  };
+  // Use the complete checkout mutation hook.
+  const { mutate: completeCheckout, status: checkoutStatus, error: checkoutError } = useCompleteCheckout();
 
   const handleConfirm = () => {
     if (!selectedPaymentMethod || yearlyPowerAmountValue === 0) {
@@ -201,26 +198,43 @@ const YearlyPaymentPlan: React.FC = () => {
       toast.error("Checkout token is missing. Please try again.");
       return;
     }
-    const offsetStartDate = planRequest.startDate;
+
     const numberOfPayments = parseInt(numberOfMonths, 10);
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      toast.success("Payment plan confirmed successfully!");
-      // Build state to pass. We'll include otherUserAmounts (from query param) along with other data.
-      const stateToPass = {
-        yearlyPowerAmount,
-        superchargeDetails,
-        paymentFrequency,
-        offsetStartDate,
-        numberOfPayments,
-        selectedPaymentMethod: selectedPaymentMethod.id,
-        checkoutToken,
-        otherUserAmounts, // Received from query parameter "otherUserAmounts"
-      };
-      console.log("Flex pressed. State to pass:", stateToPass);
-      navigate("/payment-success", { state: stateToPass });
-    }, 1500);
+    const yearlyAmount = getCents(yearlyPowerAmount);
+
+    // Transform supercharge details to use the correct key "paymentMethodId"
+    const transformedSuperchargeDetails = superchargeDetails.map((detail) => ({
+      paymentMethodId: detail.paymentMethodId,
+      amount: getCents(detail.amount),
+    }));
+
+    // Build the payload. All amounts here are in cents.
+    const payload: CompleteCheckoutPayload = {
+      checkoutToken: checkoutToken,
+      instantAmount: getCents("0"),
+      yearlyAmount: yearlyAmount,
+      selectedPaymentMethod: selectedPaymentMethod.id,
+      superchargeDetails: transformedSuperchargeDetails,
+      paymentFrequency: paymentFrequency,
+      numberOfPayments: numberOfPayments,
+      offsetStartDate: planRequest.startDate,
+      otherUsers: otherUserAmounts.map((user: any) => ({
+        userId: user.userId,
+        amount: getCents(user.amount),
+      })),
+    };
+    console.log("payload", payload);
+    completeCheckout(payload, {
+      onSuccess: (data) => {
+        console.log("Checkout successful:", data);
+        toast.success("Payment plan confirmed successfully!");
+        navigate("/payment-success", { state: payload });
+      },
+      onError: (error: Error) => {
+        console.error("Error during checkout:", error);
+        toast.error("Failed to complete checkout. Please try again.");
+      },
+    });
   };
 
   // Build options for months from 12 to 60.
@@ -236,7 +250,7 @@ const YearlyPaymentPlan: React.FC = () => {
     return options;
   };
 
-  // Filter card-type payment methods
+  // Filter card-type payment methods.
   const cardMethods: PaymentMethod[] =
     paymentMethodsData?.data?.data?.filter(
       (method: PaymentMethod) => method.type === "card"
@@ -248,13 +262,16 @@ const YearlyPaymentPlan: React.FC = () => {
         {/* Header */}
         <div className="flex items-center mb-5">
           <h1 className="text-2xl font-bold text-black">
-            Flex your yearly payments for ${yearlyPowerAmountValue.toFixed(2)}
+            Flex your yearly payments for ${ (getCents(yearlyPowerAmount) / 100).toFixed(2) }
           </h1>
         </div>
         {/* Number of Months Picker */}
         <div className="flex flex-col md:flex-row items-center mb-5 space-y-4 md:space-y-0 md:space-x-4">
           <div className="w-full">
-            <label htmlFor="numberOfMonths" className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="numberOfMonths"
+              className="block text-sm font-medium text-gray-700 mb-1"
+            >
               Number of Months
             </label>
             <select
@@ -296,12 +313,14 @@ const YearlyPaymentPlan: React.FC = () => {
         {/* Confirm Button */}
         <button
           className={`w-full bg-black text-white font-bold py-3 rounded-lg ${
-            yearlyPowerAmountValue === 0 || isLoading ? "bg-gray-400 cursor-not-allowed" : "hover:bg-gray-800"
+            yearlyPowerAmountValue === 0 || checkoutStatus === "pending"
+              ? "bg-gray-400 cursor-not-allowed"
+              : "hover:bg-gray-800"
           }`}
           onClick={yearlyPowerAmountValue > 0 ? handleConfirm : undefined}
-          disabled={yearlyPowerAmountValue === 0 || isLoading}
+          disabled={yearlyPowerAmountValue === 0 || checkoutStatus === "pending"}
         >
-          {isLoading ? (
+          {checkoutStatus === "pending" ? (
             <div className="flex justify-center items-center">
               <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
               <span>Processing...</span>
@@ -309,7 +328,7 @@ const YearlyPaymentPlan: React.FC = () => {
           ) : (
             <span>
               {yearlyPowerAmountValue > 0
-                ? `Flex $${yearlyPowerAmountValue.toFixed(2)}`
+                ? `Flex $${(getCents(yearlyPowerAmount) / 100).toFixed(2)}`
                 : "Flex your payments"}
             </span>
           )}
@@ -354,15 +373,19 @@ const YearlyPaymentPlan: React.FC = () => {
                   Select Payment Method
                 </h2>
                 <div className="space-y-4 px-4 pb-4">
-                  {cardMethods.map((method, index) => (
-                    <PaymentMethodItem
-                      key={method.id}
-                      method={method}
-                      selectedMethod={selectedPaymentMethod}
-                      onSelect={handleMethodSelect}
-                      isLastItem={index === cardMethods.length - 1}
-                    />
-                  ))}
+                  {paymentMethodsData?.data?.data
+                    ?.filter((method: PaymentMethod) => method.type === "card")
+                    .map((method, index) => (
+                      <PaymentMethodItem
+                        key={method.id}
+                        method={method}
+                        selectedMethod={selectedPaymentMethod}
+                        onSelect={handleMethodSelect}
+                        isLastItem={
+                          index === paymentMethodsData.data.data.length - 1
+                        }
+                      />
+                    ))}
                 </div>
               </motion.div>
             </motion.div>

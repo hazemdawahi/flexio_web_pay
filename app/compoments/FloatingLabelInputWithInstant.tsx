@@ -61,7 +61,8 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
     }
   };
 
-  const formatToDollars = (amount: number) => `$${amount.toFixed(2)}`;
+  const formatToDollars = (amount: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 
   return (
     <div onClick={handlePress} className="w-full">
@@ -75,9 +76,7 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
         <div className="relative flex-1 border-r rounded-l-lg p-2">
           <label
             className={`absolute left-2 transition-all duration-300 pointer-events-none ${
-              labelActive
-                ? "top-0 text-sm text-gray-700"
-                : "top-2.5 text-base text-gray-500"
+              labelActive ? "top-0 text-sm text-gray-700" : "top-2.5 text-base text-gray-500"
             }`}
           >
             {label}

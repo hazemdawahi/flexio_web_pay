@@ -306,10 +306,6 @@ const MerchantShoppingContent: React.FC = () => {
   );
 };
 
-const MerchantShopping: React.FC = () => (
-  <ProtectedRoute>
-    <MerchantShoppingContent />
-  </ProtectedRoute>
-);
 
-export default MerchantShopping;
+
+export default MerchantShoppingContent;

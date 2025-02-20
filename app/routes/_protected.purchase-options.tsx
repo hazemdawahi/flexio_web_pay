@@ -59,13 +59,6 @@ const PurchaseOptionsContent: React.FC = () => {
   );
 };
 
-// Wrap PurchaseOptionsContent with ProtectedRoute
-const PurchaseOptions: React.FC = () => {
-  return (
-    <ProtectedRoute>
-      <PurchaseOptionsContent />
-    </ProtectedRoute>
-  );
-};
 
-export default PurchaseOptions;
+
+export default PurchaseOptionsContent;

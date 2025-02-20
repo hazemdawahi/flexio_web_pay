@@ -3,8 +3,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack } from "react-icons/io";
-import SmartPaymentPlans from "~/routes/SmartPaymentPlans";
-import PaymentPlan from "~/routes/PaymentPlan";
+import SmartPaymentPlans from "~/routes/_protected.SmartPaymentPlans";
+import PaymentPlan from "~/routes/_protected.PaymentPlan";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
 
@@ -110,7 +110,6 @@ const Plans: React.FC = () => {
   ];
 
   return (
-    <ProtectedRoute>
       <div className="min-h-screen bg-white">
         <header className="flex items-center p-4">
           <button
@@ -125,7 +124,6 @@ const Plans: React.FC = () => {
           <Tabs tabs={tabs} />
         </div>
       </div>
-    </ProtectedRoute>
   );
 };
 

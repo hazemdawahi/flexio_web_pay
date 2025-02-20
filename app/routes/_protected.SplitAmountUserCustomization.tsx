@@ -395,12 +395,6 @@ const SplitAmountUserCustomization: React.FC = () => {
   );
 };
 
-const SplitAmountPage: React.FC = () => {
-  return (
-    <ProtectedRoute>
-      <SplitAmountUserCustomization />
-    </ProtectedRoute>
-  );
-};
 
-export default SplitAmountPage;
+
+export default SplitAmountUserCustomization;

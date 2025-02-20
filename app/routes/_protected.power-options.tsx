@@ -152,12 +152,5 @@ const PowerOptionsContent: React.FC = () => {
   );
 };
 
-const PowerOptions: React.FC = () => {
-  return (
-    <ProtectedRoute>
-      <PowerOptionsContent />
-    </ProtectedRoute>
-  );
-};
 
-export default PowerOptions;
+export default PowerOptionsContent;

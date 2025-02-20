@@ -288,10 +288,5 @@ const PaymentSettingsContent: React.FC = () => {
   );
 };
 
-const PaymentSettings: React.FC = () => (
-  <ProtectedRoute>
-    <PaymentSettingsContent />
-  </ProtectedRoute>
-);
 
-export default PaymentSettings;
+export default PaymentSettingsContent;

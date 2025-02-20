@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "@remix-run/react"; // Ensure correct import based on your routing library
 import { useSession } from "~/context/SessionContext";
 import { IoIosArrowBack } from "react-icons/io";
-import SplitSmartPaymentPlan from "~/routes/SplitSmartPaymentPlan"; // Corrected import path
-import SplitPaymentPlan from "./split-payment-plan";
+import SplitSmartPaymentPlan from "~/routes/_protected.SplitSmartPaymentPlan"; // Corrected import path
+import SplitPaymentPlan from "./_protected.split-payment-plan";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
 
@@ -102,7 +102,6 @@ const SplitPlans: React.FC = () => {
   ];
 
   return (
-    <ProtectedRoute>
       <div className="min-h-screen bg-white">
         {/* Header Section */}
         <header className="flex items-center p-4">
@@ -121,7 +120,6 @@ const SplitPlans: React.FC = () => {
           <Tabs tabs={tabs} />
         </div>
       </div>
-    </ProtectedRoute>
   );
 };
 

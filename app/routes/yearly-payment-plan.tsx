@@ -1,4 +1,3 @@
-// app/routes/YearlyPaymentPlan.tsx
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useSearchParams } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
@@ -12,65 +11,64 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 interface SuperchargeDetail {
-  amount: string; // amount in dollars as entered by the user (e.g., "500.00") or in cents if already provided
+  amount: string; // e.g. "500.00" or in cents "50000"
   paymentMethodId: string;
 }
 
 export interface YearlyPaymentPlanProps {
-  yearlyPowerAmount: string; // in dollars as entered by the user or in cents if no decimal
+  yearlyPowerAmount: string;
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
-  // We also expect the split data via query parameter "otherUserAmounts"
+  // Possibly "otherUserAmounts"
 }
 
-// Helper function to convert a dollar string to an integer value in cents.
-// For example, "50.00" becomes 5000.
+// Convert "50.00" -> 5000
 const convertDollarStringToCents = (amount: string): number => {
   const [dollars, cents = ""] = amount.split(".");
   const paddedCents = cents.padEnd(2, "0").slice(0, 2);
   return parseInt(dollars + paddedCents, 10);
 };
 
-// Use this helper to get the cent value. If the string includes a decimal, convert it;
-// otherwise, assume it's already in cents.
+// If string has '.', convert to cents; else assume already cents
 const getCents = (amount: string): number =>
   amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount);
-
-const SERVER_BASE_URL = "http://192.168.1.32:8080";
 
 const YearlyPaymentPlan: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  // Retrieve data from location.state (if available) or fallback to query parameters
+  // 1) Retrieve from state or query
   const stateData = (location.state as Partial<YearlyPaymentPlanProps>) || {};
   const yearlyPowerAmount =
     stateData.yearlyPowerAmount || searchParams.get("yearlyPowerAmount") || "0";
+
   const superchargeDetailsStr =
     (stateData.superchargeDetails && JSON.stringify(stateData.superchargeDetails)) ||
     searchParams.get("superchargeDetails") ||
     "[]";
+
   let superchargeDetails: SuperchargeDetail[] = [];
   try {
     superchargeDetails = JSON.parse(superchargeDetailsStr);
-  } catch (error) {
+  } catch {
     superchargeDetails = [];
   }
+
   const paymentMethodId =
     stateData.paymentMethodId || searchParams.get("paymentMethodId") || "";
-  // Receive otherUserAmounts from query parameters (if provided)
+
   const otherUserAmountsStr = searchParams.get("otherUserAmounts") || "[]";
   let otherUserAmounts: any[] = [];
   try {
     otherUserAmounts = JSON.parse(otherUserAmountsStr);
-  } catch (error) {
+  } catch {
     otherUserAmounts = [];
   }
 
-  // Log received parameters on mount
+  // Debug
   useEffect(() => {
-    console.log("Received parameters:", {
+    console.log("YearlyPaymentPlan - received params:", {
       yearlyPowerAmount,
       superchargeDetails,
       paymentMethodId,
@@ -78,59 +76,61 @@ const YearlyPaymentPlan: React.FC = () => {
     });
   }, [yearlyPowerAmount, superchargeDetails, paymentMethodId, otherUserAmounts]);
 
-  // Use getCents so that if the amount is already in cents it remains unchanged.
+  // 2) Convert to cents
   const yearlyAmountCents = getCents(yearlyPowerAmount);
   const yearlyPowerAmountValue = yearlyAmountCents / 100 || 0;
 
-  // State for number of months (periods) and other UI states
+  // States
   const [numberOfMonths, setNumberOfMonths] = useState<string>("12");
   const paymentFrequency: "MONTHLY" = "MONTHLY";
   const [isPlanLoading, setIsPlanLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Additional state variables (if needed)
+  // Additional placeholders
   const [paymentAmount, setPaymentAmount] = useState<string>("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
 
-  // Starting date for the payment plan (YYYY-MM-DD)
+  // Plan start date
   const [startDate, setStartDate] = useState<string>(
     new Date().toISOString().split("T")[0]
   );
 
-  // Note: usePaymentMethods returns a status of "error" | "success" | "pending"
+  // Hooks
   const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } =
     useCalculatePaymentPlan();
   const { data: userDetailsData, isLoading: userLoading, isError: userError } = useUserDetails();
 
-  // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
-  // Build the plan request. The API expects purchaseAmount in cents.
+  // Build plan request
   const planRequest = useMemo(
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: parseInt(numberOfMonths, 10),
-      purchaseAmount: getCents(yearlyPowerAmount), // in cents for payload
-      startDate: startDate,
+      purchaseAmount: yearlyAmountCents,
+      startDate,
     }),
-    [paymentFrequency, numberOfMonths, yearlyPowerAmount, startDate]
+    [paymentFrequency, numberOfMonths, yearlyAmountCents, startDate]
   );
 
+  // PaymentMethod
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
 
   useEffect(() => {
-    if (paymentMethodsData?.data?.data?.length && !selectedPaymentMethod) {
-      setSelectedPaymentMethod(paymentMethodsData.data.data[0]);
+    const arr = paymentMethodsData?.data?.data || [];
+    if (arr.length > 0 && !selectedPaymentMethod) {
+      setSelectedPaymentMethod(arr[0]);
     }
   }, [paymentMethodsData, selectedPaymentMethod]);
 
+  // 3) Calculate plan if > 0
   useEffect(() => {
     if (yearlyPowerAmountValue > 0) {
       setIsPlanLoading(true);
       calculatePlan(planRequest, {
         onSuccess: () => {
-          console.log("Payment plan calculated successfully:", calculatedPlan);
+          console.log("Payment plan calculated:", calculatedPlan);
           setIsPlanLoading(false);
         },
         onError: (error: Error) => {
@@ -148,25 +148,28 @@ const YearlyPaymentPlan: React.FC = () => {
       setIsPlanLoading(false);
       toast.error("Unable to calculate the payment plan. Please try again later.");
     } else if (calculatedPlan?.data) {
-      console.log("Calculated Plan:", calculatedPlan.data);
+      console.log("Calculated Plan data:", calculatedPlan.data);
       setIsPlanLoading(false);
     }
   }, [calculatedPlan, calculatePlanError]);
 
+  // 4) Build splitPayments for UI
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
       percentage: Number(
-        ((payment.amount / getCents(yearlyPowerAmount)) * 100).toFixed(2)
+        ((payment.amount / yearlyAmountCents) * 100).toFixed(2)
       ),
     })) || [];
 
+  // Payment method selection
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
     setIsModalOpen(false);
   }, []);
 
+  // Show payment methods
   const renderPaymentMethodSection = () => {
     if (paymentMethodsStatus === "pending") {
       return (
@@ -186,12 +189,16 @@ const YearlyPaymentPlan: React.FC = () => {
     );
   };
 
-  // Use the complete checkout mutation hook.
-  const { mutate: completeCheckout, status: checkoutStatus, error: checkoutError } = useCompleteCheckout();
+  // 5) useCompleteCheckout
+  const { mutate: completeCheckout, status: checkoutStatus, error: checkoutError } =
+    useCompleteCheckout();
 
+  // 6) handleConfirm => final
   const handleConfirm = () => {
     if (!selectedPaymentMethod || yearlyPowerAmountValue === 0) {
-      toast.error("Please select a payment method and ensure the amount is greater than zero.");
+      toast.error(
+        "Please select a payment method and ensure the amount is greater than zero."
+      );
       return;
     }
     if (!checkoutToken) {
@@ -200,35 +207,50 @@ const YearlyPaymentPlan: React.FC = () => {
     }
 
     const numberOfPayments = parseInt(numberOfMonths, 10);
-    const yearlyAmount = getCents(yearlyPowerAmount);
+    const yearlyAmount = yearlyAmountCents;
 
-    // Transform supercharge details to use the correct key "paymentMethodId"
     const transformedSuperchargeDetails = superchargeDetails.map((detail) => ({
       paymentMethodId: detail.paymentMethodId,
       amount: getCents(detail.amount),
     }));
 
-    // Build the payload. All amounts here are in cents.
     const payload: CompleteCheckoutPayload = {
       checkoutToken: checkoutToken,
-      instantAmount: getCents("0"),
+      instantAmount: 0,
       yearlyAmount: yearlyAmount,
       selectedPaymentMethod: selectedPaymentMethod.id,
       superchargeDetails: transformedSuperchargeDetails,
-      paymentFrequency: paymentFrequency,
-      numberOfPayments: numberOfPayments,
+      paymentFrequency,
+      numberOfPayments,
       offsetStartDate: planRequest.startDate,
       otherUsers: otherUserAmounts.map((user: any) => ({
         userId: user.userId,
         amount: getCents(user.amount),
       })),
     };
-    console.log("payload", payload);
+
+    console.log("Checkout payload", payload);
+
+    // Fire checkout
     completeCheckout(payload, {
       onSuccess: (data) => {
-        console.log("Checkout successful:", data);
+        console.log("YearlyPaymentPlan: Checkout successful => posting COMPLETED", data);
+
+        // Post COMPLETED message right away (no delay).
+        // The parent script (custom-button.js) will close the popup/sheet,
+        // then setTimeout(() => alert(...)) so user is not blocked.
+        const targetWindow = window.opener || window.parent || window;
+        targetWindow.postMessage(
+          {
+            status: "COMPLETED",
+            checkoutToken,
+            data,
+          },
+          "*"
+        );
+
+        // We still show a toast here. You can remove or keep it.
         toast.success("Payment plan confirmed successfully!");
-        navigate("/payment-success", { state: payload });
       },
       onError: (error: Error) => {
         console.error("Error during checkout:", error);
@@ -237,24 +259,18 @@ const YearlyPaymentPlan: React.FC = () => {
     });
   };
 
-  // Build options for months from 12 to 60.
+  // 7) Month options
   const getMonthOptions = () => {
-    const options = [];
-    for (let month = 12; month <= 60; month++) {
-      options.push(
-        <option key={month} value={month.toString()}>
-          {month}
+    const opts = [];
+    for (let i = 12; i <= 60; i++) {
+      opts.push(
+        <option key={i} value={i.toString()}>
+          {i}
         </option>
       );
     }
-    return options;
+    return opts;
   };
-
-  // Filter card-type payment methods.
-  const cardMethods: PaymentMethod[] =
-    paymentMethodsData?.data?.data?.filter(
-      (method: PaymentMethod) => method.type === "card"
-    ) || [];
 
   return (
     <>
@@ -262,10 +278,12 @@ const YearlyPaymentPlan: React.FC = () => {
         {/* Header */}
         <div className="flex items-center mb-5">
           <h1 className="text-2xl font-bold text-black">
-            Flex your yearly payments for ${ (getCents(yearlyPowerAmount) / 100).toFixed(2) }
+            Flex your yearly payments for $
+            {(yearlyAmountCents / 100).toFixed(2)}
           </h1>
         </div>
-        {/* Number of Months Picker */}
+
+        {/* Number of Months */}
         <div className="flex flex-col md:flex-row items-center mb-5 space-y-4 md:space-y-0 md:space-x-4">
           <div className="w-full">
             <label
@@ -284,6 +302,7 @@ const YearlyPaymentPlan: React.FC = () => {
             </select>
           </div>
         </div>
+
         {/* Payment Plan Section */}
         {yearlyPowerAmountValue > 0 && (
           <div className="mb-5">
@@ -305,11 +324,13 @@ const YearlyPaymentPlan: React.FC = () => {
             )}
           </div>
         )}
+
         {/* Payment Method Section */}
         <div className="mb-5">
           <h2 className="text-xl font-semibold mb-3">Payment Method</h2>
           {renderPaymentMethodSection()}
         </div>
+
         {/* Confirm Button */}
         <button
           className={`w-full bg-black text-white font-bold py-3 rounded-lg ${
@@ -328,12 +349,13 @@ const YearlyPaymentPlan: React.FC = () => {
           ) : (
             <span>
               {yearlyPowerAmountValue > 0
-                ? `Flex $${(getCents(yearlyPowerAmount) / 100).toFixed(2)}`
+                ? `Flex $${(yearlyAmountCents / 100).toFixed(2)}`
                 : "Flex your payments"}
             </span>
           )}
         </button>
       </div>
+
       {/* Payment Methods Modal */}
       <AnimatePresence>
         {isModalOpen && (
@@ -392,6 +414,7 @@ const YearlyPaymentPlan: React.FC = () => {
           </>
         )}
       </AnimatePresence>
+
       <Toaster richColors />
     </>
   );

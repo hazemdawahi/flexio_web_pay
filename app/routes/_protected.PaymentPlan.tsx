@@ -12,13 +12,22 @@ import { useCompleteCheckout, CompleteCheckoutPayload } from '~/hooks/useComplet
 
 const SERVER_BASE_URL = 'http://192.168.1.32:8080';
 
-// (The helper function is kept in case you need it elsewhere,
-// but for this file, amounts are assumed to be in cents already)
+// Convert a dollar string (e.g. "50.00") into cents (e.g. 5000)
 const convertDollarStringToCents = (amount: string): number => {
   const [dollars, cents = ""] = amount.split(".");
   const paddedCents = cents.padEnd(2, "0").slice(0, 2);
   return parseInt(dollars + paddedCents, 10);
 };
+
+// If the string contains a dot, assume it's a dollar value with decimals;
+// otherwise, assume it's already in cents.
+const getCents = (amount: string): number =>
+  amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount);
+
+// For display purposes, if the string contains a dot it's already dollars;
+// otherwise, we assume it's in cents and divide by 100.
+const formatDollarAmount = (amount: string): number =>
+  amount.includes(".") ? parseFloat(amount) : parseInt(amount, 10) / 100;
 
 // Define a type for other user amounts
 interface SplitEntry {
@@ -32,7 +41,7 @@ interface SuperchargeDetail {
 }
 
 interface PaymentPlanProps {
-  instantPowerAmount: string; // in cents as a string (e.g., "50000")
+  instantPowerAmount: string; // in cents as a string (or dollars if a dot is present, e.g. "50.00")
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
   otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts
@@ -48,9 +57,11 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  // For display purposes, convert cents to dollars.
-  const instantPowerAmountValue = Number(instantPowerAmount) / 100 || 0;
-  
+  // For display, use formatDollarAmount so that "50.00" or "5000" become $50.00.
+  const displayedInstantPowerAmount = formatDollarAmount(instantPowerAmount) || 0;
+  // For checkout payload, always work with the cent value.
+  const purchaseAmountCents = getCents(instantPowerAmount);
+
   // Local states for payment plan options
   const [numberOfPeriods, setNumberOfPeriods] = useState<string>('1');
   const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>('MONTHLY');
@@ -73,16 +84,17 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     MONTHLY: 'MONTHLY',
   };
 
-  // Build the plan request. The API expects purchaseAmount in cents,
-  // so we use Number(instantPowerAmount) directly.
+  // Build the plan request.
+  // NOTE: Here we pass the purchase amount in dollars (using displayedInstantPowerAmount)
+  // so that a $50.00 flex is treated as 50, not 5000.
   const planRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: Number(instantPowerAmount), // in cents
+      purchaseAmount: displayedInstantPowerAmount, // in dollars
       startDate: startDate,
     }),
-    [paymentFrequency, numberOfPeriods, instantPowerAmount, startDate]
+    [paymentFrequency, numberOfPeriods, displayedInstantPowerAmount, startDate]
   );
 
   useEffect(() => {
@@ -92,7 +104,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   }, [paymentMethodsData, selectedPaymentMethod]);
 
   useEffect(() => {
-    if (instantPowerAmountValue > 0) {
+    if (displayedInstantPowerAmount > 0) {
       calculatePlan(planRequest, {
         onSuccess: () => {
           console.log('Payment plan calculated successfully:', calculatedPlan);
@@ -104,7 +116,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentFrequency, numberOfPeriods, instantPowerAmountValue, startDate, calculatePlan]);
+  }, [paymentFrequency, numberOfPeriods, displayedInstantPowerAmount, startDate, calculatePlan]);
 
   useEffect(() => {
     if (calculatePlanError) {
@@ -115,12 +127,13 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     }
   }, [calculatedPlan, calculatePlanError]);
 
+  // Build splitPayments for UI display.
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
       percentage: Number(
-        ((payment.amount / Number(instantPowerAmount)) * 100).toFixed(2)
+        ((payment.amount / displayedInstantPowerAmount) * 100).toFixed(2)
       ),
     })) || [];
 
@@ -152,7 +165,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   const { mutate: completeCheckout, status: checkoutStatus, error: checkoutError } = useCompleteCheckout();
 
   const handleConfirm = () => {
-    if (!selectedPaymentMethod || instantPowerAmountValue === 0) {
+    if (!selectedPaymentMethod || purchaseAmountCents === 0) {
       toast.error('Please select a payment method and ensure the amount is greater than zero.');
       return;
     }
@@ -163,13 +176,13 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
 
     const numberOfPayments = parseInt(numberOfPeriods, 10);
     // Use the raw cent value for the payload.
-    const instantAmount = Number(instantPowerAmount);
+    const instantAmount = purchaseAmountCents;
     const yearlyAmount = instantAmount * numberOfPayments;
 
-    // Transform supercharge details to use the correct key "paymentMethodId"
+    // Transform supercharge details using the same conversion logic.
     const transformedSuperchargeDetails = superchargeDetails.map(detail => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: Number(detail.amount),
+      amount: getCents(detail.amount),
     }));
 
     // Build the payload—all amounts in cents.
@@ -184,7 +197,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
       offsetStartDate: startDate,
       otherUsers: otherUserAmounts.map(user => ({
         userId: user.userId,
-        amount: Number(user.amount),
+        amount: getCents(user.amount),
       })),
     };
 
@@ -235,7 +248,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         {/* Header */}
         <div className="flex items-center mb-5">
           <h1 className="text-2xl font-bold text-black">
-            Flex your payments for ${ (Number(instantPowerAmount) / 100).toFixed(2) }
+            Flex your payments for ${displayedInstantPowerAmount.toFixed(2)}
           </h1>
         </div>
 
@@ -275,7 +288,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         </div>
 
         {/* Payment Plan Section */}
-        {instantPowerAmountValue > 0 && (
+        {displayedInstantPowerAmount > 0 && (
           <div className="mb-5">
             <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
             {calculatedPlan?.data ? (
@@ -304,9 +317,9 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
 
         {/* Confirm Button */}
         <button
-          className={`w-full bg-black text-white font-bold py-3 rounded-lg ${instantPowerAmountValue === 0 || checkoutStatus === "pending" ? "bg-gray-400 cursor-not-allowed" : "hover:bg-gray-800"}`}
+          className={`w-full bg-black text-white font-bold py-3 rounded-lg ${purchaseAmountCents === 0 || checkoutStatus === "pending" ? "bg-gray-400 cursor-not-allowed" : "hover:bg-gray-800"}`}
           onClick={handleConfirm}
-          disabled={instantPowerAmountValue === 0 || checkoutStatus === "pending"}
+          disabled={purchaseAmountCents === 0 || checkoutStatus === "pending"}
         >
           {checkoutStatus === "pending" ? (
             <div className="flex justify-center items-center">
@@ -315,8 +328,8 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
             </div>
           ) : (
             <span>
-              {instantPowerAmountValue > 0
-                ? `Flex $${(Number(instantPowerAmount) / 100).toFixed(2)}`
+              {displayedInstantPowerAmount > 0
+                ? `Flex $${displayedInstantPowerAmount.toFixed(2)}`
                 : "Flex your payments"}
             </span>
           )}

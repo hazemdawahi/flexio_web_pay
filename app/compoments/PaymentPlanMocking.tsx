@@ -53,10 +53,8 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
     return null;
   }
 
-  // Calculate total amount from the payments list
-  const totalAmount = payments
-    .reduce((total: number, payment: SplitPayment) => total + payment.amount, 0)
-    .toFixed(2);
+  // Calculate total amount from the payments list without further conversion
+  const totalAmount = payments.reduce((total: number, payment: SplitPayment) => total + payment.amount, 0);
 
   const handleEditPress = () => {
     navigate('/payment-plans');
@@ -129,7 +127,7 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
                     })}
                   </p>
                   <p className="text-sm text-gray-600">
-                    ${(payment.amount / 100).toFixed(2)}
+                    ${payment.amount.toFixed(2)}
                   </p>
                 </div>
               </div>
@@ -144,7 +142,7 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
             <div className="ml-4">
               <p className="text-md font-semibold">Total</p>
               <p className="text-sm text-gray-800">
-                ${(Number(totalAmount) / 100).toFixed(2)}
+                ${totalAmount.toFixed(2)}
               </p>
             </div>
           </div>

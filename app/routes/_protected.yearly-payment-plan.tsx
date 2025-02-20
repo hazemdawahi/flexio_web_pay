@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 interface SuperchargeDetail {
-  amount: string; // e.g. "500.00" or "50000"
+  amount: string; // e.g. "500.00" or "50032"
   paymentMethodId: string;
 }
 
@@ -30,9 +30,9 @@ const convertDollarStringToCents = (amount: string): number => {
 };
 
 // If the string contains a dot, assume it's a dollar value with decimals;
-// otherwise, multiply by 100 to convert dollars to cents.
+// otherwise, assume it's already in cents.
 const getCents = (amount: string): number =>
-  amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount) * 100;
+  amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount);
 
 // Helper to correctly interpret the flex amount for display purposes.
 // If the string contains a dot, it’s already a dollar value;
@@ -84,7 +84,7 @@ const YearlyPaymentPlan: React.FC = () => {
 
   // Parse the passed flex amount as a dollar value for display and comparison.
   const requestedFlexDollars = formatDollarAmount(passedFlexAmountStr);
-  // Convert the passed flex amount into cents for the API payload.
+  // Convert the passed flex amount into cents for the checkout payload.
   const chosenAmountCents = getCents(passedFlexAmountStr);
 
   // Determine the minimum number of months required.
@@ -128,18 +128,18 @@ const YearlyPaymentPlan: React.FC = () => {
     useCalculatePaymentPlan();
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
-  // Build the plan request using the chosen flex amount (in cents) and duration.
-  // Now, the selectedMonths value is used directly as the number of payments.
+  // Build the plan request using the chosen flex amount (in dollars) and duration.
+  // NOTE: We now pass requestedFlexDollars so that a $50.00 flex is treated as 50, not 5000.
   const planRequest = useMemo(
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: selectedMonths,
-      purchaseAmount: chosenAmountCents,
+      purchaseAmount: requestedFlexDollars,
       startDate,
     }),
-    [paymentFrequency, selectedMonths, chosenAmountCents, startDate]
+    [paymentFrequency, selectedMonths, requestedFlexDollars, startDate]
   );
-
+  console.log("planRequest", planRequest);
   // Payment method selection state
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   useEffect(() => {
@@ -151,7 +151,7 @@ const YearlyPaymentPlan: React.FC = () => {
 
   // Calculate the payment plan when the chosen amount or duration changes.
   useEffect(() => {
-    if (chosenAmountCents > 0) {
+    if (requestedFlexDollars > 0) {
       setIsPlanLoading(true);
       calculatePlan(planRequest, {
         onSuccess: () => {
@@ -165,7 +165,7 @@ const YearlyPaymentPlan: React.FC = () => {
         },
       });
     }
-  }, [chosenAmountCents, planRequest, calculatePlan]);
+  }, [requestedFlexDollars, planRequest, calculatePlan]);
 
   useEffect(() => {
     if (calculatePlanError) {
@@ -183,7 +183,7 @@ const YearlyPaymentPlan: React.FC = () => {
     calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
-      percentage: Number(((payment.amount / chosenAmountCents) * 100).toFixed(2)),
+      percentage: Number(((payment.amount / requestedFlexDollars) * 100).toFixed(2)),
     })) || [];
 
   // Handle payment method selection.
@@ -303,7 +303,7 @@ const YearlyPaymentPlan: React.FC = () => {
         </div>
 
         {/* Payment Plan Section */}
-        {chosenAmountCents > 0 && (
+        {requestedFlexDollars > 0 && (
           <div className="mb-5">
             <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
             {isPlanLoading ? (

@@ -21,19 +21,21 @@ interface LocationState {
 const MerchantShoppingContent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Read payment type from state; default to "instantaneous" if not provided.
   const stateData = (location.state as LocationState) || {};
   const paymentType = stateData.type || "instantaneous";
-  
+
   // Retrieve checkoutToken from sessionStorage
   const checkoutToken = sessionStorage.getItem("checkoutToken") || "";
-  
+
   // Payment amount state (used for both instantaneous and yearly)
-  const [paymentAmount, setPaymentAmount] = useState("");
+  // Now default to "0.00" for both modes.
+  const [paymentAmount, setPaymentAmount] = useState("0.00");
+  // Each new supercharge field starts with "0.00"
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const {
     data: paymentData,
     isLoading: paymentLoading,
@@ -41,7 +43,7 @@ const MerchantShoppingContent: React.FC = () => {
     error: paymentError,
   } = usePaymentMethods();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
-  
+
   const {
     data: userData,
     isLoading: isUserLoading,
@@ -49,7 +51,7 @@ const MerchantShoppingContent: React.FC = () => {
     error: userError,
   } = useUserDetails();
   const { accessToken } = useSession();
-  
+
   const {
     data: checkoutData,
     isLoading: checkoutLoading,
@@ -57,13 +59,13 @@ const MerchantShoppingContent: React.FC = () => {
     error: checkoutError,
     status: checkoutStatus,
   } = useCheckoutDetail(checkoutToken);
-  
+
   // Calculate the total checkout amount
   const checkoutTotalAmount = checkoutData
     ? parseFloat(checkoutData.checkout.totalAmount.amount)
     : 0;
-  
-  const addField = () => setAdditionalFields((prev) => [...prev, ""]);
+
+  const addField = () => setAdditionalFields((prev) => [...prev, "0.00"]);
   const updateField = (index: number, value: string) => {
     setAdditionalFields((prev) => {
       const updated = [...prev];
@@ -71,7 +73,7 @@ const MerchantShoppingContent: React.FC = () => {
       return updated;
     });
   };
-  
+
   useEffect(() => {
     const cardPaymentMethods = paymentData?.data.data.filter(
       (method: PaymentMethod) => method.type === "card"
@@ -80,23 +82,24 @@ const MerchantShoppingContent: React.FC = () => {
       setSelectedPaymentMethod(cardPaymentMethods[0]);
     }
   }, [paymentData, selectedPaymentMethod]);
-  
-  // When paymentType is "yearly", prefill paymentAmount with available yearly power (if not set)
+
+  // Determine if paymentType is yearly
   const isYearly = paymentType === "yearly";
-  const availablePower = isYearly
-    ? userData?.data?.user?.yearlyPower
-    : userData?.data?.user?.instantaneousPower;
+  // Use the instantaneous power field in both cases.
+  const availablePower = userData?.data?.user?.instantaneousPower;
+
+  // For yearly payments, ensure paymentAmount is "0.00" (even though it's now the default).
   useEffect(() => {
-    if (isYearly && availablePower && paymentAmount === "") {
-      setPaymentAmount(availablePower.toString());
+    if (isYearly && paymentAmount === "") {
+      setPaymentAmount("0.00");
     }
-  }, [isYearly, availablePower, paymentAmount]);
-  
+  }, [isYearly, paymentAmount]);
+
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
     closeModal();
   }, []);
-  
+
   // Calculate total amount from paymentAmount and additional supercharge fields
   const calculateTotalAmount = () => {
     const superchargeTotal = additionalFields.reduce(
@@ -107,28 +110,28 @@ const MerchantShoppingContent: React.FC = () => {
     return payment + superchargeTotal;
   };
   const totalAmount = calculateTotalAmount();
-  
+
   const convertToCents = (amountStr: string): string => {
     const amount = parseFloat(amountStr);
     if (isNaN(amount)) return "0";
     return Math.round(amount * 100).toString();
   };
-  
+
   // Instead of building query params, we pass the needed data via state
   const navigateToPlansPage = () => {
     const superchargeDetails = additionalFields.map((field: string) => ({
       amount: convertToCents(field),
       paymentMethodId: selectedPaymentMethod?.id,
     }));
-  
+
     if (!userData?.data?.user?.settings) {
       alert("Error: User settings not available.");
       return;
     }
-  
+
     const totalAmountCents = convertToCents(totalAmount.toString());
     const paymentAmountCents = convertToCents(paymentAmount);
-  
+
     // Build an object to pass via state
     const stateData = {
       amount: totalAmountCents,
@@ -138,17 +141,17 @@ const MerchantShoppingContent: React.FC = () => {
       // Also pass the payment amount key based on type:
       [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmountCents,
     };
-  
+
     if (isYearly) {
       navigate("/yearly-payment-plan", { state: stateData });
     } else {
       navigate("/plans", { state: stateData });
     }
   };
-  
+
   const openModal = () => setIsModalOpen(true);
   const closeModal = () => setIsModalOpen(false);
-  
+
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === "Escape" && isModalOpen) closeModal();
@@ -156,18 +159,18 @@ const MerchantShoppingContent: React.FC = () => {
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isModalOpen]);
-  
+
   useEffect(() => {
     document.body.style.overflow = isModalOpen ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
   }, [isModalOpen]);
-  
+
   const isLoading =
     isUserLoading || paymentLoading || checkoutLoading || checkoutStatus === "pending";
   const isErrorState = isUserError || isPaymentError || isCheckoutError || !userData?.data;
-  
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -187,12 +190,12 @@ const MerchantShoppingContent: React.FC = () => {
       </div>
     );
   }
-  
+
   const cardPaymentMethods =
     paymentData?.data.data.filter((method: PaymentMethod) => method.type === "card") || [];
-  
+
   const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
-  
+
   return (
     <div className="min-h-screen bg-white p-4">
       <div className="max-w-xl mx-auto">
@@ -305,7 +308,5 @@ const MerchantShoppingContent: React.FC = () => {
     </div>
   );
 };
-
-
 
 export default MerchantShoppingContent;

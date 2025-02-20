@@ -124,11 +124,6 @@ const MultipleUsersSendWeb: React.FC = () => {
       mappedUsers.push(...otherUsers);
     }
 
-    if (mappedUsers.length === 0) {
-      toast.error("No users found for splitting.");
-      navigate(-1);
-      return;
-    }
     setUsers(mappedUsers);
 
     // Compute initial even split

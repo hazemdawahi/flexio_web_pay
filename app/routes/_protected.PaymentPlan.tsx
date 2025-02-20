@@ -1,4 +1,3 @@
-// app/routes/PaymentPlan.tsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from '@remix-run/react';
 import { usePaymentMethods, PaymentMethod } from '~/hooks/usePaymentMethods';
@@ -192,19 +191,17 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     completeCheckout(payload, {
       onSuccess: (data) => {
         console.log('Checkout successful:', data);
-        toast.success('Payment plan confirmed successfully!');
-        navigate('/payment-success', {
-          state: {
-            instantPowerAmount,
-            superchargeDetails,
-            paymentFrequency,
-            offsetStartDate: startDate,
-            numberOfPayments,
-            selectedPaymentMethod: selectedPaymentMethod.id,
+        // Instead of navigating, post a message to the parent/opener window
+        const targetWindow = window.opener || window.parent || window;
+        targetWindow.postMessage(
+          {
+            status: "COMPLETED",
             checkoutToken,
-            otherUserAmounts,
+            data,
           },
-        });
+          "*"
+        );
+        toast.success('Payment plan confirmed successfully!');
       },
       onError: (error: Error) => {
         console.error('Error during checkout:', error);

@@ -28,7 +28,7 @@ const PowerOptionsContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [inApp, setInApp] = useState<boolean>(false);
-  
+
   // Optional split data coming from the previous page
   const [splitData, setSplitData] = useState<SplitData | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -136,7 +136,8 @@ const PowerOptionsContent: React.FC = () => {
               "Loading..."
             ) : yearlyPower !== undefined ? (
               <span className="text-lg font-normal text-gray-600">
-                (${(yearlyPower / 100).toFixed(2)})
+                {/* Convert cents to dollars and divide by 5 */}
+                (${((yearlyPower / 100) / 5).toFixed(2)} / per year)
               </span>
             ) : (
               "(N/A)"
@@ -151,6 +152,5 @@ const PowerOptionsContent: React.FC = () => {
     </div>
   );
 };
-
 
 export default PowerOptionsContent;

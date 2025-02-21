@@ -1,14 +1,20 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useSearchParams } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
-import { useCalculatePaymentPlan, SplitPayment } from "~/hooks/useCalculatePaymentPlan";
+import {
+  useCalculatePaymentPlan,
+  SplitPayment,
+} from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { toast, Toaster } from "sonner";
 import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import { motion, AnimatePresence } from "framer-motion";
-import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
+import {
+  useCompleteCheckout,
+  CompleteCheckoutPayload,
+} from "~/hooks/useCompleteCheckout";
 
 interface SuperchargeDetail {
   amount: string; // e.g. "500.00" or "50032"
@@ -49,10 +55,13 @@ const YearlyPaymentPlan: React.FC = () => {
   // The passed yearlyPowerAmount is the flex amount the user wants (in dollars as a string)
   const stateData = (location.state as Partial<YearlyPaymentPlanProps>) || {};
   const passedFlexAmountStr =
-    stateData.yearlyPowerAmount || searchParams.get("yearlyPowerAmount") || "0";
+    stateData.yearlyPowerAmount ||
+    searchParams.get("yearlyPowerAmount") ||
+    "0";
 
   const superchargeDetailsStr =
-    (stateData.superchargeDetails && JSON.stringify(stateData.superchargeDetails)) ||
+    (stateData.superchargeDetails &&
+      JSON.stringify(stateData.superchargeDetails)) ||
     searchParams.get("superchargeDetails") ||
     "[]";
 
@@ -75,11 +84,16 @@ const YearlyPaymentPlan: React.FC = () => {
   }
 
   // Get user details (which include yearlyPower in cents)
-  const { data: userDetailsData, isLoading: userLoading, isError: userError } = useUserDetails();
+  const {
+    data: userDetailsData,
+    isLoading: userLoading,
+    isError: userError,
+  } = useUserDetails();
   const userYearlyPowerCents = userDetailsData?.data?.user?.yearlyPower || 0;
 
   // Maximum allowed flex per year is determined by the user's yearly power divided by 5.
-  const maxAnnualFlexCents = userYearlyPowerCents > 0 ? Math.floor(userYearlyPowerCents / 5) : 0;
+  const maxAnnualFlexCents =
+    userYearlyPowerCents > 0 ? Math.floor(userYearlyPowerCents / 5) : 0;
   const maxAnnualFlexDollars = maxAnnualFlexCents / 100;
 
   // Parse the passed flex amount as a dollar value for display and comparison.
@@ -88,9 +102,8 @@ const YearlyPaymentPlan: React.FC = () => {
   const chosenAmountCents = getCents(passedFlexAmountStr);
 
   // Determine the minimum number of months required.
-  // We want the monthly installment (requestedFlexDollars divided by (months/12))
-  // to be <= maxAnnualFlexDollars.
-  // This is equivalent to: months >= (requestedFlexDollars * 12) / maxAnnualFlexDollars.
+  // We want the monthly installment (requestedFlexDollars / (months/12))
+  // to be <= maxAnnualFlexDollars => months >= (requestedFlexDollars * 12) / maxAnnualFlexDollars
   const computedMinMonths =
     maxAnnualFlexDollars > 0 && requestedFlexDollars > 0
       ? Math.ceil((requestedFlexDollars * 12) / maxAnnualFlexDollars)
@@ -109,7 +122,9 @@ const YearlyPaymentPlan: React.FC = () => {
   }, [minMonths, maxMonths]);
 
   // Duration selected by the user (in months). Default to the minimum option.
-  const [selectedMonths, setSelectedMonths] = useState<number>(monthOptions[0] || 12);
+  const [selectedMonths, setSelectedMonths] = useState<number>(
+    monthOptions[0] || 12
+  );
   useEffect(() => {
     if (!monthOptions.includes(selectedMonths)) {
       setSelectedMonths(monthOptions[0] || 12);
@@ -120,16 +135,18 @@ const YearlyPaymentPlan: React.FC = () => {
   const paymentFrequency: "MONTHLY" = "MONTHLY";
   const [isPlanLoading, setIsPlanLoading] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [startDate, setStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState<string>(
+    new Date().toISOString().split("T")[0]
+  );
 
   // Payment methods and plan calculation hooks
-  const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
+  const { data: paymentMethodsData, status: paymentMethodsStatus } =
+    usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } =
     useCalculatePaymentPlan();
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
   // Build the plan request using the chosen flex amount (in dollars) and duration.
-  // NOTE: We now pass requestedFlexDollars so that a $50.00 flex is treated as 50, not 5000.
   const planRequest = useMemo(
     () => ({
       frequency: paymentFrequency,
@@ -139,9 +156,11 @@ const YearlyPaymentPlan: React.FC = () => {
     }),
     [paymentFrequency, selectedMonths, requestedFlexDollars, startDate]
   );
-  console.log("planRequest", planRequest);
+
   // Payment method selection state
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState<PaymentMethod | null>(null);
+
   useEffect(() => {
     const arr = paymentMethodsData?.data?.data || [];
     if (arr.length > 0 && !selectedPaymentMethod) {
@@ -183,7 +202,9 @@ const YearlyPaymentPlan: React.FC = () => {
     calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
-      percentage: Number(((payment.amount / requestedFlexDollars) * 100).toFixed(2)),
+      percentage: Number(
+        ((payment.amount / requestedFlexDollars) * 100).toFixed(2)
+      ),
     })) || [];
 
   // Handle payment method selection.
@@ -213,7 +234,9 @@ const YearlyPaymentPlan: React.FC = () => {
   };
 
   // Handle checkout confirmation.
-  const { mutate: completeCheckout, status: checkoutStatus } = useCompleteCheckout();
+  const { mutate: completeCheckout, status: checkoutStatus } =
+    useCompleteCheckout();
+
   const handleConfirm = () => {
     if (!selectedPaymentMethod || chosenAmountCents === 0) {
       toast.error("Please select a payment method and ensure the amount is greater than zero.");
@@ -249,17 +272,32 @@ const YearlyPaymentPlan: React.FC = () => {
 
     completeCheckout(payload, {
       onSuccess: (data) => {
-        console.log("YearlyPaymentPlan: Checkout successful => posting COMPLETED", data);
+        console.log("YearlyPaymentPlan: Checkout successful => posting COMPLETED/PENDING", data);
+
         const targetWindow = window.opener || window.parent || window;
-        targetWindow.postMessage(
-          {
-            status: "COMPLETED",
-            checkoutToken,
-            data,
-          },
-          "*"
-        );
-        toast.success("Payment plan confirmed successfully!");
+
+        // If there are otherUserAmounts, post "PENDING" (no error). Otherwise "COMPLETED".
+        if (otherUserAmounts.length > 0) {
+          targetWindow.postMessage(
+            {
+              status: "PENDING",
+              checkoutToken,
+              data,
+            },
+            "*"
+          );
+          toast.success("Payment plan confirmed for other user amounts. Payment is pending!");
+        } else {
+          targetWindow.postMessage(
+            {
+              status: "COMPLETED",
+              checkoutToken,
+              data,
+            },
+            "*"
+          );
+          toast.success("Payment plan confirmed successfully!");
+        }
       },
       onError: (error: Error) => {
         console.error("Error during checkout:", error);
@@ -285,7 +323,10 @@ const YearlyPaymentPlan: React.FC = () => {
 
         {/* Payment Duration Selection */}
         <div className="mb-5">
-          <label htmlFor="duration" className="block text-sm font-medium text-gray-700 mb-1">
+          <label
+            htmlFor="duration"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
             Payment Duration (Months)
           </label>
           <select
@@ -404,7 +445,9 @@ const YearlyPaymentPlan: React.FC = () => {
                         method={method}
                         selectedMethod={selectedPaymentMethod}
                         onSelect={handleMethodSelect}
-                        isLastItem={index === paymentMethodsData.data.data.length - 1}
+                        isLastItem={
+                          index === paymentMethodsData.data.data.length - 1
+                        }
                       />
                     ))}
                 </div>

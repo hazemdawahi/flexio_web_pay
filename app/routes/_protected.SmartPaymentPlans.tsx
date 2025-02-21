@@ -220,15 +220,27 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         console.log('Checkout successful:', data);
         // Instead of navigating, post a message to the parent/opener window
         const targetWindow = window.opener || window.parent || window;
-        targetWindow.postMessage(
-          {
-            status: "COMPLETED",
-            checkoutToken,
-            data,
-          },
-          "*"
-        );
-        toast.success('Payment plan confirmed successfully!');
+        if (otherUserAmounts && otherUserAmounts.length > 0) {
+          targetWindow.postMessage(
+            {
+              status: "PENDING",
+              checkoutToken,
+              data,
+            },
+            "*"
+          );
+          toast.success('Payment plan confirmed for other user amounts. Payment is pending!');
+        } else {
+          targetWindow.postMessage(
+            {
+              status: "COMPLETED",
+              checkoutToken,
+              data,
+            },
+            "*"
+          );
+          toast.success('Payment plan confirmed successfully!');
+        }
       },
       onError: (error: Error) => {
         console.error('Error during checkout:', error);

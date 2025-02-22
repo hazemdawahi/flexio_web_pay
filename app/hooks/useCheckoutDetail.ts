@@ -5,7 +5,38 @@ export interface Amount {
   id: string;
   amount: string; // The API returns amount as a string (e.g., "10000")
   currency: string;
-  // Optional property based on the sample response
+  hibernateLazyInitializer?: Record<string, unknown>;
+}
+
+export interface Brand {
+  id: string;
+  displayName: string;
+  customerEmail: string;
+  displayLogo: string;
+  customerSupportPhone: string;
+  coverPhoto: string;
+  category: string;
+  returnPolicyUrl: string;
+  refundPolicyUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Merchant {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  stripeRequirements: boolean;
+  verified: boolean;
+  accountId: string;
+  mid: string;
+  mcc: string | null;
+  name: string | null;
+  industry: string | null;
+  detailsSubmitted: boolean;
+  requirementDeadline: string | null;
+  verifiedDate: string | null;
+  brand: Brand;
   hibernateLazyInitializer?: Record<string, unknown>;
 }
 
@@ -15,22 +46,26 @@ export interface CheckoutDetail {
   token: string;
   reference: string;
   sandbox: boolean;
-  status: string;
+  state: string | null;
   offsetStartDate: string | null;
-  paymentFrequency: string;
+  paymentFrequency: string | null;
   numberOfPayments: number;
   totalAmount: Amount;
+  merchant: Merchant;
   expires: string;
-  state: string | null;
   createdAt: string;
   updatedAt: string;
   user: any; // Adjust this type as needed if user data becomes available
+  checkoutType: string;
 }
 
 export interface CheckoutDetailResponse {
   checkout: CheckoutDetail;
   remainingRefund: number;
   remainingCapture: number;
+  discountDetails: any[];
+  originalTotalAmount: number;
+  finalTotalAmount: number;
 }
 
 // Fetch checkout details by token (using the token in the URL)

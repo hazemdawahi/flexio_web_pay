@@ -1,4 +1,3 @@
-// src/hooks/useMerchantDetail.ts
 import { useQuery } from '@tanstack/react-query';
 
 // Define interfaces for Merchant Details
@@ -35,18 +34,21 @@ export interface MerchantBrand {
   category: string | null;
   returnPolicyUrl: string | null;
   refundPolicyUrl: string | null;
-  createdAt: string;
-  updatedAt: string;
-  maxAmount: number | null;
-  minAmount: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+  // Optionally include these if needed:
+  maxAmount?: number;
+  minAmount?: number;
 }
 
 export interface MerchantDetail {
-  merchantId: string;
+  merchantId: string; // Directly provided by the API response
   brand: MerchantBrand;
   addresses: MerchantAddress[];
   offers?: MerchantOffer[];
   url?: string;
+  merchantName?: string | null;
+  // Add additional fields if needed
 }
 
 export interface MerchantDetailResponse {
@@ -63,7 +65,6 @@ async function fetchMerchantDetail(merchantId: string, token: string): Promise<M
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    
   });
 
   if (!response.ok) {
@@ -71,8 +72,31 @@ async function fetchMerchantDetail(merchantId: string, token: string): Promise<M
     throw new Error(`Error: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  const data: MerchantDetailResponse = await response.json();
-  return data;
+  // Parse the API response directly (without a nested content array)
+  const res = await response.json();
+
+  if (res.success && res.data) {
+    const merchantDetail: MerchantDetail = {
+      merchantId: res.data.merchantId,
+      brand: res.data.brand,
+      addresses: res.data.addresses,
+      offers: res.data.offers,
+      url: res.data.url,
+      merchantName: res.data.merchantName,
+    };
+
+    return {
+      success: true,
+      data: merchantDetail,
+      error: null,
+    };
+  } else {
+    return {
+      success: false,
+      data: null,
+      error: 'No merchant details found',
+    };
+  }
 }
 
 // Custom hook to fetch merchant detail using useQuery

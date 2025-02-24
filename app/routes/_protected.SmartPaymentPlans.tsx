@@ -17,35 +17,22 @@ import { useCompleteCheckout, CompleteCheckoutPayload } from '~/hooks/useComplet
 
 const SERVER_BASE_URL = 'http://192.168.1.32:8080';
 
-// Helper function to convert a dollar string to an integer value in cents.
-// For example, "50.00" becomes 5000.
-const convertDollarStringToCents = (amount: string): number => {
-  const [dollars, cents = ""] = amount.split(".");
-  const paddedCents = cents.padEnd(2, "0").slice(0, 2);
-  return parseInt(dollars + paddedCents, 10);
-};
-
-// For each amount input, if it contains a decimal point we assume it's in dollars and convert to cents;
-// otherwise we assume it's already in cents.
-const getCents = (amount: string): number =>
-  amount.includes('.') ? convertDollarStringToCents(amount) : Number(amount);
-
-// Define a type for other user amounts
 interface SplitEntry {
   userId: string;
   amount: string;
 }
 
 interface SuperchargeDetail {
-  amount: string; // amount in dollars as entered by the user (e.g., "50.00") or in cents if no decimal is present
+  amount: string; // amount entered by the user in dollars (e.g. "50.00")
   paymentMethodId: string;
 }
 
 interface SmartPaymentPlansProps {
-  instantPowerAmount: string; // in dollars as entered by the user (e.g., "500.00") or in cents (e.g., "50000")
+  instantPowerAmount: string; // in dollars as entered by the user (e.g., "500.00")
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
   otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts
+  selectedDiscounts: string[]; // New prop for selected discount IDs
 }
 
 type PaymentFrequency = 'monthly' | 'bi-weekly';
@@ -55,13 +42,14 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   superchargeDetails,
   paymentMethodId,
   otherUserAmounts = [],
+  selectedDiscounts,
 }) => {
   const navigate = useNavigate();
 
-  // Determine the raw cent value:
-  const instantPowerAmountCents = getCents(instantPowerAmount);
-  // For display purposes, convert cents to dollars.
-  const instantPowerAmountValue = instantPowerAmountCents / 100;
+  // Parse the instant power amount (in dollars) and convert it to cents for calculations.
+  const instantPowerAmountCents = Math.round(parseFloat(instantPowerAmount) * 100);
+  // For display purposes, use the parsed dollar value.
+  const instantPowerAmountValue = parseFloat(instantPowerAmount) || 0;
 
   // Fixed values for this route
   const numberOfPeriods = '12';
@@ -85,12 +73,12 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     'monthly': 'MONTHLY',
   };
 
-  // Build the plan request – the API expects purchaseAmount in cents.
+  // Build the plan request – the API now expects the purchaseAmount in cents.
   const planRequest: CalculatePaymentPlanRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: getCents(instantPowerAmount),
+      purchaseAmount: Math.round(parseFloat(instantPowerAmount) * 100),
       startDate: new Date().toISOString().split('T')[0],
     }),
     [paymentFrequency, numberOfPeriods, instantPowerAmount]
@@ -148,7 +136,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       dueDate: payment.dueDate,
       amount: payment.amount,
       percentage: Number(
-        ((payment.amount / getCents(instantPowerAmount)) * 100).toFixed(2)
+        ((payment.amount / Math.round(parseFloat(instantPowerAmount) * 100)) * 100).toFixed(2)
       ),
     })) || [];
 
@@ -190,13 +178,15 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     }
 
     const numberOfPayments = parseInt(numberOfPeriods, 10);
-    const instantAmount = getCents(instantPowerAmount);
+    // For the payload, we now parse the dollar value and multiply by 100.
+    const instantAmount = Math.round(parseFloat(instantPowerAmount) * 100);
+    // Multiply the instant amount by the number of payments to get the yearly amount.
     const yearlyAmount = instantAmount * numberOfPayments;
 
-    // Transform supercharge details to use the correct key "paymentMethodId"
+    // Transform supercharge details: convert each amount from dollars to cents.
     const transformedSuperchargeDetails = superchargeDetails.map(detail => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: getCents(detail.amount),
+      amount: Math.round(parseFloat(detail.amount) * 100),
     }));
 
     // Build the payload – all amounts in cents.
@@ -211,14 +201,14 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       offsetStartDate: planRequest.startDate,
       otherUsers: otherUserAmounts.map(user => ({
         userId: user.userId,
-        amount: getCents(user.amount),
+        amount: Math.round(parseFloat(user.amount) * 100),
       })),
+      discountIds: selectedDiscounts, // Pass discount IDs using the discountIds key
     };
 
     completeCheckout(payload, {
       onSuccess: (data) => {
         console.log('Checkout successful:', data);
-        // Instead of navigating, post a message to the parent/opener window
         const targetWindow = window.opener || window.parent || window;
         if (otherUserAmounts && otherUserAmounts.length > 0) {
           targetWindow.postMessage(
@@ -249,7 +239,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     });
   };
 
-  // Determine overall loading state.
   const isLoadingState = plaidLoading || userLoading || isPlanLoading;
   const isErrorState =
     plaidError ||

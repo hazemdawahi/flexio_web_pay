@@ -13,7 +13,7 @@ export interface CompleteCheckoutPayload {
   // For both checkout types
   instantAmount: number;      // Payment amount in cents, e.g. 20000
   yearlyAmount: number;       // Payment amount in cents, e.g. 100000
-  selectedPaymentMethod: string; // e.g. "pm_card_visa"
+  selectedPaymentMethod: string; // Payment method identifier
   superchargeDetails: {
     amount: number;           // e.g. 500
     paymentMethodId: string;  // e.g. "pm_card_mastercard"
@@ -24,6 +24,7 @@ export interface CompleteCheckoutPayload {
     userId: string;
     amount: number;
   }[];
+  discountIds?: string[];     // Optional list of discount identifiers
 }
 
 // Define the response structure for a successful complete checkout request.

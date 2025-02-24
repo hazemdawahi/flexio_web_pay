@@ -32,15 +32,23 @@ const PowerOptionsContent: React.FC = () => {
   // Optional split data coming from the previous page
   const [splitData, setSplitData] = useState<SplitData | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  // New state to hold the selected discounts list
+  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
 
-  // Check for split data and users in location.state
+  // Check for split data, users, and selectedDiscounts in location.state
   useEffect(() => {
-    const stateData = (location.state as { splitData?: SplitData; users?: User[] }) || {};
+    const stateData = (location.state as {
+      splitData?: SplitData;
+      users?: User[];
+      selectedDiscounts?: string[];
+    }) || {};
     if (stateData.splitData) {
       setSplitData(stateData.splitData);
     }
-    // Set users if provided; otherwise, default to an empty array.
     setUsers(stateData.users || []);
+    if (stateData.selectedDiscounts) {
+      setSelectedDiscounts(stateData.selectedDiscounts);
+    }
   }, [location.state]);
 
   // Retrieve user details via the custom hook
@@ -62,13 +70,14 @@ const PowerOptionsContent: React.FC = () => {
 
   /**
    * Handle option click. If split data exists (from a split flow),
-   * navigate to the split customization page and pass both split data and users.
+   * navigate to the split customization page and pass split data, users,
+   * the chosen power type, and the selected discount list.
    * Otherwise, navigate to the merchant shopping page.
    */
   const handleOptionClick = (powerType: "instantaneous" | "yearly") => {
     if (splitData && splitData.userAmounts && splitData.userAmounts.length > 0) {
       navigate("/SplitAmountUserCustomization", {
-        state: { splitData, users, type: powerType },
+        state: { splitData, users, type: powerType, selectedDiscounts },
       });
     } else {
       navigate("/merchant-shopping", { state: { type: powerType } });
@@ -136,7 +145,6 @@ const PowerOptionsContent: React.FC = () => {
               "Loading..."
             ) : yearlyPower !== undefined ? (
               <span className="text-lg font-normal text-gray-600">
-                {/* Convert cents to dollars and divide by 5 */}
                 (${((yearlyPower / 100) / 5).toFixed(2)} / per year)
               </span>
             ) : (

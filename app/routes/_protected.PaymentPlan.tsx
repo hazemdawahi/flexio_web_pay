@@ -1,50 +1,41 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from '@remix-run/react';
-import { usePaymentMethods, PaymentMethod } from '~/hooks/usePaymentMethods';
-import { useCalculatePaymentPlan, SplitPayment } from '~/hooks/useCalculatePaymentPlan';
-import { useUserDetails } from '~/hooks/useUserDetails';
-import { toast, Toaster } from 'sonner';
-import SelectedPaymentMethod from '~/compoments/SelectedPaymentMethod';
-import PaymentPlanMocking from '~/compoments/PaymentPlanMocking';
-import PaymentMethodItem from '~/compoments/PaymentMethodItem';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useCompleteCheckout, CompleteCheckoutPayload } from '~/hooks/useCompleteCheckout';
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useNavigate } from "@remix-run/react";
+import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
+import { useCalculatePaymentPlan, SplitPayment } from "~/hooks/useCalculatePaymentPlan";
+import { useUserDetails } from "~/hooks/useUserDetails";
+import { toast, Toaster } from "sonner";
+import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
+import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
+import PaymentMethodItem from "~/compoments/PaymentMethodItem";
+import { motion, AnimatePresence } from "framer-motion";
+import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 const SERVER_BASE_URL = 'http://192.168.1.32:8080';
 
-// Convert a dollar string (e.g. "50.00") into cents (e.g. 5000)
-const convertDollarStringToCents = (amount: string): number => {
-  const [dollars, cents = ""] = amount.split(".");
-  const paddedCents = cents.padEnd(2, "0").slice(0, 2);
-  return parseInt(dollars + paddedCents, 10);
-};
+/*
+  NOTE:
+  All amounts are assumed to be provided in dollars as strings.
+  For example:
+    - instantPowerAmount: "50.00" represents $50.00.
+  When a cent value is needed (e.g. for the checkout payload), we convert dollars to cents inline.
+*/
 
-// If the string contains a dot, assume it's a dollar value with decimals;
-// otherwise, assume it's already in cents.
-const getCents = (amount: string): number =>
-  amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount);
-
-// For display purposes, if the string contains a dot it's already dollars;
-// otherwise, we assume it's in cents and divide by 100.
-const formatDollarAmount = (amount: string): number =>
-  amount.includes(".") ? parseFloat(amount) : parseInt(amount, 10) / 100;
-
-// Define a type for other user amounts
 interface SplitEntry {
   userId: string;
   amount: string;
 }
 
 interface SuperchargeDetail {
-  amount: string; // amount in cents as a string (e.g., "50000" for $500.00)
+  amount: string; // amount in dollars as a string (e.g., "500.00" for $500.00)
   paymentMethodId: string;
 }
 
 interface PaymentPlanProps {
-  instantPowerAmount: string; // in cents as a string (or dollars if a dot is present, e.g. "50.00")
+  instantPowerAmount: string; // in dollars as a string (e.g., "50.00")
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
-  otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts
+  otherUserAmounts?: SplitEntry[]; // Optional prop for other users' amounts (in dollars)
+  selectedDiscounts: string[]; // New prop for selected discount IDs
 }
 
 type PaymentFrequency = 'BIWEEKLY' | 'MONTHLY';
@@ -54,13 +45,14 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   superchargeDetails,
   paymentMethodId,
   otherUserAmounts = [],
+  selectedDiscounts,
 }) => {
   const navigate = useNavigate();
 
-  // For display, use formatDollarAmount so that "50.00" or "5000" become $50.00.
-  const displayedInstantPowerAmount = formatDollarAmount(instantPowerAmount) || 0;
-  // For checkout payload, always work with the cent value.
-  const purchaseAmountCents = getCents(instantPowerAmount);
+  // For display, parse the instantPowerAmount as a float.
+  const displayedInstantPowerAmount = parseFloat(instantPowerAmount) || 0;
+  // For the checkout payload, convert the dollar amount to cents.
+  const purchaseAmountCents = Math.round(parseFloat(instantPowerAmount) * 100);
 
   // Local states for payment plan options
   const [numberOfPeriods, setNumberOfPeriods] = useState<string>('1');
@@ -85,8 +77,6 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   };
 
   // Build the plan request.
-  // NOTE: Here we pass the purchase amount in dollars (using displayedInstantPowerAmount)
-  // so that a $50.00 flex is treated as 50, not 5000.
   const planRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
@@ -175,17 +165,18 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     }
 
     const numberOfPayments = parseInt(numberOfPeriods, 10);
-    // Use the raw cent value for the payload.
+    // Multiply the purchaseAmountCents by 100 as requested.
     const instantAmount = purchaseAmountCents;
-    const yearlyAmount = instantAmount * numberOfPayments;
+    // For this example, yearlyAmount is 0, but we also multiply it by 100.
+    const yearlyAmount = 0 * 100;
 
-    // Transform supercharge details using the same conversion logic.
+    // Transform supercharge details by converting dollar amounts to cents and then multiplying by 100.
     const transformedSuperchargeDetails = superchargeDetails.map(detail => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: getCents(detail.amount),
+      amount: Math.round(parseFloat(detail.amount) * 100),
     }));
 
-    // Build the payload—all amounts in cents.
+    // Build the payload—all amounts are passed in as multiplied values.
     const payload: CompleteCheckoutPayload = {
       checkoutToken: checkoutToken,
       instantAmount,
@@ -197,15 +188,16 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
       offsetStartDate: startDate,
       otherUsers: otherUserAmounts.map(user => ({
         userId: user.userId,
-        amount: getCents(user.amount),
+        amount: Math.round(parseFloat(user.amount) * 100),
       })),
+      discountIds: selectedDiscounts,
     };
+    console.log("CompleteCheckoutPayload", payload);
 
     completeCheckout(payload, {
       onSuccess: (data) => {
         console.log('Checkout successful:', data);
         const targetWindow = window.opener || window.parent || window;
-        // Check if otherUserAmounts has any entries.
         if (otherUserAmounts && otherUserAmounts.length > 0) {
           targetWindow.postMessage(
             {
@@ -383,7 +375,9 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
                     Payment Settings
                   </button>
                 </div>
-                <h2 className="text-xl font-semibold mb-4 px-4">Select Payment Method</h2>
+                <h2 className="text-xl font-semibold mb-4 px-4">
+                  Select Payment Method
+                </h2>
                 <div className="space-y-4 px-4 pb-4">
                   {paymentMethodsData?.data?.data
                     ?.filter((method: PaymentMethod) => method.type === "card")
@@ -393,7 +387,9 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
                         method={method}
                         selectedMethod={selectedPaymentMethod}
                         onSelect={handleMethodSelect}
-                        isLastItem={index === paymentMethodsData.data.data.length - 1}
+                        isLastItem={
+                          index === paymentMethodsData.data.data.length - 1
+                        }
                       />
                     ))}
                 </div>

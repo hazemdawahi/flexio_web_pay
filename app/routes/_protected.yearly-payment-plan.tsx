@@ -16,43 +16,22 @@ import {
   CompleteCheckoutPayload,
 } from "~/hooks/useCompleteCheckout";
 
-interface SuperchargeDetail {
-  amount: string; // e.g. "500.00" or "50032"
-  paymentMethodId: string;
-}
-
 export interface YearlyPaymentPlanProps {
   yearlyPowerAmount: string; // The total flex amount the user wants to flex (in dollars, as a string)
-  superchargeDetails: SuperchargeDetail[];
+  superchargeDetails: {
+    amount: string; // e.g. "500.00" or "50032"
+    paymentMethodId: string;
+  }[];
   paymentMethodId: string;
-  // Possibly "otherUserAmounts"
+  selectedDiscounts: string[]; // New prop for selected discount IDs
 }
-
-// Convert a dollar string (e.g. "50.00") into cents (e.g. 5000)
-const convertDollarStringToCents = (amount: string): number => {
-  const [dollars, cents = ""] = amount.split(".");
-  const paddedCents = cents.padEnd(2, "0").slice(0, 2);
-  return parseInt(dollars + paddedCents, 10);
-};
-
-// If the string contains a dot, assume it's a dollar value with decimals;
-// otherwise, assume it's already in cents.
-const getCents = (amount: string): number =>
-  amount.includes(".") ? convertDollarStringToCents(amount) : Number(amount);
-
-// Helper to correctly interpret the flex amount for display purposes.
-// If the string contains a dot, it’s already a dollar value;
-// if not, we assume it’s in cents so we divide by 100.
-const formatDollarAmount = (amount: string): number =>
-  amount.includes(".") ? parseFloat(amount) : parseInt(amount, 10) / 100;
 
 const YearlyPaymentPlan: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  // Retrieve parameters.
-  // The passed yearlyPowerAmount is the flex amount the user wants (in dollars as a string)
+  // Retrieve parameters from location.state or query params.
   const stateData = (location.state as Partial<YearlyPaymentPlanProps>) || {};
   const passedFlexAmountStr =
     stateData.yearlyPowerAmount ||
@@ -65,7 +44,7 @@ const YearlyPaymentPlan: React.FC = () => {
     searchParams.get("superchargeDetails") ||
     "[]";
 
-  let superchargeDetails: SuperchargeDetail[] = [];
+  let superchargeDetails: { amount: string; paymentMethodId: string }[] = [];
   try {
     superchargeDetails = JSON.parse(superchargeDetailsStr);
   } catch {
@@ -83,6 +62,19 @@ const YearlyPaymentPlan: React.FC = () => {
     otherUserAmounts = [];
   }
 
+  // Retrieve selectedDiscounts from state or URL params.
+  const selectedDiscountsStr =
+    (stateData.selectedDiscounts &&
+      JSON.stringify(stateData.selectedDiscounts)) ||
+    searchParams.get("selectedDiscounts") ||
+    "[]";
+  let selectedDiscounts: string[] = [];
+  try {
+    selectedDiscounts = JSON.parse(selectedDiscountsStr);
+  } catch {
+    selectedDiscounts = [];
+  }
+
   // Get user details (which include yearlyPower in cents)
   const {
     data: userDetailsData,
@@ -97,13 +89,11 @@ const YearlyPaymentPlan: React.FC = () => {
   const maxAnnualFlexDollars = maxAnnualFlexCents / 100;
 
   // Parse the passed flex amount as a dollar value for display and comparison.
-  const requestedFlexDollars = formatDollarAmount(passedFlexAmountStr);
-  // Convert the passed flex amount into cents for the checkout payload.
-  const chosenAmountCents = getCents(passedFlexAmountStr);
+  const requestedFlexDollars = parseFloat(passedFlexAmountStr) || 0;
+  // Convert the passed flex amount into the payload unit by multiplying by 100.
+  const chosenAmount = Math.round(requestedFlexDollars * 100);
 
   // Determine the minimum number of months required.
-  // We want the monthly installment (requestedFlexDollars / (months/12))
-  // to be <= maxAnnualFlexDollars => months >= (requestedFlexDollars * 12) / maxAnnualFlexDollars
   const computedMinMonths =
     maxAnnualFlexDollars > 0 && requestedFlexDollars > 0
       ? Math.ceil((requestedFlexDollars * 12) / maxAnnualFlexDollars)
@@ -151,7 +141,7 @@ const YearlyPaymentPlan: React.FC = () => {
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: selectedMonths,
-      purchaseAmount: requestedFlexDollars,
+      purchaseAmount: requestedFlexDollars, // in dollars for the plan calculation
       startDate,
     }),
     [paymentFrequency, selectedMonths, requestedFlexDollars, startDate]
@@ -213,7 +203,7 @@ const YearlyPaymentPlan: React.FC = () => {
     setIsModalOpen(false);
   }, []);
 
-  // Render the payment method section (or a loading/error state).
+  // Render the payment method section.
   const renderPaymentMethodSection = () => {
     if (paymentMethodsStatus === "pending") {
       return (
@@ -238,7 +228,7 @@ const YearlyPaymentPlan: React.FC = () => {
     useCompleteCheckout();
 
   const handleConfirm = () => {
-    if (!selectedPaymentMethod || chosenAmountCents === 0) {
+    if (!selectedPaymentMethod || chosenAmount === 0) {
       toast.error("Please select a payment method and ensure the amount is greater than zero.");
       return;
     }
@@ -248,15 +238,21 @@ const YearlyPaymentPlan: React.FC = () => {
     }
 
     const numberOfPayments = selectedMonths;
+    // For the payload, multiply the flex amount by 100 as requested.
+    const yearlyAmount = chosenAmount; // chosenAmount was computed as dollars*100
+    // For YearlyPaymentPlan, instantAmount remains 0.
+    const instantAmount = 0;
+
+    // Transform supercharge details by converting dollar amounts to numbers and multiplying by 100.
     const transformedSuperchargeDetails = superchargeDetails.map((detail) => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: getCents(detail.amount),
+      amount: Math.round(parseFloat(detail.amount) * 100),
     }));
 
     const payload: CompleteCheckoutPayload = {
       checkoutToken: checkoutToken,
-      instantAmount: 0,
-      yearlyAmount: chosenAmountCents, // in cents
+      instantAmount,
+      yearlyAmount,
       selectedPaymentMethod: selectedPaymentMethod.id,
       superchargeDetails: transformedSuperchargeDetails,
       paymentFrequency,
@@ -264,8 +260,9 @@ const YearlyPaymentPlan: React.FC = () => {
       offsetStartDate: planRequest.startDate,
       otherUsers: otherUserAmounts.map((user: any) => ({
         userId: user.userId,
-        amount: getCents(user.amount),
+        amount: Math.round(parseFloat(user.amount) * 100),
       })),
+      discountIds: selectedDiscounts,
     };
 
     console.log("Checkout payload", payload);
@@ -273,10 +270,7 @@ const YearlyPaymentPlan: React.FC = () => {
     completeCheckout(payload, {
       onSuccess: (data) => {
         console.log("YearlyPaymentPlan: Checkout successful => posting COMPLETED/PENDING", data);
-
         const targetWindow = window.opener || window.parent || window;
-
-        // If there are otherUserAmounts, post "PENDING" (no error). Otherwise "COMPLETED".
         if (otherUserAmounts.length > 0) {
           targetWindow.postMessage(
             {
@@ -374,12 +368,12 @@ const YearlyPaymentPlan: React.FC = () => {
         {/* Confirm Button */}
         <button
           className={`w-full bg-black text-white font-bold py-3 rounded-lg ${
-            chosenAmountCents === 0 || checkoutStatus === "pending"
+            chosenAmount === 0 || checkoutStatus === "pending"
               ? "bg-gray-400 cursor-not-allowed"
               : "hover:bg-gray-800"
           }`}
-          onClick={chosenAmountCents > 0 ? handleConfirm : undefined}
-          disabled={chosenAmountCents === 0 || checkoutStatus === "pending"}
+          onClick={chosenAmount > 0 ? handleConfirm : undefined}
+          disabled={chosenAmount === 0 || checkoutStatus === "pending"}
         >
           {checkoutStatus === "pending" ? (
             <div className="flex justify-center items-center">
@@ -388,8 +382,8 @@ const YearlyPaymentPlan: React.FC = () => {
             </div>
           ) : (
             <span>
-              {chosenAmountCents > 0
-                ? `Flex $${(chosenAmountCents / 100).toFixed(2)} over ${selectedMonths} ${
+              {chosenAmount > 0
+                ? `Flex $${(requestedFlexDollars).toFixed(2)} over ${selectedMonths} ${
                     selectedMonths === 1 ? "month" : "months"
                   }`
                 : "Flex your payments"}

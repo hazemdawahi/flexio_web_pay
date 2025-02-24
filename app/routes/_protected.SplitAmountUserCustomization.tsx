@@ -186,7 +186,7 @@ const SplitAmountUserCustomization: React.FC = () => {
 
     // Build query parameters—use different key names based on type
     const paramsObj: Record<string, string> = {
-      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmountParsedToCents(paymentAmount),
+      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmount,
       superchargeDetails: JSON.stringify(superchargeDetails),
       otherUserAmounts: JSON.stringify(userAmountsArray),
       paymentMethodId: selectedPaymentMethod?.id || "",

@@ -24,6 +24,7 @@ export interface PlansData {
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
   otherUserAmounts: SplitEntry[];
+  selectedDiscounts: string[]; // new property for discount IDs
 }
 
 const Plans: React.FC = () => {
@@ -43,6 +44,7 @@ const Plans: React.FC = () => {
       const superchargeDetailsString = searchParams.get("superchargeDetails");
       const paymentMethodId = searchParams.get("paymentMethodId") || "";
       const otherUserAmountsString = searchParams.get("otherUserAmounts");
+      const selectedDiscountsString = searchParams.get("selectedDiscounts");
 
       let superchargeDetails: SuperchargeDetail[] = [];
       if (superchargeDetailsString) {
@@ -61,12 +63,22 @@ const Plans: React.FC = () => {
           console.error("Error parsing otherUserAmounts:", error);
         }
       }
+      
+      let selectedDiscounts: string[] = [];
+      if (selectedDiscountsString) {
+        try {
+          selectedDiscounts = JSON.parse(selectedDiscountsString);
+        } catch (error) {
+          console.error("Error parsing selectedDiscounts:", error);
+        }
+      }
 
       const fetchedData: PlansData = {
         instantPowerAmount,
         superchargeDetails,
         paymentMethodId,
         otherUserAmounts,
+        selectedDiscounts,
       };
       setData(fetchedData);
     }
@@ -90,6 +102,7 @@ const Plans: React.FC = () => {
             superchargeDetails={data.superchargeDetails}
             paymentMethodId={data.paymentMethodId}
             otherUserAmounts={data.otherUserAmounts}
+            selectedDiscounts={data.selectedDiscounts} // passed as prop
           />
         </div>
       ),
@@ -103,6 +116,7 @@ const Plans: React.FC = () => {
             superchargeDetails={data.superchargeDetails}
             paymentMethodId={data.paymentMethodId}
             otherUserAmounts={data.otherUserAmounts}
+            selectedDiscounts={data.selectedDiscounts} // passed as prop
           />
         </div>
       ),
@@ -110,20 +124,20 @@ const Plans: React.FC = () => {
   ];
 
   return (
-      <div className="min-h-screen bg-white">
-        <header className="flex items-center p-4">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center text-gray-700 hover:text-gray-900"
-          >
-            <IoIosArrowBack className="mr-2" size={24} />
-            Back
-          </button>
-        </header>
-        <div className="mt-4">
-          <Tabs tabs={tabs} />
-        </div>
+    <div className="min-h-screen bg-white">
+      <header className="flex items-center p-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center text-gray-700 hover:text-gray-900"
+        >
+          <IoIosArrowBack className="mr-2" size={24} />
+          Back
+        </button>
+      </header>
+      <div className="mt-4">
+        <Tabs tabs={tabs} />
       </div>
+    </div>
   );
 };
 

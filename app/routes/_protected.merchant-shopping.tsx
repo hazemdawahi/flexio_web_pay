@@ -30,8 +30,8 @@ const MerchantShoppingContent: React.FC = () => {
   const [paymentAmount, setPaymentAmount] = useState("0.00");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // Allow only one discount to be selected.
-  const [selectedDiscount, setSelectedDiscount] = useState<string | null>(null);
+  // Allow only one discount to be selected, stored as an array of discount IDs.
+  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
 
   const {
     data: paymentData,
@@ -57,9 +57,9 @@ const MerchantShoppingContent: React.FC = () => {
     status: checkoutStatus,
   } = useCheckoutDetail(checkoutToken);
 
-  // Parse the base checkout total (in dollars)
+  // Convert the raw checkout total (in cents) to dollars
   const checkoutTotalAmount = checkoutData
-    ? parseFloat(checkoutData.checkout.totalAmount.amount)
+    ? parseFloat(checkoutData.checkout.totalAmount.amount) / 100
     : 0;
 
   const merchantId = checkoutData?.checkout.merchant.id;
@@ -71,17 +71,21 @@ const MerchantShoppingContent: React.FC = () => {
   const baseUrl = "http://192.168.1.32:8080";
   console.log("merchantDetailData", merchantDetailData);
 
+  // Order amount in dollars is now used directly
+  const orderAmount = checkoutTotalAmount;
+
   const {
     data: discounts,
     isLoading: discountsLoading,
     error: discountsError,
-  } = useAvailableDiscounts(merchantId || "");
+  } = useAvailableDiscounts(merchantId || "", orderAmount);
 
   // Helper: get discount value (in dollars) from a discount object.
   const getDiscountValue = (discount: any): number => {
     if (discount.type === "PERCENTAGE_OFF" && discount.discountPercentage != null) {
       return checkoutTotalAmount * (discount.discountPercentage / 100);
     } else if (discount.discountAmount != null) {
+      // Convert discount amount from cents to dollars
       return discount.discountAmount / 100;
     }
     return 0;
@@ -98,20 +102,20 @@ const MerchantShoppingContent: React.FC = () => {
         const bestDiscount = validDiscounts.reduce((prev: any, curr: any) =>
           getDiscountValue(curr) > getDiscountValue(prev) ? curr : prev
         );
-        setSelectedDiscount(bestDiscount.id);
+        setSelectedDiscounts([bestDiscount.id]);
       } else {
-        setSelectedDiscount(null);
+        setSelectedDiscounts([]);
       }
     }
   }, [discounts, checkoutTotalAmount]);
 
   // Effective checkout total after discount (cannot be negative)
   const effectiveCheckoutTotal =
-    selectedDiscount && discounts
+    selectedDiscounts.length > 0 && discounts
       ? Math.max(
           0,
           checkoutTotalAmount -
-            getDiscountValue(discounts.find((d: any) => d.id === selectedDiscount))
+            getDiscountValue(discounts.find((d: any) => d.id === selectedDiscounts[0]))
         )
       : checkoutTotalAmount;
 
@@ -147,9 +151,9 @@ const MerchantShoppingContent: React.FC = () => {
     closeModal();
   }, []);
 
-  // Since only one discount is allowed, simply set the selected discount.
+  // Since only one discount is allowed, simply set the selected discount in an array.
   const handleDiscountChange = (discountId: string) => {
-    setSelectedDiscount(discountId);
+    setSelectedDiscounts([discountId]);
   };
 
   const calculateTotalAmount = () => {
@@ -162,15 +166,9 @@ const MerchantShoppingContent: React.FC = () => {
   };
   const totalAmount = calculateTotalAmount();
 
-  const convertToCents = (amountStr: string): string => {
-    const amount = parseFloat(amountStr);
-    if (isNaN(amount)) return "0";
-    return Math.round(amount * 100).toString();
-  };
-
   const navigateToPlansPage = () => {
     const superchargeDetails = additionalFields.map((field: string) => ({
-      amount: convertToCents(field),
+      amount: field, // amount in dollars as string
       paymentMethodId: selectedPaymentMethod?.id,
     }));
 
@@ -179,18 +177,15 @@ const MerchantShoppingContent: React.FC = () => {
       return;
     }
 
-    const totalAmountCents = convertToCents(totalAmount.toString());
-    const paymentAmountCents = convertToCents(paymentAmount);
-
     const stateData = {
-      amount: totalAmountCents,
+      amount: totalAmount, // amount in dollars
       superchargeDetails,
       paymentMethodId: selectedPaymentMethod?.id || "",
       paymentType,
-      selectedDiscount, // single selected discount
-      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmountCents,
+      selectedDiscounts, // discount IDs stored as an array
+      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmount,
     };
-
+    console.log("shoppogin adta",stateData)
     if (isYearly) {
       navigate("/yearly-payment-plan", { state: stateData });
     } else {
@@ -312,7 +307,7 @@ const MerchantShoppingContent: React.FC = () => {
                               : `${baseUrl}${merchantDetailData.data.brand.displayLogo}`
                           }
                           alt={merchantDetailData.data.brand.displayName || "Brand Logo"}
-                          className="w-10 h-10 rounded-full object-cover mr-4"
+                          className="w-10 h-10 rounded-full object-cover mr-4 border border-[#ccc]"
                         />
                       )}
                       <div>
@@ -335,7 +330,7 @@ const MerchantShoppingContent: React.FC = () => {
                       type="radio"
                       name="discount"
                       disabled={isOptionDisabled}
-                      checked={selectedDiscount === discount.id}
+                      checked={selectedDiscounts.includes(discount.id)}
                       onChange={(e) => {
                         e.stopPropagation();
                         if (!isOptionDisabled) handleDiscountChange(discount.id);

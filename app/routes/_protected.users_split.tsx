@@ -6,8 +6,12 @@ import { IoIosArrowBack } from 'react-icons/io';
 // Hooks (replace with your actual implementations)
 import { useFetchMultipleUserDetails } from '~/hooks/useFetchMultipleUserDetails';
 import { useUserDetails } from '~/hooks/useUserDetails';
-import { useCheckoutDetail, CheckoutDetail } from '~/hooks/useCheckoutDetail';
+import { useCheckoutDetail } from '~/hooks/useCheckoutDetail';
 import FloatingLabelInput from '~/compoments/Floatinglabelinpunt';
+
+// New hooks for discount functionality
+import { useAvailableDiscounts } from '~/hooks/useAvailableDiscounts';
+import { useMerchantDetail } from '~/hooks/useMerchantDetail';
 
 interface LocationState {
   userIds: string[];
@@ -37,12 +41,12 @@ export interface SplitData {
 const MultipleUsersSendWeb: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // Extract userIds (and optionally type) from location state
   const state = (location.state as LocationState) || { userIds: [] };
   const { userIds, type } = state;
   const userIdsArray = Array.isArray(userIds) ? userIds : [];
-  
+
   // Define isYearly flag (defaults to false if type is not "yearly")
   const isYearly = type === "yearly";
 
@@ -71,34 +75,89 @@ const MultipleUsersSendWeb: React.FC = () => {
     error: checkoutError,
   } = useCheckoutDetail(checkoutToken);
 
+  // ------------------------------
+  // Conversion: convert cents to dollars
+  // ------------------------------
+  // Assume checkoutData.checkout.totalAmount.amount is in cents (e.g. 100000)
+  // Convert it to dollars (e.g. 1000.00)
+  const rawCheckoutAmount = checkoutData
+    ? parseFloat(checkoutData.checkout.totalAmount.amount)
+    : 0;
+  const checkoutTotalAmount = rawCheckoutAmount / 100;
+  const merchantId = checkoutData?.checkout.merchant.id;
+
+  // ------------------------------
+  // Discount functionality setup
+  // ------------------------------
+  // Fetch available discounts (using checkoutTotalAmount in dollars)
+  const {
+    data: discounts,
+    isLoading: discountsLoading,
+    error: discountsError,
+  } = useAvailableDiscounts(merchantId || "", checkoutTotalAmount);
+
+  // Fetch merchant details (for brand logo etc.)
+  const { data: merchantDetailData } = useMerchantDetail(merchantId || "");
+  const baseUrl = "http://192.168.1.32:8080";
+
+  // State for selected discount (allow only one)
+  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
+
+  // Helper: Calculate discount value (in dollars)
+  const getDiscountValue = (discount: any): number => {
+    if (discount.type === "PERCENTAGE_OFF" && discount.discountPercentage != null) {
+      return checkoutTotalAmount * (discount.discountPercentage / 100);
+    } else if (discount.discountAmount != null) {
+      // discount.discountAmount is in cents so convert to dollars
+      return discount.discountAmount / 100;
+    }
+    return 0;
+  };
+
+  // Auto-select the best discount (if available)
+  useEffect(() => {
+    if (discounts && discounts.length > 0) {
+      const validDiscounts = discounts.filter(
+        (d: any) => checkoutTotalAmount - getDiscountValue(d) >= 0
+      );
+      if (validDiscounts.length > 0) {
+        const bestDiscount = validDiscounts.reduce((prev: any, curr: any) =>
+          getDiscountValue(curr) > getDiscountValue(prev) ? curr : prev
+        );
+        setSelectedDiscounts([bestDiscount.id]);
+      } else {
+        setSelectedDiscounts([]);
+      }
+    }
+  }, [discounts, checkoutTotalAmount]);
+
+  // Effective checkout total after discount (in dollars)
+  const effectiveCheckoutTotal =
+    selectedDiscounts.length > 0 && discounts
+      ? Math.max(
+          0,
+          checkoutTotalAmount -
+            getDiscountValue(discounts.find((d: any) => d.id === selectedDiscounts[0]))
+        )
+      : checkoutTotalAmount;
+
+  // ------------------------------
+  // Users and split state
+  // ------------------------------
   // State: array of user info
   const [users, setUsers] = useState<User[]>([]);
-
-  // State: final amounts (read-only or final after save)
+  // State: final amounts (after split, in dollars formatted as a string)
   const [amounts, setAmounts] = useState<{ [key: string]: string }>({});
-
   // State: temporary amounts (when adjusting)
   const [tempAmounts, setTempAmounts] = useState<{ [key: string]: string }>({});
-
   // Whether fields are in "adjust mode"
   const [isAdjusting, setIsAdjusting] = useState(false);
-
   // State to track if the split is even
   const [isEvenSplit, setIsEvenSplit] = useState(true);
 
-  // Calculate the total amount from checkout details (API returns cents)
-  const calculateCheckoutTotalAmount = (checkout: CheckoutDetail): number => {
-    if (!checkout) return 0;
-    return parseFloat(checkout.totalAmount.amount);
-  };
-
-  const checkoutTotalAmount = checkoutData
-    ? calculateCheckoutTotalAmount(checkoutData.checkout)
-    : 0;
-
-  // ---------------------------
-  //  Initialize data on mount
-  // ---------------------------
+  // ------------------------------
+  // Initialize user data and even split amounts
+  // ------------------------------
   useEffect(() => {
     const mappedUsers: User[] = [];
 
@@ -126,22 +185,20 @@ const MultipleUsersSendWeb: React.FC = () => {
 
     setUsers(mappedUsers);
 
-    // Compute initial even split
+    // Compute initial even split using effective total after discount
     if (mappedUsers.length > 0) {
-      const total = checkoutTotalAmount;
+      const total = effectiveCheckoutTotal;
       const numUsers = mappedUsers.length;
-      const baseAmount = Math.floor((total / numUsers) * 100) / 100;
+      const baseAmount = total / numUsers;
       const newAmounts: { [key: string]: string } = {};
       let accumulated = 0;
 
       for (let i = 0; i < numUsers; i++) {
         const user = mappedUsers[i];
         if (i === numUsers - 1) {
-          const last = (total - accumulated).toFixed(2);
-          newAmounts[user.id] = last;
+          newAmounts[user.id] = (total - accumulated).toFixed(2);
         } else {
-          const amt = baseAmount.toFixed(2);
-          newAmounts[user.id] = amt;
+          newAmounts[user.id] = baseAmount.toFixed(2);
           accumulated += baseAmount;
         }
       }
@@ -150,10 +207,32 @@ const MultipleUsersSendWeb: React.FC = () => {
       setTempAmounts(newAmounts);
       setIsEvenSplit(true);
     }
-  }, [currentUserData, multipleUsersData, checkoutTotalAmount, navigate]);
+  }, [currentUserData, multipleUsersData, effectiveCheckoutTotal]);
+
+  // If even split is still active, update amounts when effective total changes
+  useEffect(() => {
+    if (isEvenSplit && users.length > 0) {
+      const total = effectiveCheckoutTotal;
+      const numUsers = users.length;
+      const baseAmount = total / numUsers;
+      const newAmounts: { [key: string]: string } = {};
+      let accumulated = 0;
+      for (let i = 0; i < numUsers; i++) {
+        const user = users[i];
+        if (i === numUsers - 1) {
+          newAmounts[user.id] = (total - accumulated).toFixed(2);
+        } else {
+          newAmounts[user.id] = baseAmount.toFixed(2);
+          accumulated += baseAmount;
+        }
+      }
+      setAmounts(newAmounts);
+      setTempAmounts(newAmounts);
+    }
+  }, [effectiveCheckoutTotal, isEvenSplit, users]);
 
   // ------------------------------------------------
-  //  Toggle between "Adjust" and "Save Changes" mode
+  // Toggle between "Adjust" and "Save Changes" mode
   // ------------------------------------------------
   const handleAdjustToggle = () => {
     if (!isAdjusting) {
@@ -177,16 +256,14 @@ const MultipleUsersSendWeb: React.FC = () => {
     }
 
     let sumOfLocked = lockedEntries.reduce((acc, entry) => acc + entry.value, 0);
-    if (sumOfLocked > checkoutTotalAmount) {
+    if (sumOfLocked > effectiveCheckoutTotal) {
       toast.error(
-        `Your changes exceed the total amount of $${checkoutTotalAmount.toFixed(
-          2
-        )}. Please adjust.`
+        `Your changes exceed the total amount of ${effectiveCheckoutTotal.toFixed(2)}. Please adjust.`
       );
       return;
     }
 
-    let leftover = checkoutTotalAmount - sumOfLocked;
+    let leftover = effectiveCheckoutTotal - sumOfLocked;
     const newAmounts: { [key: string]: string } = {};
 
     for (const user of users) {
@@ -194,13 +271,12 @@ const MultipleUsersSendWeb: React.FC = () => {
     }
 
     if (unchangedUserIds.length > 0) {
-      const perUser = Math.floor((leftover / unchangedUserIds.length) * 100) / 100;
+      const perUser = leftover / unchangedUserIds.length;
       let distributedSoFar = 0;
 
       unchangedUserIds.forEach((userId, idx) => {
         if (idx === unchangedUserIds.length - 1) {
-          const lastAmount = leftover - distributedSoFar;
-          newAmounts[userId] = lastAmount.toFixed(2);
+          newAmounts[userId] = (leftover - distributedSoFar).toFixed(2);
         } else {
           newAmounts[userId] = perUser.toFixed(2);
           distributedSoFar += perUser;
@@ -219,13 +295,9 @@ const MultipleUsersSendWeb: React.FC = () => {
       (acc, val) => acc + parseFloat(val),
       0
     );
-    if (Math.abs(finalSum - checkoutTotalAmount) > 0.01) {
+    if (Math.abs(finalSum - effectiveCheckoutTotal) > 0.01) {
       toast.error(
-        `Adjusted total $${finalSum.toFixed(
-          2
-        )} does not match required $${checkoutTotalAmount.toFixed(
-          2
-        )}. Please adjust manually.`
+        `Adjusted total ${finalSum.toFixed(2)} does not match required ${effectiveCheckoutTotal.toFixed(2)}. Please adjust manually.`
       );
       return;
     }
@@ -237,25 +309,23 @@ const MultipleUsersSendWeb: React.FC = () => {
   };
 
   // ---------------------------
-  //  Handle "Split Evenly" action
+  // Handle "Split Evenly" action
   // ---------------------------
   const handleSplitEvenly = () => {
     if (users.length === 0) return;
 
-    const total = checkoutTotalAmount;
+    const total = effectiveCheckoutTotal;
     const numUsers = users.length;
-    const baseAmount = Math.floor((total / numUsers) * 100) / 100;
+    const baseAmount = total / numUsers;
     const newAmounts: { [key: string]: string } = {};
     let accumulated = 0;
 
     for (let i = 0; i < numUsers; i++) {
       const user = users[i];
       if (i === numUsers - 1) {
-        const last = (total - accumulated).toFixed(2);
-        newAmounts[user.id] = last;
+        newAmounts[user.id] = (total - accumulated).toFixed(2);
       } else {
-        const amt = baseAmount.toFixed(2);
-        newAmounts[user.id] = amt;
+        newAmounts[user.id] = baseAmount.toFixed(2);
         accumulated += baseAmount;
       }
     }
@@ -268,7 +338,7 @@ const MultipleUsersSendWeb: React.FC = () => {
   };
 
   // ---------------------------
-  //  Handle final "Split" call
+  // Handle final "Split" call
   // ---------------------------
   const handleSplit = async () => {
     const sumOfAmounts = Object.values(amounts).reduce(
@@ -276,11 +346,9 @@ const MultipleUsersSendWeb: React.FC = () => {
       0
     );
 
-    if (Math.abs(sumOfAmounts - checkoutTotalAmount) > 0.01) {
+    if (Math.abs(sumOfAmounts - effectiveCheckoutTotal) > 0.01) {
       toast.error(
-        `Total $${sumOfAmounts.toFixed(
-          2
-        )} does not match the required $${checkoutTotalAmount.toFixed(2)}.`
+        `Total ${sumOfAmounts.toFixed(2)} does not match the required ${effectiveCheckoutTotal.toFixed(2)}.`
       );
       return;
     }
@@ -298,12 +366,12 @@ const MultipleUsersSendWeb: React.FC = () => {
     };
 
     console.log("Data to send:", splitData, users);
-    // Navigate to the Power Options page, passing both split data and the full users array
-    navigate('/power-options', { state: { splitData, users } });
+    // Navigate to the Power Options page, passing split data, full users array, and the selected discounts list
+    navigate('/power-options', { state: { splitData, users, selectedDiscounts } });
   };
 
   // ------------------------------
-  //  Loading & Error UI states
+  // Loading & Error UI states
   // ------------------------------
   if (isMultipleUsersLoading || isCurrentUserLoading || isCheckoutLoading) {
     return (
@@ -361,12 +429,10 @@ const MultipleUsersSendWeb: React.FC = () => {
           <IoIosArrowBack size={24} className="mr-2" />
           Back
         </button>
-        <div className="mt-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">
-              Split Total Amount: ${checkoutTotalAmount.toFixed(2)}
-            </h1>
-          </div>
+        <div className="mt-4 flex flex-row items-center justify-between">
+          <h1 className="text-2xl font-bold">
+            Split Total Amount: ${effectiveCheckoutTotal.toFixed(2)}
+          </h1>
           <button
             onClick={handleSplitEvenly}
             className={`text-blue-500 font-semibold ${isEvenSplit ? 'underline' : ''} hover:text-blue-700`}
@@ -407,22 +473,89 @@ const MultipleUsersSendWeb: React.FC = () => {
             </div>
           );
         })}
+      </div>
 
-        {/* Buttons Row */}
-        <div className="mt-8 flex space-x-4">
-          <button
-            onClick={handleAdjustToggle}
-            className="flex-1 bg-white border border-gray-300 text-black font-bold py-4 rounded-md hover:bg-gray-100 transition text-lg"
-          >
-            {isAdjusting ? 'Save Changes' : 'Adjust'}
-          </button>
-          <button
-            onClick={handleSplit}
-            className="flex-1 bg-black text-white font-bold py-4 rounded-md hover:bg-gray-800 transition text-lg"
-          >
-            Split
-          </button>
-        </div>
+      {/* Discounts Section (placed under the user list) */}
+      <div className="mt-6 mb-6">
+        <h2 className="text-lg font-semibold mb-2">Available Discounts</h2>
+        {discountsLoading ? (
+          <p>Loading discounts...</p>
+        ) : discountsError ? (
+          <p className="text-red-500">Error loading discounts</p>
+        ) : discounts && discounts.length > 0 ? (
+          <ul>
+            {discounts.map((discount: any) => {
+              const isOptionDisabled = checkoutTotalAmount * 100 - getDiscountValue(discount) * 100 < 0;
+              return (
+                <li
+                  key={discount.id}
+                  onClick={() => {
+                    if (!isOptionDisabled) setSelectedDiscounts([discount.id]);
+                  }}
+                  className={`flex items-center justify-between border p-2 mb-2 rounded cursor-pointer ${
+                    isOptionDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <div className="flex items-center">
+                    {merchantDetailData?.data?.brand?.displayLogo && (
+                      <img
+                        src={
+                          merchantDetailData.data.brand.displayLogo.startsWith("http")
+                            ? merchantDetailData.data.brand.displayLogo
+                            : `${baseUrl}${merchantDetailData.data.brand.displayLogo}`
+                        }
+                        alt={merchantDetailData.data.brand.displayName || "Brand Logo"}
+                        className="w-10 h-10 rounded-full object-cover mr-4 border border-[#ccc]"
+                      />
+                    )}
+                    <div>
+                      <p className="font-bold">{discount.discountName}</p>
+                      <p>
+                        {discount.type === "PERCENTAGE_OFF"
+                          ? `${discount.discountPercentage}% off`
+                          : discount.discountAmount != null
+                          ? `$${(discount.discountAmount / 100).toFixed(2)} off`
+                          : ""}
+                      </p>
+                      {discount.expiresAt && (
+                        <p>Expires: {new Date(discount.expiresAt).toLocaleString()}</p>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="radio"
+                    name="discount"
+                    disabled={isOptionDisabled}
+                    checked={selectedDiscounts.includes(discount.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      if (!isOptionDisabled) setSelectedDiscounts([discount.id]);
+                    }}
+                    className="ml-4 w-4 h-4 accent-blue-600"
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p>No discounts available</p>
+        )}
+      </div>
+
+      {/* Buttons Row */}
+      <div className="mt-8 flex space-x-4">
+        <button
+          onClick={handleAdjustToggle}
+          className="flex-1 bg-white border border-gray-300 text-black font-bold py-4 rounded-md hover:bg-gray-100 transition text-lg"
+        >
+          {isAdjusting ? 'Save Changes' : 'Adjust'}
+        </button>
+        <button
+          onClick={handleSplit}
+          className="flex-1 bg-black text-white font-bold py-4 rounded-md hover:bg-gray-800 transition text-lg"
+        >
+          Split
+        </button>
       </div>
 
       <Toaster richColors position="top-right" />

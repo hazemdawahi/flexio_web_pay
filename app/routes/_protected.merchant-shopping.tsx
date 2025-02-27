@@ -167,8 +167,9 @@ const MerchantShoppingContent: React.FC = () => {
   const totalAmount = calculateTotalAmount();
 
   const navigateToPlansPage = () => {
+    // Convert each supercharge amount from dollars to cents.
     const superchargeDetails = additionalFields.map((field: string) => ({
-      amount: field, // amount in dollars as string
+      amount: Math.round(parseFloat(field) * 100), // amount in cents
       paymentMethodId: selectedPaymentMethod?.id,
     }));
 
@@ -185,7 +186,7 @@ const MerchantShoppingContent: React.FC = () => {
       selectedDiscounts, // discount IDs stored as an array
       [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmount,
     };
-    console.log("shoppogin adta",stateData)
+    console.log("shopping data", stateData);
     if (isYearly) {
       navigate("/yearly-payment-plan", { state: stateData });
     } else {

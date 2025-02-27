@@ -17,7 +17,8 @@ const SERVER_BASE_URL = 'http://192.168.1.32:8080';
   All amounts are assumed to be provided in dollars as strings.
   For example:
     - instantPowerAmount: "50.00" represents $50.00.
-  When a cent value is needed (e.g. for the checkout payload), we convert dollars to cents inline.
+  When a cent value is needed (e.g. for the checkout payload), we convert dollars to cents inline,
+  except for superchargeDetails, which are passed as-is (converted to a number).
 */
 
 interface SplitEntry {
@@ -170,13 +171,14 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     // For this example, yearlyAmount is 0, but we also multiply it by 100.
     const yearlyAmount = 0 * 100;
 
-    // Transform supercharge details by converting dollar amounts to cents and then multiplying by 100.
+    // Pass superchargeDetails as they are from the parameters,
+    // converting the amount from string to a number.
     const transformedSuperchargeDetails = superchargeDetails.map(detail => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: Math.round(parseFloat(detail.amount) * 100),
+      amount: parseFloat(detail.amount),
     }));
 
-    // Build the payload—all amounts are passed in as multiplied values.
+    // Build the payload—all amounts are passed in as multiplied values where needed.
     const payload: CompleteCheckoutPayload = {
       checkoutToken: checkoutToken,
       instantAmount,

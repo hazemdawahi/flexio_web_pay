@@ -183,10 +183,10 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     // Multiply the instant amount by the number of payments to get the yearly amount.
     const yearlyAmount = instantAmount * numberOfPayments;
 
-    // Transform supercharge details: convert each amount from dollars to cents.
+    // Transform supercharge details: convert each amount from a string to a number.
     const transformedSuperchargeDetails = superchargeDetails.map(detail => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: Math.round(parseFloat(detail.amount) * 100),
+      amount: parseFloat(detail.amount),
     }));
 
     // Build the payload – all amounts in cents.

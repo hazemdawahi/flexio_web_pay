@@ -243,10 +243,10 @@ const YearlyPaymentPlan: React.FC = () => {
     // For YearlyPaymentPlan, instantAmount remains 0.
     const instantAmount = 0;
 
-    // Transform supercharge details by converting dollar amounts to numbers and multiplying by 100.
+    // Transform supercharge details by converting dollar amounts to numbers.
     const transformedSuperchargeDetails = superchargeDetails.map((detail) => ({
       paymentMethodId: detail.paymentMethodId,
-      amount: Math.round(parseFloat(detail.amount) * 100),
+      amount: parseFloat(detail.amount),
     }));
 
     const payload: CompleteCheckoutPayload = {
@@ -383,7 +383,7 @@ const YearlyPaymentPlan: React.FC = () => {
           ) : (
             <span>
               {chosenAmount > 0
-                ? `Flex $${(requestedFlexDollars).toFixed(2)} over ${selectedMonths} ${
+                ? `Flex $${requestedFlexDollars.toFixed(2)} over ${selectedMonths} ${
                     selectedMonths === 1 ? "month" : "months"
                   }`
                 : "Flex your payments"}

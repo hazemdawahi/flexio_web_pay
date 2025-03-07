@@ -9,7 +9,10 @@ const Index: React.FC = () => {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") || "";
   const source = searchParams.get("source") || "";
+  const productId = searchParams.get("productId") || "";
+
   console.log("source", source);
+  console.log("productid", productId);
 
   const { setAccessToken } = useSession();
 
@@ -19,12 +22,17 @@ const Index: React.FC = () => {
       sessionStorage.setItem("checkoutToken", token);
     }
 
+    if (productId) {
+      // Save the product id to sessionStorage
+      sessionStorage.setItem("productId", productId);
+    }
+
     // Navigate directly to the purchase-options page
     navigate(`/purchase-options`, {
       replace: true,
       state: { source },
     });
-  }, [navigate, token, source, setAccessToken]);
+  }, [navigate, token, source, productId, setAccessToken]);
 
   return (
     <div className="flex items-center justify-center min-h-screen">

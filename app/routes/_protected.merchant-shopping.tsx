@@ -10,11 +10,11 @@ import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithIn
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
+import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
-// Optional state interface: type can be passed via state (if needed)
 interface LocationState {
   type?: "instantaneous" | "yearly";
 }
@@ -32,6 +32,8 @@ const MerchantShoppingContent: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   // Allow only one discount to be selected, stored as an array of discount IDs.
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
+  // New state for showing the loading spinner when completing checkout.
+  const [isCompleting, setIsCompleting] = useState(false);
 
   const {
     data: paymentData,
@@ -166,8 +168,8 @@ const MerchantShoppingContent: React.FC = () => {
   };
   const totalAmount = calculateTotalAmount();
 
+  // Original function to navigate to the payment plan page.
   const navigateToPlansPage = () => {
-    // Convert each supercharge amount from dollars to cents.
     const superchargeDetails = additionalFields.map((field: string) => ({
       amount: Math.round(parseFloat(field) * 100), // amount in cents
       paymentMethodId: selectedPaymentMethod?.id,
@@ -191,6 +193,82 @@ const MerchantShoppingContent: React.FC = () => {
       navigate("/yearly-payment-plan", { state: stateData });
     } else {
       navigate("/plans", { state: stateData });
+    }
+  };
+
+  // Set up the complete checkout hook.
+  const { mutate: completeCheckout } = useCompleteCheckout();
+
+  // Handler: if the instant amount is zero, complete checkout immediately.
+  const handleFlex = () => {
+    if (parseFloat(paymentAmount) === 0) {
+      if (!selectedPaymentMethod) {
+        alert("Please select a payment method.");
+        return;
+      }
+      if (!checkoutToken) {
+        alert("Checkout token is missing.");
+        return;
+      }
+      // Build supercharge details from the additional fields.
+      const superchargeDetails = additionalFields.map((field) => ({
+        amount: Math.round(parseFloat(field) * 100), // convert dollars to cents
+        paymentMethodId: selectedPaymentMethod.id,
+      }));
+
+      // Build the payload. Since the instant amount is zero, we set both instant and yearly amounts to 0.
+      const payload: CompleteCheckoutPayload = {
+        checkoutToken,
+        instantAmount: 0,
+        yearlyAmount: 0,
+        selectedPaymentMethod: selectedPaymentMethod.id,
+        superchargeDetails,
+        paymentFrequency: "MONTHLY", // default value
+        numberOfPayments: 1, // default value
+        offsetStartDate: new Date().toISOString().split("T")[0], // default to today
+        otherUsers: [], // no other user amounts
+        discountIds: selectedDiscounts,
+      };
+
+      // Set loading state.
+      setIsCompleting(true);
+      completeCheckout(payload, {
+        onSuccess: (data) => {
+          setIsCompleting(false);
+          console.log("Checkout successful:", data);
+          const targetWindow = window.opener || window.parent || window;
+          // If you have other user amounts, replace the empty array below with that variable.
+          const otherUserAmounts: any[] = [];
+          if (otherUserAmounts && otherUserAmounts.length > 0) {
+            targetWindow.postMessage(
+              {
+                status: "PENDING",
+                checkoutToken,
+                data,
+              },
+              "*"
+            );
+            toast.success("Payment plan confirmed for other user amounts. Payment is pending!");
+          } else {
+            targetWindow.postMessage(
+              {
+                status: "COMPLETED",
+                checkoutToken,
+                data,
+              },
+              "*"
+            );
+            toast.success("Payment plan confirmed successfully!");
+          }
+        },
+        onError: (error: Error) => {
+          setIsCompleting(false);
+          console.error("Error during checkout:", error);
+          alert("Failed to complete checkout. Please try again.");
+        },
+      });
+    } else {
+      navigateToPlansPage();
     }
   };
 
@@ -354,15 +432,22 @@ const MerchantShoppingContent: React.FC = () => {
             Supercharge
           </button>
           <button
-            onClick={navigateToPlansPage}
+            onClick={handleFlex}
             className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
               totalAmount === effectiveCheckoutTotal ? "" : "opacity-50 cursor-not-allowed"
             }`}
-            disabled={totalAmount !== effectiveCheckoutTotal}
+            disabled={totalAmount !== effectiveCheckoutTotal || isCompleting}
           >
-            {paymentAmount
-              ? `Flex $${parseFloat(paymentAmount).toFixed(2)}`
-              : "Flex"}
+            {isCompleting ? (
+              <div className="flex justify-center items-center">
+                <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
+                <span>Processing...</span>
+              </div>
+            ) : paymentAmount && parseFloat(paymentAmount) > 0 ? (
+              `Flex $${parseFloat(paymentAmount).toFixed(2)}`
+            ) : (
+              "Flex your payments"
+            )}
           </button>
         </div>
         <AnimatePresence>

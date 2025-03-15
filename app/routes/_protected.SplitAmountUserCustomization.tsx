@@ -11,6 +11,7 @@ import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useSession } from "~/context/SessionContext";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
+import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 // Reuse the same User and SplitData types
 export interface User {
@@ -38,7 +39,7 @@ interface LocationState {
 }
 
 interface SuperchargeDetail {
-  amount: string; // amount in cents as string
+  amount: number; // amount in cents as number
   paymentMethodId: string;
 }
 
@@ -99,6 +100,11 @@ const SplitAmountUserCustomization: React.FC = () => {
   // Additional supercharge fields (optional)
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  // State for loading spinner when completing checkout
+  const [isCompleting, setIsCompleting] = useState<boolean>(false);
+
+  // Import complete checkout and assign mutate to completeCheckout.
+  const { mutate: completeCheckout } = useCompleteCheckout();
 
   // Determine if this is a yearly payment based on type passed in location state
   const isYearly = type === "yearly";
@@ -156,8 +162,16 @@ const SplitAmountUserCustomization: React.FC = () => {
     }
   };
 
-  // Navigate to the next page
-  const navigateToSplitPlans = () => {
+  // Helper: convert dollars to cents as number
+  const paymentAmountParsedToCents = (amount: string): number => {
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed) || parsed < 0) return 0;
+    return Math.round(parsed * 100);
+  };
+
+  // New handler: if the main payment amount is zero, complete checkout immediately;
+  // otherwise, navigate to the split plans page.
+  const handleFlex = () => {
     const total = calculateTotalAmount();
     if (Math.abs(total - userTotalAmount) > 0.01) {
       toast.error(`Total amount must equal your total amount of $${userTotalAmount.toFixed(2)}.`);
@@ -175,37 +189,94 @@ const SplitAmountUserCustomization: React.FC = () => {
         return;
       }
     }
-
-    // Prepare supercharge details (if any)
-    const superchargeDetails: SuperchargeDetail[] = additionalFields
-      .map((field) => ({
+    if (paymentParsed === 0) {
+      // Complete checkout immediately
+      if (!selectedPaymentMethod) {
+        toast.error("Please select a payment method.");
+        return;
+      }
+      if (!checkoutToken) {
+        toast.error("Checkout token is missing.");
+        return;
+      }
+      const superchargeDetails: SuperchargeDetail[] = additionalFields.map((field) => ({
         amount: paymentAmountParsedToCents(field),
-        paymentMethodId: selectedPaymentMethod?.id || "",
-      }))
-      .filter((detail) => detail.amount !== "0" && detail.paymentMethodId);
-
-    // Build query parameters—use different key names based on type
-    const paramsObj: Record<string, string> = {
-      [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmount,
-      superchargeDetails: JSON.stringify(superchargeDetails),
-      otherUserAmounts: JSON.stringify(userAmountsArray),
-      paymentMethodId: selectedPaymentMethod?.id || "",
-    };
-    const params = new URLSearchParams(paramsObj).toString();
-    console.log("params", { params });
-
-    if (isYearly) {
-      navigate(`/yearly-payment-plan?${params}`);
+        paymentMethodId: selectedPaymentMethod.id,
+      }));
+      // Build other user amounts from split data (all except the current user)
+      const otherUserAmounts = userAmountsArray.slice(1).map((entry) => ({
+        userId: entry.userId,
+        amount: Math.round(parseFloat(entry.amount) * 100),
+      }));
+      const payload: CompleteCheckoutPayload = {
+        checkoutToken,
+        instantAmount: 0,
+        yearlyAmount: 0,
+        selectedPaymentMethod: selectedPaymentMethod.id,
+        superchargeDetails,
+        paymentFrequency: "MONTHLY", // default value
+        numberOfPayments: 1, // default value
+        offsetStartDate: new Date().toISOString().split("T")[0],
+        otherUsers: otherUserAmounts,
+        discountIds: [],
+      };
+      setIsCompleting(true);
+      completeCheckout(payload, {
+        onSuccess: (data: any) => {
+          setIsCompleting(false);
+          console.log("Checkout successful:", data);
+          const targetWindow = window.opener || window.parent || window;
+          if (otherUserAmounts && otherUserAmounts.length > 0) {
+            targetWindow.postMessage(
+              {
+                status: "PENDING",
+                checkoutToken,
+                data,
+              },
+              "*"
+            );
+            toast.success("Payment plan confirmed for other user amounts. Payment is pending!");
+          } else {
+            targetWindow.postMessage(
+              {
+                status: "COMPLETED",
+                checkoutToken,
+                data,
+              },
+              "*"
+            );
+            toast.success("Payment plan confirmed successfully!");
+          }
+        },
+        onError: (error: Error) => {
+          setIsCompleting(false);
+          console.error("Error during checkout:", error);
+          alert("Failed to complete checkout. Please try again.");
+        },
+      });
     } else {
-      navigate(`/plans?${params}`);
+      // Navigate to split plans page with parameters
+      const superchargeDetails: SuperchargeDetail[] = additionalFields
+        .map((field) => ({
+          amount: paymentAmountParsedToCents(field),
+          paymentMethodId: selectedPaymentMethod?.id || "",
+        }))
+        .filter((detail) => detail.amount !== 0 && detail.paymentMethodId);
+      const paramsObj: Record<string, string> = {
+        // Using "instantPowerAmount" key for split type as well
+        instantPowerAmount: paymentAmount,
+        superchargeDetails: JSON.stringify(superchargeDetails),
+        otherUserAmounts: JSON.stringify(userAmountsArray),
+        paymentMethodId: selectedPaymentMethod?.id || "",
+      };
+      const params = new URLSearchParams(paramsObj).toString();
+      console.log("params", { params });
+      if (isYearly) {
+        navigate(`/yearly-payment-plan?${params}`);
+      } else {
+        navigate(`/plans?${params}`);
+      }
     }
-  };
-
-  // Helper: convert dollars to cents as string
-  const paymentAmountParsedToCents = (amount: string): string => {
-    const parsed = parseFloat(amount);
-    if (isNaN(parsed) || parsed < 0) return "0";
-    return Math.round(parsed * 100).toString();
   };
 
   // Add a new Supercharge field (optional)
@@ -323,13 +394,18 @@ const SplitAmountUserCustomization: React.FC = () => {
             Supercharge
           </button>
           <button
-            onClick={navigateToSplitPlans}
+            onClick={handleFlex}
             className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
               totalAmount === userTotalAmount ? "" : "opacity-50 cursor-not-allowed"
             }`}
-            disabled={totalAmount !== userTotalAmount}
+            disabled={totalAmount !== userTotalAmount || isCompleting}
           >
-            {paymentAmount
+            {isCompleting ? (
+              <div className="flex justify-center items-center">
+                <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
+                <span>Processing...</span>
+              </div>
+            ) : paymentAmount
               ? `Flex $${parseFloat(paymentAmount).toFixed(2)}`
               : "Flex"}
           </button>
@@ -394,7 +470,5 @@ const SplitAmountUserCustomization: React.FC = () => {
     </div>
   );
 };
-
-
 
 export default SplitAmountUserCustomization;

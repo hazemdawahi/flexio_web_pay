@@ -31,11 +31,12 @@ export interface SplitData {
   userAmounts: SplitEntry[];
 }
 
-// Define the shape of the passed data
+// Extend LocationState to include selectedDiscounts
 interface LocationState {
   splitData: SplitData;
   users: User[];
   type?: "instantaneous" | "yearly" | "split";
+  selectedDiscounts?: string[];
 }
 
 interface SuperchargeDetail {
@@ -47,10 +48,12 @@ const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Extract splitData, users, and type from location.state
+  // Extract splitData, users, type, and selectedDiscounts from location.state
   const state = location.state as LocationState;
-  const { splitData, users, type } = state || { splitData: null, users: [], type: "split" };
+  const { splitData, users, type, selectedDiscounts } =
+    state || { splitData: null, users: [], type: "split", selectedDiscounts: [] };
 
+  console.log("splitData", splitData);
   if (!splitData || !users || users.length === 0) {
     toast.error("No user split data provided.");
     navigate(-1);
@@ -189,6 +192,11 @@ const SplitAmountUserCustomization: React.FC = () => {
         return;
       }
     }
+    // Use the selectedDiscounts from location state or fallback to an empty array.
+    const discountIds = selectedDiscounts || [];
+
+    console.log("discounts", discountIds);
+
     if (paymentParsed === 0) {
       // Complete checkout immediately
       if (!selectedPaymentMethod) {
@@ -204,7 +212,7 @@ const SplitAmountUserCustomization: React.FC = () => {
         paymentMethodId: selectedPaymentMethod.id,
       }));
       // Build other user amounts from split data (all except the current user)
-      const otherUserAmounts = userAmountsArray.slice(1).map((entry) => ({
+      const otherUserAmountsPayload = userAmountsArray.slice(1).map((entry) => ({
         userId: entry.userId,
         amount: Math.round(parseFloat(entry.amount) * 100),
       }));
@@ -217,16 +225,17 @@ const SplitAmountUserCustomization: React.FC = () => {
         paymentFrequency: "MONTHLY", // default value
         numberOfPayments: 1, // default value
         offsetStartDate: new Date().toISOString().split("T")[0],
-        otherUsers: otherUserAmounts,
-        discountIds: [],
+        otherUsers: otherUserAmountsPayload,
+        discountIds: discountIds,
       };
+      console.log("payload",payload)
       setIsCompleting(true);
       completeCheckout(payload, {
         onSuccess: (data: any) => {
           setIsCompleting(false);
           console.log("Checkout successful:", data);
           const targetWindow = window.opener || window.parent || window;
-          if (otherUserAmounts && otherUserAmounts.length > 0) {
+          if (otherUserAmountsPayload && otherUserAmountsPayload.length > 0) {
             targetWindow.postMessage(
               {
                 status: "PENDING",
@@ -256,18 +265,20 @@ const SplitAmountUserCustomization: React.FC = () => {
       });
     } else {
       // Navigate to split plans page with parameters
-      const superchargeDetails: SuperchargeDetail[] = additionalFields
+      const superchargeDetailsPayload: SuperchargeDetail[] = additionalFields
         .map((field) => ({
           amount: paymentAmountParsedToCents(field),
           paymentMethodId: selectedPaymentMethod?.id || "",
         }))
         .filter((detail) => detail.amount !== 0 && detail.paymentMethodId);
+      // For yearly, use the key 'yearlyPowerAmount'; otherwise, use 'instantPowerAmount'
+      const amountKey = isYearly ? "yearlyPowerAmount" : "instantPowerAmount";
       const paramsObj: Record<string, string> = {
-        // Using "instantPowerAmount" key for split type as well
-        instantPowerAmount: paymentAmount,
-        superchargeDetails: JSON.stringify(superchargeDetails),
+        [amountKey]: paymentAmount,
+        superchargeDetails: JSON.stringify(superchargeDetailsPayload),
         otherUserAmounts: JSON.stringify(userAmountsArray),
         paymentMethodId: selectedPaymentMethod?.id || "",
+        discountIds: JSON.stringify(discountIds),
       };
       const params = new URLSearchParams(paramsObj).toString();
       console.log("params", { params });
@@ -406,7 +417,7 @@ const SplitAmountUserCustomization: React.FC = () => {
                 <span>Processing...</span>
               </div>
             ) : paymentAmount
-              ? `Flex $${parseFloat(paymentAmount).toFixed(2)}`
+              ? `Flex your payments `
               : "Flex"}
           </button>
         </div>

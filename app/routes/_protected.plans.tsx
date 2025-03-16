@@ -44,7 +44,8 @@ const Plans: React.FC = () => {
       const superchargeDetailsString = searchParams.get("superchargeDetails");
       const paymentMethodId = searchParams.get("paymentMethodId") || "";
       const otherUserAmountsString = searchParams.get("otherUserAmounts");
-      const selectedDiscountsString = searchParams.get("selectedDiscounts");
+      // FIX: Use the correct query parameter name "discountIds"
+      const discountIdsString = searchParams.get("discountIds");
 
       let superchargeDetails: SuperchargeDetail[] = [];
       if (superchargeDetailsString) {
@@ -65,11 +66,11 @@ const Plans: React.FC = () => {
       }
       
       let selectedDiscounts: string[] = [];
-      if (selectedDiscountsString) {
+      if (discountIdsString) {
         try {
-          selectedDiscounts = JSON.parse(selectedDiscountsString);
+          selectedDiscounts = JSON.parse(discountIdsString);
         } catch (error) {
-          console.error("Error parsing selectedDiscounts:", error);
+          console.error("Error parsing discountIds:", error);
         }
       }
 

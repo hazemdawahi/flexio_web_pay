@@ -1,20 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation, useSearchParams } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
-import {
-  useCalculatePaymentPlan,
-  SplitPayment,
-} from "~/hooks/useCalculatePaymentPlan";
+import { useCalculatePaymentPlan, SplitPayment } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { toast, Toaster } from "sonner";
 import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  useCompleteCheckout,
-  CompleteCheckoutPayload,
-} from "~/hooks/useCompleteCheckout";
+import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 export interface YearlyPaymentPlanProps {
   yearlyPowerAmount: string; // The total flex amount the user wants to flex (in dollars, as a string)
@@ -62,11 +56,11 @@ const YearlyPaymentPlan: React.FC = () => {
     otherUserAmounts = [];
   }
 
-  // Retrieve selectedDiscounts from state or URL params.
+  // Retrieve selected discount IDs using the correct parameter key "discountIds"
   const selectedDiscountsStr =
     (stateData.selectedDiscounts &&
       JSON.stringify(stateData.selectedDiscounts)) ||
-    searchParams.get("selectedDiscounts") ||
+    searchParams.get("discountIds") ||
     "[]";
   let selectedDiscounts: string[] = [];
   try {
@@ -269,7 +263,7 @@ const YearlyPaymentPlan: React.FC = () => {
 
     completeCheckout(payload, {
       onSuccess: (data) => {
-        console.log("YearlyPaymentPlan: Checkout successful => posting COMPLETED/PENDING", data);
+        console.log("YearlyPaymentPlan: Checkout successful", data);
         const targetWindow = window.opener || window.parent || window;
         if (otherUserAmounts.length > 0) {
           targetWindow.postMessage(

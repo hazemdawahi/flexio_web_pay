@@ -30,7 +30,7 @@ const MerchantShoppingContent: React.FC = () => {
   const [paymentAmount, setPaymentAmount] = useState("0.00");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // Allow only one discount to be selected, stored as an array of discount IDs.
+  // Allow only one discount to be selected, stored as an array of discount IDs (as strings)
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
   // New state for showing the loading spinner when completing checkout.
   const [isCompleting, setIsCompleting] = useState(false);
@@ -42,6 +42,7 @@ const MerchantShoppingContent: React.FC = () => {
     error: paymentError,
   } = usePaymentMethods();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
+  console.log("selectedDiscounts", selectedDiscounts);
 
   const {
     data: userData,
@@ -104,7 +105,8 @@ const MerchantShoppingContent: React.FC = () => {
         const bestDiscount = validDiscounts.reduce((prev: any, curr: any) =>
           getDiscountValue(curr) > getDiscountValue(prev) ? curr : prev
         );
-        setSelectedDiscounts([bestDiscount.id]);
+        // Convert discount id to string
+        setSelectedDiscounts([String(bestDiscount.id)]);
       } else {
         setSelectedDiscounts([]);
       }
@@ -117,7 +119,7 @@ const MerchantShoppingContent: React.FC = () => {
       ? Math.max(
           0,
           checkoutTotalAmount -
-            getDiscountValue(discounts.find((d: any) => d.id === selectedDiscounts[0]))
+            getDiscountValue(discounts.find((d: any) => String(d.id) === selectedDiscounts[0]))
         )
       : checkoutTotalAmount;
 
@@ -154,8 +156,8 @@ const MerchantShoppingContent: React.FC = () => {
   }, []);
 
   // Since only one discount is allowed, simply set the selected discount in an array.
-  const handleDiscountChange = (discountId: string) => {
-    setSelectedDiscounts([discountId]);
+  const handleDiscountChange = (discountId: string | number) => {
+    setSelectedDiscounts([String(discountId)]);
   };
 
   const calculateTotalAmount = () => {
@@ -215,7 +217,6 @@ const MerchantShoppingContent: React.FC = () => {
         amount: Math.round(parseFloat(field) * 100), // convert dollars to cents
         paymentMethodId: selectedPaymentMethod.id,
       }));
-
       // Build the payload. Since the instant amount is zero, we set both instant and yearly amounts to 0.
       const payload: CompleteCheckoutPayload = {
         checkoutToken,
@@ -231,6 +232,7 @@ const MerchantShoppingContent: React.FC = () => {
       };
 
       // Set loading state.
+      console.log("payload",payload)
       setIsCompleting(true);
       completeCheckout(payload, {
         onSuccess: (data) => {
@@ -409,7 +411,7 @@ const MerchantShoppingContent: React.FC = () => {
                       type="radio"
                       name="discount"
                       disabled={isOptionDisabled}
-                      checked={selectedDiscounts.includes(discount.id)}
+                      checked={selectedDiscounts.includes(String(discount.id))}
                       onChange={(e) => {
                         e.stopPropagation();
                         if (!isOptionDisabled) handleDiscountChange(discount.id);

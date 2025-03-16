@@ -35,6 +35,7 @@ const PowerOptionsContent: React.FC = () => {
   // New state to hold the selected discounts list
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
 
+  console.log("selectedDiscounts",selectedDiscounts)
   // Check for split data, users, and selectedDiscounts in location.state
   useEffect(() => {
     const stateData = (location.state as {

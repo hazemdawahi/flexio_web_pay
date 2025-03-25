@@ -29,6 +29,10 @@ const MerchantShoppingContent: React.FC = () => {
 
   const [paymentAmount, setPaymentAmount] = useState("0.00");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
+  // New state to track payment method for each additional field.
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
+  // State to track which additional field is active when opening the bottom sheet.
+  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   // Allow only one discount to be selected, stored as an array of discount IDs (as strings)
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
@@ -41,6 +45,7 @@ const MerchantShoppingContent: React.FC = () => {
     isError: isPaymentError,
     error: paymentError,
   } = usePaymentMethods();
+  // Global selected payment method for the instant amount (kept for zero amount case)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   console.log("selectedDiscounts", selectedDiscounts);
 
@@ -123,7 +128,15 @@ const MerchantShoppingContent: React.FC = () => {
         )
       : checkoutTotalAmount;
 
-  const addField = () => setAdditionalFields((prev) => [...prev, "0.00"]);
+  // When adding a new field, initialize its value and assign the default payment method (if available)
+  const addField = () => {
+    setAdditionalFields((prev) => [...prev, "0.00"]);
+    const cardPaymentMethods = paymentData?.data.data.filter(
+      (method: PaymentMethod) => method.type === "card"
+    );
+    const defaultMethod = cardPaymentMethods && cardPaymentMethods.length > 0 ? cardPaymentMethods[0] : null;
+    setSelectedPaymentMethods((prev) => [...prev, defaultMethod]);
+  };
   const updateField = (index: number, value: string) => {
     setAdditionalFields((prev) => {
       const updated = [...prev];
@@ -132,6 +145,7 @@ const MerchantShoppingContent: React.FC = () => {
     });
   };
 
+  // Set default global payment method for instant payments.
   useEffect(() => {
     const cardPaymentMethods = paymentData?.data.data.filter(
       (method: PaymentMethod) => method.type === "card"
@@ -150,10 +164,20 @@ const MerchantShoppingContent: React.FC = () => {
     }
   }, [isYearly, paymentAmount]);
 
-  const handleMethodSelect = useCallback((method: PaymentMethod) => {
-    setSelectedPaymentMethod(method);
-    closeModal();
-  }, []);
+  // When a payment method is selected from the bottom sheet, update the method for the active field.
+  const handleMethodSelect = useCallback(
+    (method: PaymentMethod) => {
+      if (activeFieldIndex !== null) {
+        setSelectedPaymentMethods((prev) => {
+          const newMethods = [...prev];
+          newMethods[activeFieldIndex] = method;
+          return newMethods;
+        });
+      }
+      closeModal();
+    },
+    [activeFieldIndex]
+  );
 
   // Since only one discount is allowed, simply set the selected discount in an array.
   const handleDiscountChange = (discountId: string | number) => {
@@ -172,9 +196,9 @@ const MerchantShoppingContent: React.FC = () => {
 
   // Original function to navigate to the payment plan page.
   const navigateToPlansPage = () => {
-    const superchargeDetails = additionalFields.map((field: string) => ({
+    const superchargeDetails = additionalFields.map((field: string, index: number) => ({
       amount: Math.round(parseFloat(field) * 100), // amount in cents
-      paymentMethodId: selectedPaymentMethod?.id,
+      paymentMethodId: selectedPaymentMethods[index]?.id || "",
     }));
 
     if (!userData?.data?.user?.settings) {
@@ -213,9 +237,9 @@ const MerchantShoppingContent: React.FC = () => {
         return;
       }
       // Build supercharge details from the additional fields.
-      const superchargeDetails = additionalFields.map((field) => ({
+      const superchargeDetails = additionalFields.map((field, index) => ({
         amount: Math.round(parseFloat(field) * 100), // convert dollars to cents
-        paymentMethodId: selectedPaymentMethod.id,
+        paymentMethodId: selectedPaymentMethods[index]?.id || "",
       }));
       // Build the payload. Since the instant amount is zero, we set both instant and yearly amounts to 0.
       const payload: CompleteCheckoutPayload = {
@@ -232,7 +256,7 @@ const MerchantShoppingContent: React.FC = () => {
       };
 
       // Set loading state.
-      console.log("payload",payload)
+      console.log("payload", payload);
       setIsCompleting(true);
       completeCheckout(payload, {
         onSuccess: (data) => {
@@ -274,7 +298,11 @@ const MerchantShoppingContent: React.FC = () => {
     }
   };
 
-  const openModal = () => setIsModalOpen(true);
+  // Modified openModal to accept the index of the field.
+  const openModal = (index: number) => {
+    setActiveFieldIndex(index);
+    setIsModalOpen(true);
+  };
   const closeModal = () => setIsModalOpen(false);
 
   useEffect(() => {
@@ -353,8 +381,9 @@ const MerchantShoppingContent: React.FC = () => {
               value={field}
               onChangeText={(value) => updateField(index, value)}
               keyboardType="text"
-              selectedMethod={selectedPaymentMethod}
-              onPaymentMethodPress={openModal}
+              selectedMethod={selectedPaymentMethods[index]}
+              // Pass the index so that only the targeted field is updated
+              onPaymentMethodPress={() => openModal(index)}
             />
           </div>
         ))}
@@ -494,7 +523,12 @@ const MerchantShoppingContent: React.FC = () => {
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        selectedMethod={selectedPaymentMethod}
+                        // Pass the selected method for the active field only.
+                        selectedMethod={
+                          activeFieldIndex !== null
+                            ? selectedPaymentMethods[activeFieldIndex]
+                            : null
+                        }
                         onSelect={handleMethodSelect}
                         isLastItem={index === cardPaymentMethods.length - 1}
                       />

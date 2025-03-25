@@ -95,6 +95,7 @@ const SplitAmountUserCustomization: React.FC = () => {
     error: paymentError,
   } = usePaymentMethods();
 
+  // Global payment method for the main payment (unchanged)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
 
@@ -102,7 +103,11 @@ const SplitAmountUserCustomization: React.FC = () => {
   const [paymentAmount, setPaymentAmount] = useState<string>("0.00");
   // Additional supercharge fields (optional)
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
+  // New state to track payment method for each additional field
+  const [selectedFieldPaymentMethods, setSelectedFieldPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  // Active field index for modal payment selection
+  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
   // State for loading spinner when completing checkout
   const [isCompleting, setIsCompleting] = useState<boolean>(false);
 
@@ -132,18 +137,35 @@ const SplitAmountUserCustomization: React.FC = () => {
   const cardPaymentMethods =
     paymentData?.data.data.filter((method: PaymentMethod) => method.type === "card") || [];
 
-  // Set default payment method if not selected
+  // Set default global payment method if not selected
   useEffect(() => {
     if (cardPaymentMethods.length > 0 && !selectedPaymentMethod) {
       setSelectedPaymentMethod(cardPaymentMethods[0]);
     }
   }, [cardPaymentMethods, selectedPaymentMethod]);
 
-  // Handle payment method selection
+  // When adding a new field, add a default payment method for that field
+  const addField = () => {
+    setAdditionalFields([...additionalFields, "0.00"]);
+    const defaultMethod = cardPaymentMethods.length > 0 ? cardPaymentMethods[0] : null;
+    setSelectedFieldPaymentMethods([...selectedFieldPaymentMethods, defaultMethod]);
+  };
+
+  // Handle payment method selection for the main payment (unchanged)
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
-    setSelectedPaymentMethod(method);
+    // If modal opened for a specific field, update that field's payment method
+    if (activeFieldIndex !== null) {
+      setSelectedFieldPaymentMethods((prev) => {
+        const newMethods = [...prev];
+        newMethods[activeFieldIndex] = method;
+        return newMethods;
+      });
+    } else {
+      // Otherwise update global payment method
+      setSelectedPaymentMethod(method);
+    }
     closeModal();
-  }, []);
+  }, [activeFieldIndex]);
 
   // Calculate the total amount from paymentAmount and additionalFields
   const calculateTotalAmount = () => {
@@ -207,9 +229,9 @@ const SplitAmountUserCustomization: React.FC = () => {
         toast.error("Checkout token is missing.");
         return;
       }
-      const superchargeDetails: SuperchargeDetail[] = additionalFields.map((field) => ({
+      const superchargeDetails: SuperchargeDetail[] = additionalFields.map((field, index) => ({
         amount: paymentAmountParsedToCents(field),
-        paymentMethodId: selectedPaymentMethod.id,
+        paymentMethodId: selectedFieldPaymentMethods[index]?.id || "",
       }));
       // Build other user amounts from split data (all except the current user)
       const otherUserAmountsPayload = userAmountsArray.slice(1).map((entry) => ({
@@ -228,7 +250,7 @@ const SplitAmountUserCustomization: React.FC = () => {
         otherUsers: otherUserAmountsPayload,
         discountIds: discountIds,
       };
-      console.log("payload",payload)
+      console.log("payload", payload);
       setIsCompleting(true);
       completeCheckout(payload, {
         onSuccess: (data: any) => {
@@ -266,9 +288,9 @@ const SplitAmountUserCustomization: React.FC = () => {
     } else {
       // Navigate to split plans page with parameters
       const superchargeDetailsPayload: SuperchargeDetail[] = additionalFields
-        .map((field) => ({
+        .map((field, index) => ({
           amount: paymentAmountParsedToCents(field),
-          paymentMethodId: selectedPaymentMethod?.id || "",
+          paymentMethodId: selectedFieldPaymentMethods[index]?.id || "",
         }))
         .filter((detail) => detail.amount !== 0 && detail.paymentMethodId);
       // For yearly, use the key 'yearlyPowerAmount'; otherwise, use 'instantPowerAmount'
@@ -290,11 +312,6 @@ const SplitAmountUserCustomization: React.FC = () => {
     }
   };
 
-  // Add a new Supercharge field (optional)
-  const addField = () => {
-    setAdditionalFields([...additionalFields, "0.00"]);
-  };
-
   // Update a specific Supercharge field
   const updateField = (index: number, value: string) => {
     const regex = /^\d+(\.\d{0,2})?$/;
@@ -308,7 +325,15 @@ const SplitAmountUserCustomization: React.FC = () => {
   };
 
   // Modal functions
-  const openModal = () => setIsModalOpen(true);
+  const openModal = (index?: number) => {
+    // If an index is provided, open modal for that field
+    if (index !== undefined) {
+      setActiveFieldIndex(index);
+    } else {
+      setActiveFieldIndex(null);
+    }
+    setIsModalOpen(true);
+  };
   const closeModal = () => setIsModalOpen(false);
 
   useEffect(() => {
@@ -390,8 +415,10 @@ const SplitAmountUserCustomization: React.FC = () => {
               label={`Supercharge Amount ${index + 1}`}
               value={field}
               onChangeText={(value) => updateField(index, value)}
-              selectedMethod={selectedPaymentMethod}
-              onPaymentMethodPress={openModal}
+              // Use the payment method specific to this field
+              selectedMethod={selectedFieldPaymentMethods[index]}
+              // Open modal passing the index so only that field is updated
+              onPaymentMethodPress={() => openModal(index)}
             />
           </div>
         ))}
@@ -465,7 +492,12 @@ const SplitAmountUserCustomization: React.FC = () => {
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        selectedMethod={selectedPaymentMethod}
+                        // If modal opened for a specific field, show that field's selected method; otherwise use global method
+                        selectedMethod={
+                          activeFieldIndex !== null
+                            ? selectedFieldPaymentMethods[activeFieldIndex]
+                            : selectedPaymentMethod
+                        }
                         onSelect={handleMethodSelect}
                         isLastItem={index === cardPaymentMethods.length - 1}
                       />

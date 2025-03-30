@@ -131,7 +131,7 @@ const ProductDetailsPage: React.FC = () => {
               <strong>Product Name: </strong>{product.productName}
             </h2>
             <p className="mb-2 text-xl">
-              <strong>Price: </strong>${(Number(product.price.amount) / 100).toFixed(2)}
+              <strong>Price: </strong>${product.price.amount}
             </p>
             <p className="mb-2 text-xl">
               <strong>Quantity Left in Stock: </strong>{product.unitsInStock}

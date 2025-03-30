@@ -131,14 +131,11 @@ const MultipleUsersSendWeb: React.FC = () => {
     }
   }, [discounts, checkoutTotalAmount]);
 
-  // Effective checkout total after discount (in dollars)
+  // Compute effective checkout total using selected discount (if any)
+  const selectedDiscount = discounts?.find((d: any) => d.id === selectedDiscounts[0]);
   const effectiveCheckoutTotal =
-    selectedDiscounts.length > 0 && discounts
-      ? Math.max(
-          0,
-          checkoutTotalAmount -
-            getDiscountValue(discounts.find((d: any) => d.id === selectedDiscounts[0]))
-        )
+    discounts && selectedDiscount
+      ? Math.max(0, checkoutTotalAmount - getDiscountValue(selectedDiscount))
       : checkoutTotalAmount;
 
   // ------------------------------
@@ -476,71 +473,71 @@ const MultipleUsersSendWeb: React.FC = () => {
       </div>
 
       {/* Discounts Section (placed under the user list) */}
-      <div className="mt-6 mb-6">
-        <h2 className="text-lg font-semibold mb-2">Available Discounts</h2>
-        {discountsLoading ? (
-          <p>Loading discounts...</p>
-        ) : discountsError ? (
-          <p className="text-red-500">Error loading discounts</p>
-        ) : discounts && discounts.length > 0 ? (
-          <ul>
-            {discounts.map((discount: any) => {
-              const isOptionDisabled = checkoutTotalAmount * 100 - getDiscountValue(discount) * 100 < 0;
-              return (
-                <li
-                  key={discount.id}
-                  onClick={() => {
-                    if (!isOptionDisabled) setSelectedDiscounts([discount.id]);
-                  }}
-                  className={`flex items-center justify-between border p-2 mb-2 rounded cursor-pointer ${
-                    isOptionDisabled ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
-                >
-                  <div className="flex items-center">
-                    {merchantDetailData?.data?.brand?.displayLogo && (
-                      <img
-                        src={
-                          merchantDetailData.data.brand.displayLogo.startsWith("http")
-                            ? merchantDetailData.data.brand.displayLogo
-                            : `${baseUrl}${merchantDetailData.data.brand.displayLogo}`
-                        }
-                        alt={merchantDetailData.data.brand.displayName || "Brand Logo"}
-                        className="w-10 h-10 rounded-full object-cover mr-4 border border-[#ccc]"
-                      />
-                    )}
-                    <div>
-                      <p className="font-bold">{discount.discountName}</p>
-                      <p>
-                        {discount.type === "PERCENTAGE_OFF"
-                          ? `${discount.discountPercentage}% off`
-                          : discount.discountAmount != null
-                          ? `$${(discount.discountAmount / 100).toFixed(2)} off`
-                          : ""}
-                      </p>
-                      {discount.expiresAt && (
-                        <p>Expires: {new Date(discount.expiresAt).toLocaleString()}</p>
-                      )}
-                    </div>
-                  </div>
-                  <input
-                    type="radio"
-                    name="discount"
-                    disabled={isOptionDisabled}
-                    checked={selectedDiscounts.includes(discount.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
+      {(discountsLoading || discountsError || (discounts && discounts.length > 0)) && (
+        <div className="mt-6 mb-6">
+          <h2 className="text-lg font-semibold mb-2">Available Discounts</h2>
+          {discountsLoading ? (
+            <p>Loading discounts...</p>
+          ) : discountsError ? (
+            <p className="text-red-500">Error loading discounts</p>
+          ) : (
+            <ul>
+              {discounts!.map((discount: any) => {
+                const isOptionDisabled = checkoutTotalAmount * 100 - getDiscountValue(discount) * 100 < 0;
+                return (
+                  <li
+                    key={discount.id}
+                    onClick={() => {
                       if (!isOptionDisabled) setSelectedDiscounts([discount.id]);
                     }}
-                    className="ml-4 w-4 h-4 accent-blue-600"
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p>No discounts available</p>
-        )}
-      </div>
+                    className={`flex items-center justify-between border p-2 mb-2 rounded cursor-pointer ${
+                      isOptionDisabled ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      {merchantDetailData?.data?.brand?.displayLogo && (
+                        <img
+                          src={
+                            merchantDetailData.data.brand.displayLogo.startsWith("http")
+                              ? merchantDetailData.data.brand.displayLogo
+                              : `${baseUrl}${merchantDetailData.data.brand.displayLogo}`
+                          }
+                          alt={merchantDetailData.data.brand.displayName || "Brand Logo"}
+                          className="w-10 h-10 rounded-full object-cover mr-4 border border-[#ccc]"
+                        />
+                      )}
+                      <div>
+                        <p className="font-bold">{discount.discountName}</p>
+                        <p>
+                          {discount.type === "PERCENTAGE_OFF"
+                            ? `${discount.discountPercentage}% off`
+                            : discount.discountAmount != null
+                            ? `$${(discount.discountAmount / 100).toFixed(2)} off`
+                            : ""}
+                        </p>
+                        {discount.expiresAt && (
+                          <p>Expires: {new Date(discount.expiresAt).toLocaleString()}</p>
+                        )}
+                      </div>
+                    </div>
+                    <input
+                      type="radio"
+                      name="discount"
+                      disabled={isOptionDisabled}
+                      checked={selectedDiscounts.includes(discount.id)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        if (!isOptionDisabled) setSelectedDiscounts([discount.id]);
+                      }}
+                      className="ml-4 w-4 h-4 accent-blue-600"
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Buttons Row */}
       <div className="mt-8 flex space-x-4">

@@ -11,7 +11,8 @@ import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useSession } from "~/context/SessionContext";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
-import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
+// Removed direct checkout import as direct supercharge payment is no longer used.
+// import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 // Reuse the same User and SplitData types
 export interface User {
@@ -101,20 +102,17 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   // Payment amount state (for split customization)
   const [paymentAmount, setPaymentAmount] = useState<string>("0.00");
-  // Additional supercharge fields (optional)
+  // Optional additional supercharge fields
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
-  // New state to track payment method for each additional field
+  // Track payment method for each additional field
   const [selectedFieldPaymentMethods, setSelectedFieldPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   // Active field index for modal payment selection
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
-  // State for loading spinner when completing checkout
-  const [isCompleting, setIsCompleting] = useState<boolean>(false);
+  // Removed isCompleting state as direct checkout is no longer used.
+  // const [isCompleting, setIsCompleting] = useState<boolean>(false);
 
-  // Import complete checkout and assign mutate to completeCheckout.
-  const { mutate: completeCheckout } = useCompleteCheckout();
-
-  // Determine if this is a yearly payment based on type passed in location state
+  // Determine if this is a yearly payment based on the type passed in location state
   const isYearly = type === "yearly";
 
   // Based on payment type, set available power from user details (not used to prefill amount)
@@ -151,7 +149,7 @@ const SplitAmountUserCustomization: React.FC = () => {
     setSelectedFieldPaymentMethods([...selectedFieldPaymentMethods, defaultMethod]);
   };
 
-  // Handle payment method selection for the main payment (unchanged)
+  // Handle payment method selection for both the main payment and each additional field
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
     // If modal opened for a specific field, update that field's payment method
     if (activeFieldIndex !== null) {
@@ -161,13 +159,13 @@ const SplitAmountUserCustomization: React.FC = () => {
         return newMethods;
       });
     } else {
-      // Otherwise update global payment method
+      // Otherwise update the global payment method
       setSelectedPaymentMethod(method);
     }
     closeModal();
   }, [activeFieldIndex]);
 
-  // Calculate the total amount from paymentAmount and additionalFields
+  // Calculate the total amount from the main payment amount and additional supercharge fields
   const calculateTotalAmount = () => {
     const superchargeTotal = additionalFields.reduce(
       (acc, field) => acc + parseFloat(field || "0"),
@@ -187,24 +185,25 @@ const SplitAmountUserCustomization: React.FC = () => {
     }
   };
 
-  // Helper: convert dollars to cents as number
+  // Helper: Convert dollars to cents as a number
   const paymentAmountParsedToCents = (amount: string): number => {
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed < 0) return 0;
     return Math.round(parsed * 100);
   };
 
-  // New handler: if the main payment amount is zero, complete checkout immediately;
-  // otherwise, navigate to the split plans page.
+  // Modified handleFlex: Always require an instant payment amount > 0 and always navigate to the split plans page.
   const handleFlex = () => {
     const total = calculateTotalAmount();
     if (Math.abs(total - userTotalAmount) > 0.01) {
-      toast.error(`Total amount must equal your total amount of $${userTotalAmount.toFixed(2)}.`);
+      toast.error(
+        `Total amount must equal your total amount of $${userTotalAmount.toFixed(2)}.`
+      );
       return;
     }
     const paymentParsed = parseFloat(paymentAmount) || 0;
-    if (paymentParsed < 0) {
-      toast.error("Payment amount cannot be negative.");
+    if (paymentParsed <= 0) {
+      toast.error("Instant Payment Amount is required and must be greater than 0.");
       return;
     }
     for (let i = 0; i < additionalFields.length; i++) {
@@ -216,99 +215,29 @@ const SplitAmountUserCustomization: React.FC = () => {
     }
     // Use the selectedDiscounts from location state or fallback to an empty array.
     const discountIds = selectedDiscounts || [];
-
     console.log("discounts", discountIds);
 
-    if (paymentParsed === 0) {
-      // Complete checkout immediately
-      if (!selectedPaymentMethod) {
-        toast.error("Please select a payment method.");
-        return;
-      }
-      if (!checkoutToken) {
-        toast.error("Checkout token is missing.");
-        return;
-      }
-      const superchargeDetails: SuperchargeDetail[] = additionalFields.map((field, index) => ({
+    // Always navigate to the split plans page with parameters.
+    const superchargeDetailsPayload: SuperchargeDetail[] = additionalFields
+      .map((field, index) => ({
         amount: paymentAmountParsedToCents(field),
         paymentMethodId: selectedFieldPaymentMethods[index]?.id || "",
-      }));
-      // Build other user amounts from split data (all except the current user)
-      const otherUserAmountsPayload = userAmountsArray.slice(1).map((entry) => ({
-        userId: entry.userId,
-        amount: Math.round(parseFloat(entry.amount) * 100),
-      }));
-      const payload: CompleteCheckoutPayload = {
-        checkoutToken,
-        instantAmount: 0,
-        yearlyAmount: 0,
-        selectedPaymentMethod: selectedPaymentMethod.id,
-        superchargeDetails,
-        paymentFrequency: "MONTHLY", // default value
-        numberOfPayments: 1, // default value
-        offsetStartDate: new Date().toISOString().split("T")[0],
-        otherUsers: otherUserAmountsPayload,
-        discountIds: discountIds,
-      };
-      console.log("payload", payload);
-      setIsCompleting(true);
-      completeCheckout(payload, {
-        onSuccess: (data: any) => {
-          setIsCompleting(false);
-          console.log("Checkout successful:", data);
-          const targetWindow = window.opener || window.parent || window;
-          if (otherUserAmountsPayload && otherUserAmountsPayload.length > 0) {
-            targetWindow.postMessage(
-              {
-                status: "PENDING",
-                checkoutToken,
-                data,
-              },
-              "*"
-            );
-            toast.success("Payment plan confirmed for other user amounts. Payment is pending!");
-          } else {
-            targetWindow.postMessage(
-              {
-                status: "COMPLETED",
-                checkoutToken,
-                data,
-              },
-              "*"
-            );
-            toast.success("Payment plan confirmed successfully!");
-          }
-        },
-        onError: (error: Error) => {
-          setIsCompleting(false);
-          console.error("Error during checkout:", error);
-          alert("Failed to complete checkout. Please try again.");
-        },
-      });
+      }))
+      .filter((detail) => detail.amount !== 0 && detail.paymentMethodId);
+    const amountKey = isYearly ? "yearlyPowerAmount" : "instantPowerAmount";
+    const paramsObj: Record<string, string> = {
+      [amountKey]: paymentAmount,
+      superchargeDetails: JSON.stringify(superchargeDetailsPayload),
+      otherUserAmounts: JSON.stringify(userAmountsArray),
+      paymentMethodId: selectedPaymentMethod?.id || "",
+      discountIds: JSON.stringify(discountIds),
+    };
+    const params = new URLSearchParams(paramsObj).toString();
+    console.log("params", { params });
+    if (isYearly) {
+      navigate(`/yearly-payment-plan?${params}`);
     } else {
-      // Navigate to split plans page with parameters
-      const superchargeDetailsPayload: SuperchargeDetail[] = additionalFields
-        .map((field, index) => ({
-          amount: paymentAmountParsedToCents(field),
-          paymentMethodId: selectedFieldPaymentMethods[index]?.id || "",
-        }))
-        .filter((detail) => detail.amount !== 0 && detail.paymentMethodId);
-      // For yearly, use the key 'yearlyPowerAmount'; otherwise, use 'instantPowerAmount'
-      const amountKey = isYearly ? "yearlyPowerAmount" : "instantPowerAmount";
-      const paramsObj: Record<string, string> = {
-        [amountKey]: paymentAmount,
-        superchargeDetails: JSON.stringify(superchargeDetailsPayload),
-        otherUserAmounts: JSON.stringify(userAmountsArray),
-        paymentMethodId: selectedPaymentMethod?.id || "",
-        discountIds: JSON.stringify(discountIds),
-      };
-      const params = new URLSearchParams(paramsObj).toString();
-      console.log("params", { params });
-      if (isYearly) {
-        navigate(`/yearly-payment-plan?${params}`);
-      } else {
-        navigate(`/plans?${params}`);
-      }
+      navigate(`/plans?${params}`);
     }
   };
 
@@ -326,7 +255,6 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   // Modal functions
   const openModal = (index?: number) => {
-    // If an index is provided, open modal for that field
     if (index !== undefined) {
       setActiveFieldIndex(index);
     } else {
@@ -415,9 +343,7 @@ const SplitAmountUserCustomization: React.FC = () => {
               label={`Supercharge Amount ${index + 1}`}
               value={field}
               onChangeText={(value) => updateField(index, value)}
-              // Use the payment method specific to this field
               selectedMethod={selectedFieldPaymentMethods[index]}
-              // Open modal passing the index so only that field is updated
               onPaymentMethodPress={() => openModal(index)}
             />
           </div>
@@ -436,16 +362,9 @@ const SplitAmountUserCustomization: React.FC = () => {
             className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
               totalAmount === userTotalAmount ? "" : "opacity-50 cursor-not-allowed"
             }`}
-            disabled={totalAmount !== userTotalAmount || isCompleting}
+            disabled={totalAmount !== userTotalAmount}
           >
-            {isCompleting ? (
-              <div className="flex justify-center items-center">
-                <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
-                <span>Processing...</span>
-              </div>
-            ) : paymentAmount
-              ? `Flex your payments `
-              : "Flex"}
+            Flex your payments
           </button>
         </div>
 
@@ -492,7 +411,6 @@ const SplitAmountUserCustomization: React.FC = () => {
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        // If modal opened for a specific field, show that field's selected method; otherwise use global method
                         selectedMethod={
                           activeFieldIndex !== null
                             ? selectedFieldPaymentMethods[activeFieldIndex]

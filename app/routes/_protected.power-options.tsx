@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { HiOutlineLightningBolt, HiOutlineCalendar } from "react-icons/hi";
-import { FaArrowLeft } from "react-icons/fa";
+import { FaArrowLeft, FaCreditCard } from "react-icons/fa";
 import { useLocation, useNavigate } from "@remix-run/react";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -24,6 +24,15 @@ export interface User {
   isCurrentUser?: boolean;
 }
 
+// Define the shape of data to be passed to the SelfPayPaymentPlan route
+export interface PlansData {
+  instantPowerAmount: string; // in cents, as string
+  superchargeDetails: { amount: string; paymentMethodId: string }[];
+  paymentMethodId: string;
+  otherUserAmounts: SplitEntry[];
+  selectedDiscounts: string[];
+}
+
 const PowerOptionsContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,10 +41,11 @@ const PowerOptionsContent: React.FC = () => {
   // Optional split data coming from the previous page
   const [splitData, setSplitData] = useState<SplitData | null>(null);
   const [users, setUsers] = useState<User[]>([]);
-  // New state to hold the selected discounts list
+  // State to hold the selected discounts list
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
 
-  console.log("selectedDiscounts",selectedDiscounts)
+  console.log("selectedDiscounts", selectedDiscounts);
+
   // Check for split data, users, and selectedDiscounts in location.state
   useEffect(() => {
     const stateData = (location.state as {
@@ -85,6 +95,28 @@ const PowerOptionsContent: React.FC = () => {
     }
   };
 
+  /**
+   * Handle Self Pay click.
+   * It constructs the PlansData object using available data then
+   * navigates directly to the SelfPayPaymentPlan route with that state.
+   */
+  const handleSelfPayClick = () => {
+    const plansData: PlansData = {
+      // Check explicitly for non-null/undefined to allow a 0 value
+      instantPowerAmount:
+        instantaneousPower !== undefined && instantaneousPower !== null
+          ? instantaneousPower.toString()
+          : "",
+      superchargeDetails: [],
+      paymentMethodId: "",
+      // If split data exists, pass its userAmounts, otherwise an empty array
+      otherUserAmounts: splitData ? splitData.userAmounts : [],
+      selectedDiscounts: selectedDiscounts,
+    };
+
+    navigate("/selfpaypaymentplan", { state: plansData });
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-white p-4">
       {/* Header with go-back arrow and title */}
@@ -97,15 +129,11 @@ const PowerOptionsContent: React.FC = () => {
           <FaArrowLeft className="mr-2" size={20} />
           Back
         </button>
-        <h1 className="text-3xl font-bold text-left">
-          Choose Your Power Plan
-        </h1>
+        <h1 className="text-3xl font-bold text-left">Choose Your Power Plan</h1>
       </header>
 
       {userError && (
-        <div className="mb-4 text-red-500">
-          Error loading user details.
-        </div>
+        <div className="mb-4 text-red-500">Error loading user details.</div>
       )}
 
       {/* Instantaneous Power Option */}
@@ -157,6 +185,21 @@ const PowerOptionsContent: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Self Pay Option */}
+      <div
+        onClick={handleSelfPayClick}
+        className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+      >
+        <FaCreditCard className="text-black text-4xl mr-6" />
+        <div>
+          <h2 className="text-2xl font-bold mb-2">Self Pay</h2>
+          <p className="text-gray-600">
+            Pay using your own debit or credit cards or bank account.
+          </p>
+        </div>
+      </div>
+
       <Toaster richColors position="top-right" />
     </div>
   );

@@ -64,7 +64,6 @@ const CheckoutDetails: React.FC = () => {
     redirectCheckoutUrl,
     reference,
     sandbox,
-    status,
     offsetStartDate,
     paymentFrequency,
     numberOfPayments,

@@ -193,6 +193,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         amount: Math.round(parseFloat(user.amount) * 100),
       })),
       discountIds: selectedDiscounts,
+      selfPayActive: false  // Added selfPayActive field set to false
     };
     console.log("CompleteCheckoutPayload", payload);
 

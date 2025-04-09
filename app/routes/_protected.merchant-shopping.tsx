@@ -13,7 +13,6 @@ import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { Toaster, toast } from "sonner";
 import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
-import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
 interface LocationState {
   type?: "instantaneous" | "yearly";
@@ -27,17 +26,13 @@ const MerchantShoppingContent: React.FC = () => {
   const paymentType = stateData.type || "instantaneous";
   const checkoutToken = sessionStorage.getItem("checkoutToken") || "";
 
+  // Initial amount is set to "0.00" but the user must change this to a value greater than 0.
   const [paymentAmount, setPaymentAmount] = useState("0.00");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
-  // New state to track payment method for each additional field.
   const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
-  // State to track which additional field is active when opening the bottom sheet.
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  // Allow only one discount to be selected, stored as an array of discount IDs (as strings)
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
-  // New state for showing the loading spinner when completing checkout.
-  const [isCompleting, setIsCompleting] = useState(false);
 
   const {
     data: paymentData,
@@ -45,7 +40,8 @@ const MerchantShoppingContent: React.FC = () => {
     isError: isPaymentError,
     error: paymentError,
   } = usePaymentMethods();
-  // Global selected payment method for the instant amount (kept for zero amount case)
+
+  // Global selected payment method for the instant amount.
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   console.log("selectedDiscounts", selectedDiscounts);
 
@@ -65,7 +61,7 @@ const MerchantShoppingContent: React.FC = () => {
     status: checkoutStatus,
   } = useCheckoutDetail(checkoutToken);
 
-  // Convert the raw checkout total (in cents) to dollars
+  // Convert the raw checkout total (in cents) to dollars.
   const checkoutTotalAmount = checkoutData
     ? parseFloat(checkoutData.checkout.totalAmount.amount) / 100
     : 0;
@@ -73,13 +69,10 @@ const MerchantShoppingContent: React.FC = () => {
   const merchantId = checkoutData?.checkout.merchant.id;
   console.log("merchant id ", merchantId);
 
-  // Fetch merchant details using the provided hook.
   const { data: merchantDetailData } = useMerchantDetail(merchantId || "");
-  // Base URL constant
   const baseUrl = "http://192.168.1.32:8080";
   console.log("merchantDetailData", merchantDetailData);
 
-  // Order amount in dollars is now used directly
   const orderAmount = checkoutTotalAmount;
 
   const {
@@ -88,7 +81,6 @@ const MerchantShoppingContent: React.FC = () => {
     error: discountsError,
   } = useAvailableDiscounts(merchantId || "", orderAmount);
 
-  // Create a local variable to guarantee a defined array.
   const availableDiscounts = discounts ?? [];
 
   // Helper: get discount value (in dollars) from a discount object.
@@ -96,7 +88,6 @@ const MerchantShoppingContent: React.FC = () => {
     if (discount.type === "PERCENTAGE_OFF" && discount.discountPercentage != null) {
       return checkoutTotalAmount * (discount.discountPercentage / 100);
     } else if (discount.discountAmount != null) {
-      // Convert discount amount from cents to dollars
       return discount.discountAmount / 100;
     }
     return 0;
@@ -105,7 +96,6 @@ const MerchantShoppingContent: React.FC = () => {
   // Pre-select the best discount (if available) – the valid discount with the highest value.
   useEffect(() => {
     if (availableDiscounts.length > 0) {
-      // Only consider discounts that do not push the total below 0.
       const validDiscounts = availableDiscounts.filter(
         (d: any) => checkoutTotalAmount - getDiscountValue(d) >= 0
       );
@@ -113,7 +103,6 @@ const MerchantShoppingContent: React.FC = () => {
         const bestDiscount = validDiscounts.reduce((prev: any, curr: any) =>
           getDiscountValue(curr) > getDiscountValue(prev) ? curr : prev
         );
-        // Convert discount id to string
         setSelectedDiscounts([String(bestDiscount.id)]);
       } else {
         setSelectedDiscounts([]);
@@ -121,21 +110,25 @@ const MerchantShoppingContent: React.FC = () => {
     }
   }, [availableDiscounts, checkoutTotalAmount]);
 
-  // Compute effective checkout total after discount (cannot be negative)
-  const selectedDiscount = availableDiscounts.find((d: any) => String(d.id) === selectedDiscounts[0]);
+  // Compute effective checkout total after discount.
+  const selectedDiscount = availableDiscounts.find(
+    (d: any) => String(d.id) === selectedDiscounts[0]
+  );
   const effectiveCheckoutTotal = selectedDiscount
     ? Math.max(0, checkoutTotalAmount - getDiscountValue(selectedDiscount))
     : checkoutTotalAmount;
 
-  // When adding a new field, initialize its value and assign the default payment method (if available)
+  // When adding a new field, initialize its value and assign the default payment method (if available).
   const addField = () => {
     setAdditionalFields((prev) => [...prev, "0.00"]);
     const cardPaymentMethods = paymentData?.data.data.filter(
       (method: PaymentMethod) => method.type === "card"
     );
-    const defaultMethod = cardPaymentMethods && cardPaymentMethods.length > 0 ? cardPaymentMethods[0] : null;
+    const defaultMethod =
+      cardPaymentMethods && cardPaymentMethods.length > 0 ? cardPaymentMethods[0] : null;
     setSelectedPaymentMethods((prev) => [...prev, defaultMethod]);
   };
+
   const updateField = (index: number, value: string) => {
     setAdditionalFields((prev) => {
       const updated = [...prev];
@@ -163,7 +156,7 @@ const MerchantShoppingContent: React.FC = () => {
     }
   }, [isYearly, paymentAmount]);
 
-  // When a payment method is selected from the bottom sheet, update the method for the active field.
+  // When a payment method is selected from the bottom sheet, update it for the active field.
   const handleMethodSelect = useCallback(
     (method: PaymentMethod) => {
       if (activeFieldIndex !== null) {
@@ -178,7 +171,7 @@ const MerchantShoppingContent: React.FC = () => {
     [activeFieldIndex]
   );
 
-  // Since only one discount is allowed, simply set the selected discount in an array.
+  // Since only one discount is allowed, simply set the selected discount.
   const handleDiscountChange = (discountId: string | number) => {
     setSelectedDiscounts([String(discountId)]);
   };
@@ -193,24 +186,24 @@ const MerchantShoppingContent: React.FC = () => {
   };
   const totalAmount = calculateTotalAmount();
 
-  // Original function to navigate to the payment plan page.
+  // Navigate to the payment plan page with the relevant data.
   const navigateToPlansPage = () => {
     const superchargeDetails = additionalFields.map((field: string, index: number) => ({
-      amount: Math.round(parseFloat(field) * 100), // amount in cents
+      amount: Math.round(parseFloat(field) * 100),
       paymentMethodId: selectedPaymentMethods[index]?.id || "",
     }));
 
     if (!userData?.data?.user?.settings) {
-      alert("Error: User settings not available.");
+      toast.error("Error: User settings not available.");
       return;
     }
 
     const stateData = {
-      amount: totalAmount, // amount in dollars
+      amount: totalAmount,
       superchargeDetails,
       paymentMethodId: selectedPaymentMethod?.id || "",
       paymentType,
-      selectedDiscounts, // discount IDs stored as an array
+      selectedDiscounts,
       [isYearly ? "yearlyPowerAmount" : "instantPowerAmount"]: paymentAmount,
     };
     console.log("shopping data", stateData);
@@ -221,83 +214,15 @@ const MerchantShoppingContent: React.FC = () => {
     }
   };
 
-  // Set up the complete checkout hook.
-  const { mutate: completeCheckout } = useCompleteCheckout();
-
-  // Handler: if the instant amount is zero, complete checkout immediately.
+  // Validate that the instant payment amount is greater than 0 before navigating.
   const handleFlex = () => {
-    if (parseFloat(paymentAmount) === 0) {
-      if (!selectedPaymentMethod) {
-        alert("Please select a payment method.");
-        return;
-      }
-      if (!checkoutToken) {
-        alert("Checkout token is missing.");
-        return;
-      }
-      // Build supercharge details from the additional fields.
-      const superchargeDetails = additionalFields.map((field, index) => ({
-        amount: Math.round(parseFloat(field) * 100), // convert dollars to cents
-        paymentMethodId: selectedPaymentMethods[index]?.id || "",
-      }));
-      // Build the payload. Since the instant amount is zero, we set both instant and yearly amounts to 0.
-      const payload: CompleteCheckoutPayload = {
-        checkoutToken,
-        instantAmount: 0,
-        yearlyAmount: 0,
-        selectedPaymentMethod: selectedPaymentMethod.id,
-        superchargeDetails,
-        paymentFrequency: "MONTHLY", // default value
-        numberOfPayments: 1, // default value
-        offsetStartDate: new Date().toISOString().split("T")[0], // default to today
-        otherUsers: [], // no other user amounts
-        discountIds: selectedDiscounts,
-      };
-
-      // Set loading state.
-      console.log("payload", payload);
-      setIsCompleting(true);
-      completeCheckout(payload, {
-        onSuccess: (data) => {
-          setIsCompleting(false);
-          console.log("Checkout successful:", data);
-          const targetWindow = window.opener || window.parent || window;
-          // If you have other user amounts, replace the empty array below with that variable.
-          const otherUserAmounts: any[] = [];
-          if (otherUserAmounts && otherUserAmounts.length > 0) {
-            targetWindow.postMessage(
-              {
-                status: "PENDING",
-                checkoutToken,
-                data,
-              },
-              "*"
-            );
-            toast.success("Payment plan confirmed for other user amounts. Payment is pending!");
-          } else {
-            targetWindow.postMessage(
-              {
-                status: "COMPLETED",
-                checkoutToken,
-                data,
-              },
-              "*"
-            );
-            toast.success("Payment plan confirmed successfully!");
-          }
-        },
-        onError: (error: Error) => {
-          setIsCompleting(false);
-          console.error("Error during checkout:", error);
-          alert("Failed to complete checkout. Please try again.");
-        },
-      });
-    } else {
-      navigateToPlansPage();
+    if (parseFloat(paymentAmount) <= 0) {
+      toast.error("Instant Payment Amount is required and must be greater than 0.");
+      return;
     }
+    navigateToPlansPage();
   };
 
-  // Modified openModal to accept the index of the field.
   const openModal = (index: number) => {
     setActiveFieldIndex(index);
     setIsModalOpen(true);
@@ -351,7 +276,6 @@ const MerchantShoppingContent: React.FC = () => {
   return (
     <div className="min-h-screen bg-white p-4">
       <div className="max-w-xl mx-auto">
-        {/* Header shows effective total after discount */}
         <header className="mb-6 flex items-center">
           <button
             onClick={() => navigate(-1)}
@@ -381,13 +305,11 @@ const MerchantShoppingContent: React.FC = () => {
               onChangeText={(value) => updateField(index, value)}
               keyboardType="text"
               selectedMethod={selectedPaymentMethods[index]}
-              // Pass the index so that only the targeted field is updated
               onPaymentMethodPress={() => openModal(index)}
             />
           </div>
         ))}
-        {/* Display available discounts only if there is a loading, error, or available discount */}
-        {(discountsLoading || discountsError || (availableDiscounts.length > 0)) && (
+        {(discountsLoading || discountsError || availableDiscounts.length > 0) && (
           <div className="mb-4">
             <h2 className="text-lg font-semibold mb-2">Available Discounts</h2>
             {discountsLoading ? (
@@ -397,7 +319,8 @@ const MerchantShoppingContent: React.FC = () => {
             ) : (
               <ul>
                 {availableDiscounts.map((discount: any) => {
-                  const isOptionDisabled = checkoutTotalAmount - getDiscountValue(discount) < 0;
+                  const isOptionDisabled =
+                    checkoutTotalAmount - getDiscountValue(discount) < 0;
                   return (
                     <li
                       key={discount.id}
@@ -463,21 +386,9 @@ const MerchantShoppingContent: React.FC = () => {
           </button>
           <button
             onClick={handleFlex}
-            className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
-              totalAmount === effectiveCheckoutTotal ? "" : "opacity-50 cursor-not-allowed"
-            }`}
-            disabled={totalAmount !== effectiveCheckoutTotal || isCompleting}
+            className="flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition"
           >
-            {isCompleting ? (
-              <div className="flex justify-center items-center">
-                <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
-                <span>Processing...</span>
-              </div>
-            ) : paymentAmount && parseFloat(paymentAmount) > 0 ? (
-              `Flex $${parseFloat(paymentAmount).toFixed(2)}`
-            ) : (
-              "Flex your payments"
-            )}
+            Flex your payments
           </button>
         </div>
         <AnimatePresence>
@@ -522,7 +433,6 @@ const MerchantShoppingContent: React.FC = () => {
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        // Pass the selected method for the active field only.
                         selectedMethod={
                           activeFieldIndex !== null
                             ? selectedPaymentMethods[activeFieldIndex]

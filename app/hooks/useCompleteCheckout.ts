@@ -3,33 +3,32 @@ import axios from 'axios';
 
 // Define the payload structure for the complete checkout endpoint.
 // This supports both a normal checkout and a split checkout.
-// Note: The key "checkoutToken" is used to look up the checkout.
+// Fields such as checkoutToken, paymentFrequency, numberOfPayments, etc., 
+// are defined based on your backend validations and the provided cURL example.
 export interface CompleteCheckoutPayload {
-  checkoutToken: string; // e.g. "chk_ABC123XYZ"
-  // The following fields are required for a normal checkout
-  paymentFrequency?: string; // e.g. "MONTHLY" or "BIWEEKLY"
-  numberOfPayments?: number;  // e.g. 12
-  offsetStartDate?: string;   // e.g. "2025-03-01" in ISO format
-  // For both checkout types
-  instantAmount: number;      // Payment amount in cents, e.g. 20000
-  yearlyAmount: number;       // Payment amount in cents, e.g. 100000
-  selectedPaymentMethod: string; // Payment method identifier
-  superchargeDetails: {
-    amount: number;           // e.g. 500
-    paymentMethodId: string;  // e.g. "pm_card_mastercard"
+  checkoutToken: string;             // e.g. "sample-checkout-token"
+  paymentFrequency?: string;         // e.g. "MONTHLY" (must match expected enum values)
+  numberOfPayments?: number;         // e.g. 1 (must be greater than zero if otherUsers is empty)
+  offsetStartDate?: string;          // e.g. "2025-05-01" in ISO format
+  instantAmount: number;             // Payment amount in cents, e.g. 10000
+  yearlyAmount: number;              // Payment amount in cents, e.g. 5000
+  selectedPaymentMethod: string;     // e.g. "CREDIT_CARD"
+  superchargeDetails: {              // Array of supercharge details; can be empty
+    amount: number;                // e.g. 500
+    paymentMethodId: string;       // e.g. "pm_card_mastercard"
   }[];
-  reference?: string;         // Optional: e.g. "order_ref_98765"
-  // Optional field for split checkout
-  otherUsers?: {
+  reference?: string;                // Optional: e.g. "order-001"
+  otherUsers?: {                     // Optional field for split checkout scenarios
     userId: string;
     amount: number;
   }[];
-  discountIds?: string[];     // Optional list of discount identifiers
+  discountIds?: string[];            // Optional list of discount identifiers
+  selfPayActive: boolean;            // Indicates whether self-pay is active; e.g. false
 }
 
 // Define the response structure for a successful complete checkout request.
 export interface CompleteCheckoutResponse {
-  message: string; // e.g. "Checkout completed successfully; PaymentPlan id: PP12345"
+  message: string;  // e.g. "Checkout completed successfully; PaymentPlan id: PP12345"
 }
 
 // Function to call the complete checkout endpoint.
@@ -43,9 +42,9 @@ async function completeCheckout(
       throw new Error('No access token found');
     }
 
-    // Call the API. Update the endpoint URL as needed.
+    // Call the API with the updated endpoint URL.
     const response = await axios.post<CompleteCheckoutResponse>(
-      'http://192.168.1.32:8080/api/checkout/complete',
+      'http://localhost:8080/api/checkout/complete',
       payload,
       {
         headers: {

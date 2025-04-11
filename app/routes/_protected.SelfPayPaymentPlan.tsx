@@ -30,7 +30,6 @@ interface SuperchargeDetail {
   paymentMethodId: string;
 }
 
-// We don't receive the checkout total as a prop; we get it via checkout details.
 interface SelfPayPaymentPlanProps {
   superchargeDetails: SuperchargeDetail[];
   paymentMethodId: string;
@@ -99,7 +98,6 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     }
   }, [paymentMethodsData]);
 
-  // Notice we removed calculatedPlan from the dependency array.
   useEffect(() => {
     if (displayedCheckoutTotal > 0) {
       calculatePlan(planRequest, {
@@ -130,8 +128,9 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     }
   }, [calculatedPlan, calculatePlanError]);
 
+  // Use optional chaining for splitPayments to avoid "undefined" errors.
   const mockPayments: SplitPayment[] =
-    calculatedPlan?.data?.splitPayments.map((payment: SplitPayment) => ({
+    calculatedPlan?.data?.splitPayments?.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
       amount: payment.amount,
       percentage: Number(((payment.amount / displayedCheckoutTotal) * 100).toFixed(2)),
@@ -172,10 +171,11 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     }
 
     const numberOfPayments = parseInt(numberOfPeriods, 10);
-    const instantAmount = purchaseAmountCents;
-    const yearlyAmount = 0 * 100; // For self pay, yearlyAmount is 0.
+    const instantAmount = 0;
+    const yearlyAmount = 0; // For self-pay, yearlyAmount is 0.
 
-    const transformedSuperchargeDetails = superchargeDetails.map((detail) => ({
+    // Use a safe default in case superchargeDetails is undefined.
+    const transformedSuperchargeDetails = (superchargeDetails || []).map((detail) => ({
       paymentMethodId: detail.paymentMethodId,
       amount: parseFloat(detail.amount),
     }));
@@ -189,22 +189,21 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
       paymentFrequency: paymentFrequency,
       numberOfPayments: numberOfPayments,
       offsetStartDate: startDate,
-      otherUsers: otherUserAmounts
-        ? otherUserAmounts.map((user) => ({
-            userId: user.userId,
-            amount: Math.round(parseFloat(user.amount) * 100),
-          }))
-        : [],
+      otherUsers: otherUserAmounts?.map((user) => ({
+        userId: user.userId,
+        amount: Math.round(parseFloat(user.amount) * 100),
+      })) || [],
       discountIds: selectedDiscounts,
-      selfPayActive: true // Self-pay active set to true.
+      selfPayActive: true, // Self-pay active set to true.
     };
+
     console.log("CompleteCheckoutPayload", payload);
 
     completeCheckout(payload, {
       onSuccess: (data) => {
-        console.log("Checkout successful:", data);
+        console.log("SelfPayPaymentPlan: Checkout successful:", data);
         const targetWindow = window.opener || window.parent || window;
-        if (otherUserAmounts && otherUserAmounts.length > 0) {
+        if (otherUserAmounts?.length > 0) {
           targetWindow.postMessage({ status: "PENDING", checkoutToken, data }, "*");
           toast.success("Payment plan confirmed for other user amounts. Payment is pending!");
         } else {

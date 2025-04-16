@@ -11,13 +11,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 
-const SERVER_BASE_URL = 'http://192.168.1.32:8080';
+const SERVER_BASE_URL = "http://192.168.1.32:8080";
 
 /*
   NOTE:
-  All amounts are assumed to be provided in dollars as strings.
-  The checkout details provide the total amount in cents.
-  Here we convert that value into dollars for display and calculations.
+  – The checkout details provide the total amount as-is (e.g., a string "500.00").
+  – All amounts are used exactly as provided by the API.
 */
 
 interface SplitEntry {
@@ -26,7 +25,7 @@ interface SplitEntry {
 }
 
 interface SuperchargeDetail {
-  amount: string; // in dollars as string (e.g., "500.00")
+  amount: string; // dollars as string (e.g., "500.00")
   paymentMethodId: string;
 }
 
@@ -51,13 +50,14 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
   const checkoutToken =
     typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
 
-  // Call the checkout details hook unconditionally.
+  // Call the checkout details hook.
   const { data: checkoutData, isLoading: checkoutLoading, error: checkoutError } =
     useCheckoutDetail(checkoutToken);
 
-  // Declare all local states—including the selected payment method.
+  // Local state declarations.
   const [numberOfPeriods, setNumberOfPeriods] = useState<string>("1");
-  const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("MONTHLY");
+  // Initially start with BIWEEKLY.
+  const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("BIWEEKLY");
   const [startDate, setStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
@@ -67,13 +67,13 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
   const { data: userDetailsData, isLoading: userLoading, isError: userError } = useUserDetails();
   const { mutate: completeCheckout, status: checkoutStatus, error: completeCheckoutError } = useCompleteCheckout();
 
-  // Determine the checkout total.
+  // Use the checkout total as provided by the API.
   const checkoutTotal =
     checkoutData && checkoutData.checkout
-      ? (parseFloat(checkoutData.checkout.totalAmount.amount) / 100).toFixed(2)
+      ? checkoutData.checkout.totalAmount.amount
       : "0.00";
   const displayedCheckoutTotal = parseFloat(checkoutTotal) || 0;
-  const purchaseAmountCents = Math.round(parseFloat(checkoutTotal) * 100);
+  const purchaseAmountCents = displayedCheckoutTotal; // Used as provided
 
   // Mapping from PaymentFrequency to API expected value.
   const frequencyMap: Record<PaymentFrequency, "BIWEEKLY" | "MONTHLY"> = {
@@ -81,12 +81,12 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     MONTHLY: "MONTHLY",
   };
 
-  // Build the plan request using the checkout total.
+  // Build the plan request.
   const planRequest = useMemo(
     () => ({
       frequency: frequencyMap[paymentFrequency],
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: displayedCheckoutTotal, // in dollars
+      purchaseAmount: displayedCheckoutTotal,
       startDate: startDate,
     }),
     [paymentFrequency, numberOfPeriods, displayedCheckoutTotal, startDate]
@@ -110,14 +110,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
         },
       });
     }
-  }, [
-    paymentFrequency,
-    numberOfPeriods,
-    displayedCheckoutTotal,
-    startDate,
-    calculatePlan,
-    planRequest,
-  ]);
+  }, [paymentFrequency, numberOfPeriods, displayedCheckoutTotal, startDate, calculatePlan, planRequest]);
 
   useEffect(() => {
     if (calculatePlanError) {
@@ -128,7 +121,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     }
   }, [calculatedPlan, calculatePlanError]);
 
-  // Use optional chaining for splitPayments to avoid "undefined" errors.
+  // Map calculated split payments to displayable items.
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments?.map((payment: SplitPayment) => ({
       dueDate: payment.dueDate,
@@ -160,6 +153,128 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     );
   };
 
+  // --- Determine Available Payment Frequencies ---
+  // Check if any qualifying tier (by amount) allows a valid monthly option.
+  let availablePaymentFrequencies: PaymentFrequency[] = ["BIWEEKLY", "MONTHLY"];
+  if (checkoutData && checkoutData.configuration && checkoutData.configuration.selfPayTiers) {
+    const tiers = checkoutData.configuration.selfPayTiers;
+    const checkoutAmount = parseFloat(checkoutData.checkout.totalAmount.amount);
+    let possibleMonthly = false;
+    for (const tier of tiers) {
+      const tierMinAmount = parseFloat(tier.minAmount);
+      const tierMaxAmount = parseFloat(tier.maxAmount);
+      const qualifiesAmount =
+        tierMinAmount === 0 && tierMaxAmount === 0
+          ? true
+          : checkoutAmount >= tierMinAmount && checkoutAmount <= tierMaxAmount;
+      if (qualifiesAmount) {
+        // For monthly, convert tier term limits (already in weeks) to period counts using 4 weeks per period.
+        const allowedMinMonthly = Math.ceil(tier.minTerm / 4);
+        const allowedMaxMonthly = Math.floor(tier.maxTerm / 4);
+        if (allowedMaxMonthly >= allowedMinMonthly && allowedMinMonthly > 0) {
+          possibleMonthly = true;
+          break;
+        }
+      }
+    }
+    if (!possibleMonthly) {
+      availablePaymentFrequencies = ["BIWEEKLY"];
+    }
+  }
+
+  // If the current frequency is not available, reset it to BIWEEKLY.
+  useEffect(() => {
+    if (!availablePaymentFrequencies.includes(paymentFrequency)) {
+      setPaymentFrequency("BIWEEKLY");
+    }
+  }, [availablePaymentFrequencies, paymentFrequency]);
+
+  // --- Generate Allowed Period Options Based on Self-Pay Tier ---
+  const getNumberOptions = () => {
+    if (
+      checkoutData &&
+      checkoutData.configuration &&
+      checkoutData.configuration.selfPayTiers &&
+      checkoutData.configuration.selfPayTiers.length > 0
+    ) {
+      const checkoutAmount = parseFloat(checkoutData.checkout.totalAmount.amount);
+      // Find the first qualifying tier (by amount).
+      const qualifyingTier = checkoutData.configuration.selfPayTiers.find((tier) => {
+        const tierMinAmount = parseFloat(tier.minAmount);
+        const tierMaxAmount = parseFloat(tier.maxAmount);
+        return (tierMinAmount === 0 && tierMaxAmount === 0) ||
+          (checkoutAmount >= tierMinAmount && checkoutAmount <= tierMaxAmount);
+      });
+      if (qualifyingTier) {
+        if (paymentFrequency === "BIWEEKLY") {
+          // The tier terms are already in biweekly units.
+          const allowedMin = qualifyingTier.minTerm;
+          const allowedMax = qualifyingTier.maxTerm;
+          if (allowedMax < allowedMin) return [];
+          return Array.from({ length: allowedMax - allowedMin + 1 }, (_, index) => {
+            const value = allowedMin + index;
+            return (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            );
+          });
+        } else if (paymentFrequency === "MONTHLY") {
+          // Convert the week-based tier terms into monthly periods using 4 weeks per period.
+          const allowedMin = Math.ceil(qualifyingTier.minTerm / 4);
+          const allowedMax = Math.floor(qualifyingTier.maxTerm / 4);
+          if (allowedMax < allowedMin) return [];
+          return Array.from({ length: allowedMax - allowedMin + 1 }, (_, index) => {
+            const value = allowedMin + index;
+            return (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            );
+          });
+        }
+      }
+    }
+    // Fallback if no qualifying tier is found.
+    const defaultMax = paymentFrequency === "BIWEEKLY" ? 52 : 24;
+    return Array.from({ length: defaultMax }, (_, index) => (
+      <option key={index + 1} value={`${index + 1}`}>
+        {index + 1}
+      </option>
+    ));
+  };
+
+  // --- Self-Pay Tier Validation ---
+  // For validation, BIWEEKLY periods count as 1 unit, and MONTHLY periods count as 4 weeks.
+  let isSelfPayTierValid = false;
+  if (
+    !checkoutLoading &&
+    checkoutData &&
+    checkoutData.configuration &&
+    checkoutData.configuration.selfPayTiers &&
+    checkoutData.checkout &&
+    checkoutData.checkout.totalAmount
+  ) {
+    const checkoutAmount = parseFloat(checkoutData.checkout.totalAmount.amount);
+    const periods = parseInt(numberOfPeriods, 10);
+    let effectiveTerm = 0;
+    if (paymentFrequency === "BIWEEKLY") {
+      effectiveTerm = periods; // Already in biweekly units.
+    } else if (paymentFrequency === "MONTHLY") {
+      effectiveTerm = periods * 4; // Each monthly period equals 4 weeks.
+    }
+    isSelfPayTierValid = checkoutData.configuration.selfPayTiers.some((tier) => {
+      const tierMinAmount = parseFloat(tier.minAmount);
+      const tierMaxAmount = parseFloat(tier.maxAmount);
+      const qualifiesAmount =
+        tierMinAmount === 0 && tierMaxAmount === 0
+          ? true
+          : checkoutAmount >= tierMinAmount && checkoutAmount <= tierMaxAmount;
+      const qualifiesTerm = effectiveTerm >= tier.minTerm && effectiveTerm <= tier.maxTerm;
+      return qualifiesAmount && qualifiesTerm;
+    });
+  }
+
   const handleConfirm = () => {
     if (!selectedPaymentMethod || purchaseAmountCents === 0) {
       toast.error("Please select a payment method and ensure the amount is greater than zero.");
@@ -169,12 +284,15 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
       toast.error("Checkout token is missing. Please try again.");
       return;
     }
+    if (!isSelfPayTierValid) {
+      toast.error("The selected number of periods does not meet the self pay tier requirements.");
+      return;
+    }
 
     const numberOfPayments = parseInt(numberOfPeriods, 10);
     const instantAmount = 0;
     const yearlyAmount = 0; // For self-pay, yearlyAmount is 0.
 
-    // Use a safe default in case superchargeDetails is undefined.
     const transformedSuperchargeDetails = (superchargeDetails || []).map((detail) => ({
       paymentMethodId: detail.paymentMethodId,
       amount: parseFloat(detail.amount),
@@ -194,7 +312,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
         amount: Math.round(parseFloat(user.amount) * 100),
       })) || [],
       discountIds: selectedDiscounts,
-      selfPayActive: true, // Self-pay active set to true.
+      selfPayActive: true,
     };
 
     console.log("CompleteCheckoutPayload", payload);
@@ -222,20 +340,6 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
     return frequency === "BIWEEKLY" ? 52 : 24;
   };
 
-  const getNumberOptions = () => {
-    const maxNumber = getMaxNumber(paymentFrequency);
-    return Array.from({ length: maxNumber }, (_, index) => (
-      <option key={index + 1} value={`${index + 1}`}>
-        {index + 1}
-      </option>
-    ));
-  };
-
-  const cardMethods: PaymentMethod[] =
-    paymentMethodsData?.data?.data?.filter(
-      (method: PaymentMethod) => method.type === "card"
-    ) || [];
-
   return (
     <>
       {checkoutLoading ? (
@@ -259,9 +363,9 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
             </h1>
           </div>
 
-          {/* Pickers */}
-          <div className="flex flex-col md:flex-row items-center mb-5 space-y-4 md:space-y-0 md:space-x-4">
-            <div className="w-full md:w-1/2">
+          {/* Periods & Payment Frequency Pickers (stacked vertically) */}
+          <div className="flex flex-col space-y-4 mb-5">
+            <div className="w-full">
               <label htmlFor="numberOfPeriods" className="block text-sm font-medium text-gray-700 mb-1">
                 Number of Periods
               </label>
@@ -274,8 +378,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
                 {getNumberOptions()}
               </select>
             </div>
-
-            <div className="w-full md:w-1/2">
+            <div className="w-full">
               <label htmlFor="paymentFrequency" className="block text-sm font-medium text-gray-700 mb-1">
                 Payment Frequency
               </label>
@@ -283,13 +386,13 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
                 id="paymentFrequency"
                 value={paymentFrequency}
                 onChange={(e) => setPaymentFrequency(e.target.value as PaymentFrequency)}
-                disabled={numberOfPeriods === "1"}
-                className={`block w-full p-2 border ${
-                  numberOfPeriods === "1" ? "bg-gray-100" : "border-gray-300"
-                } rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500`}
+                className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               >
-                <option value="BIWEEKLY">Bi-weekly</option>
-                <option value="MONTHLY">Monthly</option>
+                {availablePaymentFrequencies.map((freq) => (
+                  <option key={freq} value={freq}>
+                    {freq === "BIWEEKLY" ? "Bi-weekly" : "Monthly"}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -304,9 +407,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
                   showChangeDateButton={true}
                   isCollapsed={false}
                   initialDate={new Date(startDate)}
-                  onDateSelected={(date: Date) => {
-                    setStartDate(date.toISOString().split("T")[0]);
-                  }}
+                  onDateSelected={(date: Date) => setStartDate(date.toISOString().split("T")[0])}
                 />
               ) : (
                 <div className="flex justify-center items-center">
@@ -325,12 +426,12 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
           {/* Confirm Button */}
           <button
             className={`w-full bg-black text-white font-bold py-3 rounded-lg ${
-              purchaseAmountCents === 0 || checkoutStatus === "pending"
+              purchaseAmountCents === 0 || checkoutStatus === "pending" || !isSelfPayTierValid
                 ? "bg-gray-400 cursor-not-allowed"
                 : "hover:bg-gray-800"
             }`}
             onClick={handleConfirm}
-            disabled={purchaseAmountCents === 0 || checkoutStatus === "pending"}
+            disabled={purchaseAmountCents === 0 || checkoutStatus === "pending" || !isSelfPayTierValid}
           >
             {checkoutStatus === "pending" ? (
               <div className="flex justify-center items-center">
@@ -383,9 +484,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
                     Payment Settings
                   </button>
                 </div>
-                <h2 className="text-xl font-semibold mb-4 px-4">
-                  Select Payment Method
-                </h2>
+                <h2 className="text-xl font-semibold mb-4 px-4">Select Payment Method</h2>
                 <div className="space-y-4 px-4 pb-4">
                   {paymentMethodsData?.data?.data
                     ?.filter((method: PaymentMethod) => method.type === "card")
@@ -395,9 +494,7 @@ const SelfPayPaymentPlan: React.FC<SelfPayPaymentPlanProps> = ({
                         method={method}
                         selectedMethod={selectedPaymentMethod}
                         onSelect={handleMethodSelect}
-                        isLastItem={
-                          index === paymentMethodsData.data.data.length - 1
-                        }
+                        isLastItem={index === paymentMethodsData.data.data.length - 1}
                       />
                     ))}
                 </div>

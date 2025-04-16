@@ -1,5 +1,4 @@
 // src/routes/checkout-details.tsx
-
 import React from "react";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { useNavigate, useLocation } from "@remix-run/react";
@@ -64,9 +63,7 @@ const CheckoutDetails: React.FC = () => {
     redirectCheckoutUrl,
     reference,
     sandbox,
-    offsetStartDate,
-    paymentFrequency,
-    numberOfPayments,
+    state, // using state as the status indicator
     totalAmount,
     expires,
     createdAt,
@@ -84,10 +81,10 @@ const CheckoutDetails: React.FC = () => {
           <strong>Checkout ID:</strong> {id}
         </p>
         <p>
-          <strong>Reference:</strong> {reference}
+          <strong>Reference:</strong> {reference || "N/A"}
         </p>
         <p>
-          <strong>Status:</strong> {status}
+          <strong>Status:</strong> {state}
         </p>
         <p>
           <strong>Sandbox Mode:</strong> {sandbox ? "Yes" : "No"}
@@ -98,12 +95,6 @@ const CheckoutDetails: React.FC = () => {
       <section className="mb-6">
         <h2 className="text-2xl font-semibold mb-2">Payment Details</h2>
         <p>
-          <strong>Payment Frequency:</strong> {paymentFrequency}
-        </p>
-        <p>
-          <strong>Number of Payments:</strong> {numberOfPayments}
-        </p>
-        <p>
           <strong>Total Amount:</strong>{" "}
           {(parseFloat(totalAmount.amount) / 100).toFixed(2)} {totalAmount.currency}
         </p>
@@ -113,11 +104,7 @@ const CheckoutDetails: React.FC = () => {
       <section className="mb-6">
         <h2 className="text-2xl font-semibold mb-2">Timing</h2>
         <p>
-          <strong>Expires:</strong> {new Date(expires).toLocaleString()}
-        </p>
-        <p>
-          <strong>Offset Start Date:</strong>{" "}
-          {offsetStartDate ? new Date(offsetStartDate).toLocaleString() : "N/A"}
+          <strong>Expires:</strong> {expires ? new Date(expires).toLocaleString() : "N/A"}
         </p>
         <p>
           <strong>Created At:</strong> {new Date(createdAt).toLocaleString()}

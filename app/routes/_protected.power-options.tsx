@@ -4,6 +4,7 @@ import { FaArrowLeft, FaCreditCard } from "react-icons/fa";
 import { useLocation, useNavigate } from "@remix-run/react";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useUserDetails } from "~/hooks/useUserDetails";
+import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { toast, Toaster } from "sonner";
 
 // Define types for split data
@@ -44,9 +45,7 @@ const PowerOptionsContent: React.FC = () => {
   // State to hold the selected discounts list
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
 
-  console.log("selectedDiscounts", selectedDiscounts);
-
-  // Check for split data, users, and selectedDiscounts in location.state
+  // Retrieve split state from navigation if available
   useEffect(() => {
     const stateData = (location.state as {
       splitData?: SplitData;
@@ -78,6 +77,39 @@ const PowerOptionsContent: React.FC = () => {
     const value = sessionStorage.getItem("inApp");
     setInApp(value === "true");
   }, []);
+
+  // Retrieve checkout token from sessionStorage to call checkout details hook
+  const checkoutToken =
+    typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
+
+  const {
+    data: checkoutData,
+    isLoading: checkoutLoading,
+    error: checkoutError,
+  } = useCheckoutDetail(checkoutToken);
+
+  // Determine if Self Pay is enabled via configuration from checkout details
+  const isSelfPayEnabled = checkoutData?.configuration?.enableSelfPay;
+
+  // Check if the checkout total amount qualifies for one of the self pay tiers
+  let isWithinSelfPayTier = false;
+  if (
+    !checkoutLoading &&
+    checkoutData &&
+    checkoutData.configuration &&
+    checkoutData.configuration.selfPayTiers &&
+    checkoutData.checkout &&
+    checkoutData.checkout.totalAmount
+  ) {
+    const checkoutAmount = parseFloat(checkoutData.checkout.totalAmount.amount);
+    isWithinSelfPayTier = checkoutData.configuration.selfPayTiers.some((tier) => {
+      const min = parseFloat(tier.minAmount);
+      const max = parseFloat(tier.maxAmount);
+      // If both min and max are 0, any amount qualifies.
+      if (min === 0 && max === 0) return true;
+      return checkoutAmount >= min && checkoutAmount <= max;
+    });
+  }
 
   /**
    * Handle option click. If split data exists (from a split flow),
@@ -186,19 +218,21 @@ const PowerOptionsContent: React.FC = () => {
         </div>
       </div>
 
-      {/* Self Pay Option */}
-      <div
-        onClick={handleSelfPayClick}
-        className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
-      >
-        <FaCreditCard className="text-black text-4xl mr-6" />
-        <div>
-          <h2 className="text-2xl font-bold mb-2">Self Pay</h2>
-          <p className="text-gray-600">
-            Pay using your own debit or credit cards or bank account.
-          </p>
+      {/* Conditionally render Self Pay Option based on configuration and checkout amount */}
+      {!checkoutLoading && !checkoutError && isSelfPayEnabled && isWithinSelfPayTier && (
+        <div
+          onClick={handleSelfPayClick}
+          className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+        >
+          <FaCreditCard className="text-black text-4xl mr-6" />
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Self Pay</h2>
+            <p className="text-gray-600">
+              Pay using your own debit or credit cards or bank account.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <Toaster richColors position="top-right" />
     </div>

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 
 export interface Amount {
   id: string;
-  amount: string; // The API returns amount as a string (e.g., "10000")
+  amount: string; // The API returns the amount as a string (e.g., "10000")
   currency: string;
   hibernateLazyInitializer?: Record<string, unknown>;
 }
@@ -44,28 +44,46 @@ export interface CheckoutDetail {
   id: string;
   redirectCheckoutUrl: string | null;
   token: string;
-  reference: string;
+  checkoutToken?: string; // Optional, as present in the API response
+  reference: string | null;
   sandbox: boolean;
-  state: string | null;
-  offsetStartDate: string | null;
-  paymentFrequency: string | null;
-  numberOfPayments: number;
+  state: string;
   totalAmount: Amount;
   merchant: Merchant;
-  expires: string;
+  expires: string | null;
   createdAt: string;
   updatedAt: string;
   user: any; // Adjust this type as needed if user data becomes available
   checkoutType: string;
+  discounts: any[]; // Matches the "discounts" array in the API response
 }
 
+// New interfaces for Configuration details
+export interface SelfPayTier {
+  minAmount: string;
+  maxAmount: string;
+  minTerm: number;
+  maxTerm: number;
+}
+
+export interface Configuration {
+  id: string;
+  maxAmount: Amount;
+  minAmount: Amount;
+  checkout: string;
+  checkoutUrl: string;
+  enableSplitPay: boolean;
+  splitPay: string;
+  splitPayUrl: string;
+  authorizationWebhookUrl: string;
+  enableSelfPay: boolean;
+  selfPayTiers: SelfPayTier[];
+}
+
+// Updated response interface returning checkout and configuration
 export interface CheckoutDetailResponse {
   checkout: CheckoutDetail;
-  remainingRefund: number;
-  remainingCapture: number;
-  discountDetails: any[];
-  originalTotalAmount: number;
-  finalTotalAmount: number;
+  configuration: Configuration;
 }
 
 // Fetch checkout details by token (using the token in the URL)

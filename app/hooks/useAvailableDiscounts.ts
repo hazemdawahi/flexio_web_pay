@@ -28,7 +28,7 @@ async function fetchAvailableDiscounts(
   token: string
 ): Promise<Discount[]> {
   const response = await axios.get<Discount[]>(
-    'http://localhost:8080/api/discounts/available/merchant',
+    'http://192.168.1.32:8080/api/discounts/available/merchant',
     {
       params: { merchantId, orderAmount },
       headers: {

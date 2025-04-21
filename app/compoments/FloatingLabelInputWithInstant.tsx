@@ -11,7 +11,7 @@ interface FloatingLabelInputWithInstantProps {
   borderStyle?: React.CSSProperties;
   onPress?: () => void;
   nokeyboard?: boolean;
-  instantPower?: number; // value in cents
+  instantPower?: number;
   keyboardType?: "text" | "number";
   powerType?: "instantaneous" | "yearly";
 }
@@ -61,8 +61,9 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
     }
   };
 
-  const formatToDollars = (amountInCents: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amountInCents / 100);
+  // Removed any division/multiplication by 100
+  const formatToDollars = (amount: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
 
   return (
     <div onClick={handlePress} className="w-full">

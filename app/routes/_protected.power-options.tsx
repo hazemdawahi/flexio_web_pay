@@ -1,3 +1,5 @@
+// app/routes/PowerOptionsContent.tsx
+
 import React, { useEffect, useState } from "react";
 import { HiOutlineLightningBolt, HiOutlineCalendar } from "react-icons/hi";
 import { FaArrowLeft, FaCreditCard } from "react-icons/fa";
@@ -25,13 +27,16 @@ export interface User {
   isCurrentUser?: boolean;
 }
 
-// Define the shape of data to be passed to the SelfPayPaymentPlan route
+// Define the shape of data to be passed to the Plans route
 export interface PlansData {
+  paymentType: "instantaneous" | "yearly" | "selfpay";
   instantPowerAmount: string; // in cents, as string
   superchargeDetails: { amount: string; paymentMethodId: string }[];
   paymentMethodId: string;
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];
+  users?: User[];
+  splitData?: SplitData;
 }
 
 const PowerOptionsContent: React.FC = () => {
@@ -61,7 +66,7 @@ const PowerOptionsContent: React.FC = () => {
     }
   }, [location.state]);
 
-  // Retrieve user details via the custom hook
+  // Retrieve user details
   const {
     data: userDetailsData,
     isLoading: userLoading,
@@ -78,47 +83,37 @@ const PowerOptionsContent: React.FC = () => {
     setInApp(value === "true");
   }, []);
 
-  // Retrieve checkout token from sessionStorage to call checkout details hook
+  // Retrieve checkout details
   const checkoutToken =
     typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
-
   const {
     data: checkoutData,
     isLoading: checkoutLoading,
     error: checkoutError,
   } = useCheckoutDetail(checkoutToken);
 
-  // Determine if Self Pay is enabled via configuration from checkout details
+  // Determine if Self Pay is enabled and within tiers
   const isSelfPayEnabled = checkoutData?.configuration?.enableSelfPay;
-
-  // Check if the checkout total amount qualifies for one of the self pay tiers
   let isWithinSelfPayTier = false;
   if (
     !checkoutLoading &&
-    checkoutData &&
-    checkoutData.configuration &&
-    checkoutData.configuration.selfPayTiers &&
-    checkoutData.checkout &&
-    checkoutData.checkout.totalAmount
+    checkoutData?.configuration?.selfPayTiers &&
+    checkoutData.checkout?.totalAmount
   ) {
-    const checkoutAmount = parseFloat(checkoutData.checkout.totalAmount.amount);
+    const amt = parseFloat(checkoutData.checkout.totalAmount.amount);
     isWithinSelfPayTier = checkoutData.configuration.selfPayTiers.some((tier) => {
       const min = parseFloat(tier.minAmount);
       const max = parseFloat(tier.maxAmount);
-      // If both min and max are 0, any amount qualifies.
       if (min === 0 && max === 0) return true;
-      return checkoutAmount >= min && checkoutAmount <= max;
+      return amt >= min && amt <= max;
     });
   }
 
   /**
-   * Handle option click. If split data exists (from a split flow),
-   * navigate to the split customization page and pass split data, users,
-   * the chosen power type, and the selected discount list.
-   * Otherwise, navigate to the merchant shopping page.
+   * Handle option click for instantaneous/yearly.
    */
   const handleOptionClick = (powerType: "instantaneous" | "yearly") => {
-    if (splitData && splitData.userAmounts && splitData.userAmounts.length > 0) {
+    if (splitData && splitData.userAmounts.length > 0) {
       navigate("/SplitAmountUserCustomization", {
         state: { splitData, users, type: powerType, selectedDiscounts },
       });
@@ -128,114 +123,113 @@ const PowerOptionsContent: React.FC = () => {
   };
 
   /**
-   * Handle Self Pay click.
-   * It constructs the PlansData object using available data then
-   * navigates directly to the SelfPayPaymentPlan route with that state.
+   * Handle Self Pay click: go to /plans with paymentType "selfpay"
    */
   const handleSelfPayClick = () => {
     const plansData: PlansData = {
-      // Check explicitly for non-null/undefined to allow a 0 value
+      paymentType: "selfpay",
       instantPowerAmount:
-        instantaneousPower !== undefined && instantaneousPower !== null
-          ? instantaneousPower.toString()
-          : "",
+        instantaneousPower != null ? instantaneousPower.toString() : "",
       superchargeDetails: [],
       paymentMethodId: "",
-      // If split data exists, pass its userAmounts, otherwise an empty array
       otherUserAmounts: splitData ? splitData.userAmounts : [],
-      selectedDiscounts: selectedDiscounts,
+      selectedDiscounts,
+      users: users.length > 0 ? users : undefined,
+      splitData: splitData || undefined,
     };
-
-    navigate("/selfpaypaymentplan", { state: plansData });
+    navigate("/plans", { state: plansData });
   };
 
+  // render loading/error
+  if (userError) {
+    toast.error("Error loading user details.");
+  }
+  if (checkoutError) {
+    toast.error("Error loading checkout details.");
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-white p-4">
-      {/* Header with go-back arrow and title */}
-      <header className="w-full max-w-3xl mb-8">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center text-gray-700 hover:text-gray-900 mb-2"
-          aria-label="Go back"
-        >
-          <FaArrowLeft className="mr-2" size={20} />
-          Back
-        </button>
-        <h1 className="text-3xl font-bold text-left">Choose Your Power Plan</h1>
-      </header>
+    <ProtectedRoute>
+      <div className="min-h-screen flex flex-col bg-white p-4">
+        <header className="w-full max-w-3xl mb-8">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center text-gray-700 hover:text-gray-900 mb-2"
+            aria-label="Go back"
+          >
+            <FaArrowLeft className="mr-2" size={20} />
+            Back
+          </button>
+          <h1 className="text-3xl font-bold text-left">Choose Your Power Plan</h1>
+        </header>
 
-      {userError && (
-        <div className="mb-4 text-red-500">Error loading user details.</div>
-      )}
-
-      {/* Instantaneous Power Option */}
-      <div
-        onClick={() => handleOptionClick("instantaneous")}
-        className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
-      >
-        <HiOutlineLightningBolt className="text-black text-4xl mr-6" />
-        <div>
-          <h2 className="text-2xl font-bold mb-2">
-            Instantaneous Power{" "}
-            {userLoading ? (
-              "Loading..."
-            ) : instantaneousPower !== undefined ? (
-              <span className="text-lg font-normal text-gray-600">
-                (${(instantaneousPower / 100).toFixed(2)})
-              </span>
-            ) : (
-              "(N/A)"
-            )}
-          </h2>
-          <p className="text-gray-600">
-            Get immediate power when you need it. Enjoy fast access to energy.
-          </p>
-        </div>
-      </div>
-
-      {/* Yearly Power Option */}
-      <div
-        onClick={() => handleOptionClick("yearly")}
-        className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
-      >
-        <HiOutlineCalendar className="text-black text-4xl mr-6" />
-        <div>
-          <h2 className="text-2xl font-bold mb-2">
-            Yearly Power{" "}
-            {userLoading ? (
-              "Loading..."
-            ) : yearlyPower !== undefined ? (
-              <span className="text-lg font-normal text-gray-600">
-                (${((yearlyPower / 100) / 5).toFixed(2)} / per year)
-              </span>
-            ) : (
-              "(N/A)"
-            )}
-          </h2>
-          <p className="text-gray-600">
-            Secure your energy needs for the entire year with a convenient plan.
-          </p>
-        </div>
-      </div>
-
-      {/* Conditionally render Self Pay Option based on configuration and checkout amount */}
-      {!checkoutLoading && !checkoutError && isSelfPayEnabled && isWithinSelfPayTier && (
+        {/* Instantaneous */}
         <div
-          onClick={handleSelfPayClick}
+          onClick={() => handleOptionClick("instantaneous")}
           className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
         >
-          <FaCreditCard className="text-black text-4xl mr-6" />
+          <HiOutlineLightningBolt className="text-black text-4xl mr-6" />
           <div>
-            <h2 className="text-2xl font-bold mb-2">Self Pay</h2>
+            <h2 className="text-2xl font-bold mb-2">
+              Instantaneous Power{" "}
+              {userLoading ? (
+                "Loading..."
+              ) : instantaneousPower != null ? (
+                <span className="text-lg text-gray-600">${instantaneousPower}</span>
+              ) : (
+                "(N/A)"
+              )}
+            </h2>
             <p className="text-gray-600">
-              Pay using your own debit or credit cards or bank account.
+              Get immediate power when you need it. Enjoy fast access to energy.
             </p>
           </div>
         </div>
-      )}
 
-      <Toaster richColors position="top-right" />
-    </div>
+        {/* Yearly */}
+        <div
+          onClick={() => handleOptionClick("yearly")}
+          className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+        >
+          <HiOutlineCalendar className="text-black text-4xl mr-6" />
+          <div>
+            <h2 className="text-2xl font-bold mb-2">
+              Yearly Power{" "}
+              {userLoading ? (
+                "Loading..."
+              ) : yearlyPower != null ? (
+                <span className="text-lg text-gray-600">
+                  ${(yearlyPower / 5).toFixed(2)} / year
+                </span>
+              ) : (
+                "(N/A)"
+              )}
+            </h2>
+            <p className="text-gray-600">
+              Secure your energy needs for the entire year with a convenient plan.
+            </p>
+          </div>
+        </div>
+
+        {/* Self Pay */}
+        {!checkoutLoading && isSelfPayEnabled && isWithinSelfPayTier && (
+          <div
+            onClick={handleSelfPayClick}
+            className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+          >
+            <FaCreditCard className="text-black text-4xl mr-6" />
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Self Pay</h2>
+              <p className="text-gray-600">
+                Pay using your own debit or credit cards or bank account.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <Toaster richColors position="top-right" />
+      </div>
+    </ProtectedRoute>
   );
 };
 

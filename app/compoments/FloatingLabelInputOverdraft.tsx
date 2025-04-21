@@ -57,15 +57,15 @@ const FloatingLabelInputOverdraft: React.FC<FloatingLabelInputOverdraftProps> = 
   };
 
   return (
-    <div className={`flex flex-row items-center w-full ${className || ''}`}>
+    <div className={`flex flex-row items-center w-full ${className || ""}`}>
       {/* Floating Label Input with integrated payment method selector */}
       <div
         className={`flex flex-row items-center flex-1 border ${
           error ? "border-red-500" : "border-gray-300"
-        } rounded-lg shadow-md `}
+        } rounded-lg shadow-md`}
       >
         {/* Input Container */}
-        <div className="relative flex-1 border-r  rounded-l-lg p-2">
+        <div className="relative flex-1 border-r rounded-l-lg p-2">
           <label
             className={`absolute left-2 transition-all duration-300 pointer-events-none ${
               labelActive

@@ -1,38 +1,32 @@
+// app/routes/SplitAmountUserCustomization.tsx
+
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { Toaster, toast } from "sonner";
 import { IoIosArrowBack } from "react-icons/io";
 import { motion, AnimatePresence } from "framer-motion";
+import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
+import { useUserDetails } from "~/hooks/useUserDetails";
+import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import FloatingLabelInputOverdraft from "~/compoments/FloatingLabelInputOverdraft";
 import FloatingLabelInputWithInstant from "~/compoments/FloatingLabelInputWithInstant";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
-import ProtectedRoute from "~/compoments/ProtectedRoute";
-import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
-import { useUserDetails } from "~/hooks/useUserDetails";
-import { useSession } from "~/context/SessionContext";
-import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
-// Removed direct checkout import as direct supercharge payment is no longer used.
-// import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 
-// Reuse the same User and SplitData types
 export interface User {
   id: string;
   username: string;
   logo: string;
   isCurrentUser?: boolean;
 }
-
 export interface SplitEntry {
   userId: string;
   amount: string;
 }
-
 export interface SplitData {
-  type: string; // e.g., "split"
+  type: string;
   userAmounts: SplitEntry[];
 }
 
-// Extend LocationState to include selectedDiscounts
 interface LocationState {
   splitData: SplitData;
   users: User[];
@@ -41,237 +35,163 @@ interface LocationState {
 }
 
 interface SuperchargeDetail {
-  amount: number; // amount in cents as number
+  amount: string;       // dollars as string
   paymentMethodId: string;
 }
 
 const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  // Cast location.state to our expected shape
+  const { splitData, users, type = "split", selectedDiscounts = [] } =
+    (location.state as LocationState) ?? {};
 
-  // Extract splitData, users, type, and selectedDiscounts from location.state
-  const state = location.state as LocationState;
-  const { splitData, users, type, selectedDiscounts } =
-    state || { splitData: null, users: [], type: "split", selectedDiscounts: [] };
-
-  console.log("splitData", splitData);
-  if (!splitData || !users || users.length === 0) {
+  if (!splitData || users.length === 0) {
     toast.error("No user split data provided.");
     navigate(-1);
     return null;
   }
 
-  const userAmountsArray = splitData.userAmounts;
-  console.log("userAmounts", userAmountsArray, "type:", type);
+  const userAmountsArray: SplitEntry[] = splitData.userAmounts;
+  const currentUserSplit: SplitEntry =
+    userAmountsArray.find((u: SplitEntry) =>
+      u.userId === users.find((x: User) => x.isCurrentUser)?.id
+    ) ?? userAmountsArray[0];
 
-  // Assume the first entry is for the current user
-  const currentUserSplit = userAmountsArray[0];
-
-  // Fetch current user details
-  const {
-    data: userData,
-    isLoading: isUserLoading,
-    isError: isUserError,
-    error: userError,
-  } = useUserDetails();
-
-  // Get checkout details if needed
+  const { data: userData, isLoading: isUserLoading } = useUserDetails();
   const checkoutToken =
-    typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
-  const {
-    data: checkoutData,
-    isLoading: checkoutLoading,
-    isError: isCheckoutError,
-    error: checkoutError,
-  } = useCheckoutDetail(checkoutToken);
+    typeof window !== "undefined"
+      ? sessionStorage.getItem("checkoutToken") || ""
+      : "";
+  useCheckoutDetail(checkoutToken); // just for loading
+  const { data: paymentData, isLoading: paymentLoading } =
+    usePaymentMethods();
 
-  // Get access token from Context
-  const { accessToken } = useSession();
-
-  // Fetch payment methods
-  const {
-    data: paymentData,
-    isLoading: paymentLoading,
-    isError: isPaymentError,
-    error: paymentError,
-  } = usePaymentMethods();
-
-  // Global payment method for the main payment (unchanged)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
-
-  // Payment amount state (for split customization)
-  const [paymentAmount, setPaymentAmount] = useState<string>("0.00");
-  // Optional additional supercharge fields
+  const [paymentAmount, setPaymentAmount] =
+    useState<string>(currentUserSplit.amount);
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
-  // Track payment method for each additional field
-  const [selectedFieldPaymentMethods, setSelectedFieldPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  // Active field index for modal payment selection
+  const [selectedFieldPaymentMethods, setSelectedFieldPaymentMethods] =
+    useState<(PaymentMethod | null)[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
-  // Removed isCompleting state as direct checkout is no longer used.
-  // const [isCompleting, setIsCompleting] = useState<boolean>(false);
 
-  // Determine if this is a yearly payment based on the type passed in location state
   const isYearly = type === "yearly";
-
-  // Based on payment type, set available power from user details (not used to prefill amount)
   const availablePower = isYearly
     ? userData?.data?.user?.yearlyPower
     : userData?.data?.user?.instantaneousPower;
 
-  // Set userTotalAmount from currentUserSplit
-  const [userTotalAmount, setUserTotalAmount] = useState<number>(0);
+  // initialize single card
   useEffect(() => {
-    if (currentUserSplit.amount) {
-      const amt = parseFloat(currentUserSplit.amount);
-      if (!isNaN(amt)) {
-        setUserTotalAmount(amt);
-      }
+    const cards =
+      paymentData?.data.data.filter((m) => m.type === "card") || [];
+    if (cards.length && !selectedPaymentMethod) {
+      setSelectedPaymentMethod(cards[0]);
     }
-  }, [currentUserSplit.amount]);
+  }, [paymentData]);
 
-  // Filter card payment methods
-  const cardPaymentMethods =
-    paymentData?.data.data.filter((method: PaymentMethod) => method.type === "card") || [];
-
-  // Set default global payment method if not selected
-  useEffect(() => {
-    if (cardPaymentMethods.length > 0 && !selectedPaymentMethod) {
-      setSelectedPaymentMethod(cardPaymentMethods[0]);
-    }
-  }, [cardPaymentMethods, selectedPaymentMethod]);
-
-  // When adding a new field, add a default payment method for that field
   const addField = () => {
-    setAdditionalFields([...additionalFields, "0.00"]);
-    const defaultMethod = cardPaymentMethods.length > 0 ? cardPaymentMethods[0] : null;
-    setSelectedFieldPaymentMethods([...selectedFieldPaymentMethods, defaultMethod]);
+    setAdditionalFields((prev) => [...prev, "0.00"]);
+    const defaultCard = paymentData?.data.data.find(
+      (m) => m.type === "card"
+    ) ?? null;
+    setSelectedFieldPaymentMethods((prev) => [...prev, defaultCard]);
   };
 
-  // Handle payment method selection for both the main payment and each additional field
-  const handleMethodSelect = useCallback((method: PaymentMethod) => {
-    // If modal opened for a specific field, update that field's payment method
-    if (activeFieldIndex !== null) {
-      setSelectedFieldPaymentMethods((prev) => {
-        const newMethods = [...prev];
-        newMethods[activeFieldIndex] = method;
-        return newMethods;
-      });
-    } else {
-      // Otherwise update the global payment method
-      setSelectedPaymentMethod(method);
-    }
-    closeModal();
-  }, [activeFieldIndex]);
+  const handleMethodSelect = useCallback(
+    (method: PaymentMethod) => {
+      if (activeFieldIndex !== null) {
+        setSelectedFieldPaymentMethods((prev) => {
+          const next = [...prev];
+          next[activeFieldIndex] = method;
+          return next;
+        });
+      } else {
+        setSelectedPaymentMethod(method);
+      }
+      setIsModalOpen(false);
+    },
+    [activeFieldIndex]
+  );
 
-  // Calculate the total amount from the main payment amount and additional supercharge fields
-  const calculateTotalAmount = () => {
-    const superchargeTotal = additionalFields.reduce(
-      (acc, field) => acc + parseFloat(field || "0"),
-      0
-    );
-    const payment = parseFloat(paymentAmount || "0");
-    return payment + superchargeTotal;
-  };
-
-  const totalAmount = calculateTotalAmount();
-
-  // Handle changes in the main payment amount field
   const handlePaymentAmountChange = (value: string) => {
-    const regex = /^\d+(\.\d{0,2})?$/;
-    if (regex.test(value) || value === "") {
+    if (/^\d+(\.\d{0,2})?$/.test(value) || value === "") {
       setPaymentAmount(value);
     }
   };
-
-  // Helper: Convert dollars to cents as a number
-  const paymentAmountParsedToCents = (amount: string): number => {
-    const parsed = parseFloat(amount);
-    if (isNaN(parsed) || parsed < 0) return 0;
-    return Math.round(parsed * 100);
-  };
-
-  // Modified handleFlex: Always require an instant payment amount > 0 and always navigate to the split plans page.
-  const handleFlex = () => {
-    const total = calculateTotalAmount();
-    if (Math.abs(total - userTotalAmount) > 0.01) {
-      toast.error(
-        `Total amount must equal your total amount of $${userTotalAmount.toFixed(2)}.`
-      );
-      return;
-    }
-    const paymentParsed = parseFloat(paymentAmount) || 0;
-    if (paymentParsed <= 0) {
-      toast.error("Instant Payment Amount is required and must be greater than 0.");
-      return;
-    }
-    for (let i = 0; i < additionalFields.length; i++) {
-      const fieldAmount = parseFloat(additionalFields[i] || "0");
-      if (isNaN(fieldAmount) || fieldAmount < 0) {
-        toast.error(`Supercharge Amount ${i + 1} is invalid.`);
-        return;
-      }
-    }
-    // Use the selectedDiscounts from location state or fallback to an empty array.
-    const discountIds = selectedDiscounts || [];
-    console.log("discounts", discountIds);
-
-    // Always navigate to the split plans page with parameters.
-    const superchargeDetailsPayload: SuperchargeDetail[] = additionalFields
-      .map((field, index) => ({
-        amount: paymentAmountParsedToCents(field),
-        paymentMethodId: selectedFieldPaymentMethods[index]?.id || "",
-      }))
-      .filter((detail) => detail.amount !== 0 && detail.paymentMethodId);
-    const amountKey = isYearly ? "yearlyPowerAmount" : "instantPowerAmount";
-    const paramsObj: Record<string, string> = {
-      [amountKey]: paymentAmount,
-      superchargeDetails: JSON.stringify(superchargeDetailsPayload),
-      otherUserAmounts: JSON.stringify(userAmountsArray),
-      paymentMethodId: selectedPaymentMethod?.id || "",
-      discountIds: JSON.stringify(discountIds),
-    };
-    const params = new URLSearchParams(paramsObj).toString();
-    console.log("params", { params });
-    if (isYearly) {
-      navigate(`/yearly-payment-plan?${params}`);
-    } else {
-      navigate(`/plans?${params}`);
-    }
-  };
-
-  // Update a specific Supercharge field
-  const updateField = (index: number, value: string) => {
-    const regex = /^\d+(\.\d{0,2})?$/;
-    if (regex.test(value) || value === "") {
+  const updateField = (idx: number, val: string) => {
+    if (/^\d+(\.\d{0,2})?$/.test(val) || val === "") {
       setAdditionalFields((prev) => {
-        const updated = [...prev];
-        updated[index] = value;
-        return updated;
+        const next = [...prev];
+        next[idx] = val;
+        return next;
       });
     }
   };
 
-  // Modal functions
-  const openModal = (index?: number) => {
-    if (index !== undefined) {
-      setActiveFieldIndex(index);
-    } else {
-      setActiveFieldIndex(null);
+  const calculateTotalAmount = () => {
+    const base = parseFloat(paymentAmount) || 0;
+    const extra = additionalFields.reduce(
+      (sum, f) => sum + parseFloat(f || "0"),
+      0
+    );
+    return base + extra;
+  };
+  const totalAmount = calculateTotalAmount();
+
+  const handleFlex = () => {
+    if (
+      Math.abs(totalAmount - parseFloat(currentUserSplit.amount)) > 0.01
+    ) {
+      toast.error(
+        `Total must equal your split of $${parseFloat(
+          currentUserSplit.amount
+        ).toFixed(2)}.`
+      );
+      return;
     }
+    if (parseFloat(paymentAmount) <= 0) {
+      toast.error("Amount must be greater than 0.");
+      return;
+    }
+
+    const superchargeDetails: SuperchargeDetail[] = additionalFields
+      .map((amt, i) => ({
+        amount: amt,
+        paymentMethodId: selectedFieldPaymentMethods[i]?.id ?? "",
+      }))
+      .filter(
+        (d) => parseFloat(d.amount) > 0 && d.paymentMethodId
+      );
+
+    // navigate to /plans with correct paymentType
+    navigate("/plans", {
+      state: {
+        paymentType: type, // use incoming type
+        instantPowerAmount: paymentAmount,
+        superchargeDetails,
+        otherUserAmounts: userAmountsArray,
+        selectedDiscounts,
+        paymentMethodId: selectedPaymentMethod?.id,
+        users,
+        splitData,
+      },
+    });
+  };
+
+  const openModal = (idx?: number) => {
+    setActiveFieldIndex(idx ?? null);
     setIsModalOpen(true);
   };
   const closeModal = () => setIsModalOpen(false);
 
   useEffect(() => {
-    const handleEsc = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isModalOpen) closeModal();
-    };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
+    const onKey = (e: KeyboardEvent) =>
+      e.key === "Escape" && isModalOpen && closeModal();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
-
   useEffect(() => {
     document.body.style.overflow = isModalOpen ? "hidden" : "";
     return () => {
@@ -279,154 +199,111 @@ const SplitAmountUserCustomization: React.FC = () => {
     };
   }, [isModalOpen]);
 
-  const isLoading = isUserLoading || paymentLoading || checkoutLoading;
-  const isErrorState =
-    isUserError || isPaymentError || isCheckoutError || !userData?.data;
-
+  const isLoading = isUserLoading || paymentLoading;
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
-        <div className="loader"></div>
-      </div>
-    );
-  }
-  if (isErrorState) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-white">
-        <p className="text-red-500">
-          {userError?.message ||
-            paymentError?.message ||
-            checkoutError?.message ||
-            "Failed to load data."}
-        </p>
+        <div className="loader" />
       </div>
     );
   }
 
-  const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
+  const inputLabel = isYearly
+    ? "Yearly Power Amount"
+    : "Instant Power Amount";
 
   return (
     <div className="min-h-screen bg-white p-6">
-      <div className="max-w-xl mx-auto">
-        {/* Header Section */}
-        <header className="mb-6 flex items-center">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center text-gray-700 hover:text-gray-900"
-          >
-            <IoIosArrowBack className="mr-2" size={24} />
-            Back
-          </button>
-        </header>
+      <button
+        onClick={() => navigate(-1)}
+        className="flex items-center text-gray-700 hover:text-gray-900 mb-4"
+      >
+        <IoIosArrowBack size={20} className="mr-2" /> Back
+      </button>
 
-        {/* Header Text with current user's total amount */}
-        <h1 className="text-2xl font-bold mb-4">
-          Customize Your Amount: ${currentUserSplit.amount}
-        </h1>
+      <h1 className="text-2xl font-bold mb-4">
+        Your split: ${parseFloat(currentUserSplit.amount).toFixed(2)}
+      </h1>
 
-        {/* Payment Amount Input */}
-        <FloatingLabelInputWithInstant
-          label={inputLabel}
-          value={paymentAmount}
-          onChangeText={handlePaymentAmountChange}
-          instantPower={availablePower}
-          powerType={isYearly ? "yearly" : "instantaneous"}
-        />
+      <FloatingLabelInputWithInstant
+        label={inputLabel}
+        value={paymentAmount}
+        onChangeText={handlePaymentAmountChange}
+        instantPower={availablePower}
+        powerType={isYearly ? "yearly" : "instantaneous"}
+      />
 
-        {/* Spacer */}
-        <div className="mt-4"></div>
-
-        {/* Optional Additional Supercharge Fields */}
-        {additionalFields.map((field, index) => (
-          <div key={index} className="mb-4">
-            <FloatingLabelInputOverdraft
-              label={`Supercharge Amount ${index + 1}`}
-              value={field}
-              onChangeText={(value) => updateField(index, value)}
-              selectedMethod={selectedFieldPaymentMethods[index]}
-              onPaymentMethodPress={() => openModal(index)}
-            />
-          </div>
-        ))}
-
-        {/* Buttons */}
-        <div className="flex space-x-4 mb-4 mt-6">
-          <button
-            onClick={addField}
-            className="flex-1 bg-white border border-gray-300 text-black text-base font-bold py-2 px-4 rounded-lg hover:bg-gray-50 transition"
-          >
-            Supercharge
-          </button>
-          <button
-            onClick={handleFlex}
-            className={`flex-1 bg-black text-white py-4 px-4 rounded-lg text-base font-bold hover:bg-gray-800 transition ${
-              totalAmount === userTotalAmount ? "" : "opacity-50 cursor-not-allowed"
-            }`}
-            disabled={totalAmount !== userTotalAmount}
-          >
-            Flex your payments
-          </button>
+      {additionalFields.map((f, i) => (
+        <div key={i} className="mt-4">
+          <FloatingLabelInputOverdraft
+            label={`Supercharge ${i + 1}`}
+            value={f}
+            onChangeText={(v) => updateField(i, v)}
+            selectedMethod={selectedFieldPaymentMethods[i]}
+            onPaymentMethodPress={() => openModal(i)}
+          />
         </div>
+      ))}
 
-        {/* Payment Method Modal */}
-        <AnimatePresence>
-          {isModalOpen && (
-            <>
-              <motion.div
-                className="fixed inset-0 bg-black bg-opacity-50 z-40"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                onClick={closeModal}
-              ></motion.div>
-              <motion.div
-                className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
-                initial={{ y: "100%", opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: "100%", opacity: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <motion.div
-                  className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-3/4 overflow-y-auto"
-                  initial={{ y: "100%", opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: "100%", opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex justify-end p-4">
-                    <button
-                      onClick={() => navigate("/payment-settings")}
-                      className="bg-black text-white font-bold py-2 px-4 rounded-lg"
-                    >
-                      Payment Settings
-                    </button>
-                  </div>
-                  <h2 className="text-xl font-semibold mb-4 px-4">
-                    Select Payment Method
-                  </h2>
-                  <div className="space-y-4 px-4 pb-4">
-                    {cardPaymentMethods.map((method, index) => (
-                      <PaymentMethodItem
-                        key={method.id}
-                        method={method}
-                        selectedMethod={
-                          activeFieldIndex !== null
-                            ? selectedFieldPaymentMethods[activeFieldIndex]
-                            : selectedPaymentMethod
-                        }
-                        onSelect={handleMethodSelect}
-                        isLastItem={index === cardPaymentMethods.length - 1}
-                      />
-                    ))}
-                  </div>
-                </motion.div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
+      <div className="flex gap-4 mt-6">
+        <button
+          onClick={addField}
+          className="flex-1 border border-gray-300 py-2 font-bold rounded-lg hover:bg-gray-50"
+        >
+          Supercharge
+        </button>
+        <button
+          onClick={handleFlex}
+          className="flex-1 bg-black text-white py-2 font-bold rounded-lg hover:bg-gray-800 transition"
+        >
+          Flex your payments
+        </button>
       </div>
+
+      <AnimatePresence>
+        {isModalOpen && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 z-40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={closeModal}
+            />
+            <motion.div
+              className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end"
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+            >
+              <div className="w-full max-w-md bg-white rounded-t-lg shadow-lg max-h-[75vh] overflow-y-auto p-4">
+                <button
+                  onClick={() => navigate("/payment-settings")}
+                  className="mb-4 bg-black text-white px-4 py-2 rounded-lg"
+                >
+                  Payment Settings
+                </button>
+                {paymentData?.data.data
+                  .filter((m) => m.type === "card")
+                  .map((m, idx, arr) => (
+                    <PaymentMethodItem
+                      key={m.id}
+                      method={m}
+                      selectedMethod={
+                        activeFieldIndex != null
+                          ? selectedFieldPaymentMethods[activeFieldIndex]
+                          : selectedPaymentMethod
+                      }
+                      onSelect={handleMethodSelect}
+                      isLastItem={idx === arr.length - 1}
+                    />
+                  ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       <Toaster richColors position="top-right" />
     </div>
   );

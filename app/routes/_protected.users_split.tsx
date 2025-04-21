@@ -76,20 +76,18 @@ const MultipleUsersSendWeb: React.FC = () => {
   } = useCheckoutDetail(checkoutToken);
 
   // ------------------------------
-  // Conversion: convert cents to dollars
+  // Conversion: remove any /100 or *100
   // ------------------------------
-  // Assume checkoutData.checkout.totalAmount.amount is in cents (e.g. 100000)
-  // Convert it to dollars (e.g. 1000.00)
-  const rawCheckoutAmount = checkoutData
+  // Use the API amount directly
+  const checkoutTotalAmount = checkoutData
     ? parseFloat(checkoutData.checkout.totalAmount.amount)
     : 0;
-  const checkoutTotalAmount = rawCheckoutAmount / 100;
   const merchantId = checkoutData?.checkout.merchant.id;
 
   // ------------------------------
   // Discount functionality setup
   // ------------------------------
-  // Fetch available discounts (using checkoutTotalAmount in dollars)
+  // Fetch available discounts (using checkoutTotalAmount directly)
   const {
     data: discounts,
     isLoading: discountsLoading,
@@ -103,13 +101,12 @@ const MultipleUsersSendWeb: React.FC = () => {
   // State for selected discount (allow only one)
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
 
-  // Helper: Calculate discount value (in dollars)
+  // Helper: Calculate discount value without any /100
   const getDiscountValue = (discount: any): number => {
     if (discount.type === "PERCENTAGE_OFF" && discount.discountPercentage != null) {
       return checkoutTotalAmount * (discount.discountPercentage / 100);
     } else if (discount.discountAmount != null) {
-      // discount.discountAmount is in cents so convert to dollars
-      return discount.discountAmount / 100;
+      return discount.discountAmount;
     }
     return 0;
   };
@@ -143,7 +140,7 @@ const MultipleUsersSendWeb: React.FC = () => {
   // ------------------------------
   // State: array of user info
   const [users, setUsers] = useState<User[]>([]);
-  // State: final amounts (after split, in dollars formatted as a string)
+  // State: final amounts (in raw dollars as string)
   const [amounts, setAmounts] = useState<{ [key: string]: string }>({});
   // State: temporary amounts (when adjusting)
   const [tempAmounts, setTempAmounts] = useState<{ [key: string]: string }>({});
@@ -337,7 +334,7 @@ const MultipleUsersSendWeb: React.FC = () => {
   // ---------------------------
   // Handle final "Split" call
   // ---------------------------
-  const handleSplit = async () => {
+  const handleSplit = () => {
     const sumOfAmounts = Object.values(amounts).reduce(
       (sum, val) => sum + parseFloat(val),
       0
@@ -362,9 +359,10 @@ const MultipleUsersSendWeb: React.FC = () => {
       userAmounts,
     };
 
-    console.log("Data to send:", splitData, users);
     // Navigate to the Power Options page, passing split data, full users array, and the selected discounts list
-    navigate('/power-options', { state: { splitData, users, selectedDiscounts } });
+    navigate('/power-options', {
+      state: { splitData, users, selectedDiscounts }
+    });
   };
 
   // ------------------------------
@@ -456,7 +454,7 @@ const MultipleUsersSendWeb: React.FC = () => {
               <div className="flex-1">
                 <p className="text-xl pb-2 font-semibold">{user.username}</p>
                 <FloatingLabelInput
-                  label="Enter amount"
+                  label={inputLabel}
                   value={displayValue || ''}
                   onChangeText={(text) => {
                     if (isAdjusting) {
@@ -472,7 +470,7 @@ const MultipleUsersSendWeb: React.FC = () => {
         })}
       </div>
 
-      {/* Discounts Section (placed under the user list) */}
+      {/* Discounts Section */}
       {(discountsLoading || discountsError || (discounts && discounts.length > 0)) && (
         <div className="mt-6 mb-6">
           <h2 className="text-lg font-semibold mb-2">Available Discounts</h2>
@@ -483,7 +481,8 @@ const MultipleUsersSendWeb: React.FC = () => {
           ) : (
             <ul>
               {discounts!.map((discount: any) => {
-                const isOptionDisabled = checkoutTotalAmount * 100 - getDiscountValue(discount) * 100 < 0;
+                const isOptionDisabled =
+                  checkoutTotalAmount - getDiscountValue(discount) < 0;
                 return (
                   <li
                     key={discount.id}
@@ -512,7 +511,7 @@ const MultipleUsersSendWeb: React.FC = () => {
                           {discount.type === "PERCENTAGE_OFF"
                             ? `${discount.discountPercentage}% off`
                             : discount.discountAmount != null
-                            ? `$${(discount.discountAmount / 100).toFixed(2)} off`
+                            ? `$${discount.discountAmount.toFixed(2)} off`
                             : ""}
                         </p>
                         {discount.expiresAt && (

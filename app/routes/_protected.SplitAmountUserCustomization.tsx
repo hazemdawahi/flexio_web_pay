@@ -310,3 +310,69 @@ const SplitAmountUserCustomization: React.FC = () => {
 };
 
 export default SplitAmountUserCustomization;
+import axios from 'axios';
+import { useQuery } from '@tanstack/react-query';
+
+// ————————
+// Model the exact shape of your API response
+// ————————
+export interface ServiceBrand {
+  id: string;
+  displayName: string | null;
+  customerEmail: string | null;
+  displayLogo: string | null;
+  customerSupportPhone: string | null;
+  coverPhoto: string | null;
+  category: string;
+  shortDescription: string | null;
+  facebookUrl: string | null;
+  instagramUrl: string | null;
+  tiktokUrl: string | null;
+  qrCode: string; // base64‑encoded PNG
+}
+
+export interface ServiceBrandResponse {
+  success: boolean;
+  data: ServiceBrand | null;
+  error: string | null;
+}
+
+// ————————
+// Fetcher: GET current merchant’s Service‑Brand
+// ————————
+async function fetchServiceBrand(): Promise<ServiceBrandResponse> {
+  const token = localStorage.getItem('accessToken');
+  if (!token) {
+    throw new Error('No access token found');
+  }
+
+  try {
+    const { data } = await axios.get<ServiceBrandResponse>(
+      'https://api.example.com/api/service-brands/merchant',
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+      }
+    );
+    return data;
+  } catch (error: any) {
+    if (error.response) {
+      const msg = error.response.data?.error ?? 'Failed to fetch service brand';
+      throw new Error(`Error: ${msg}`);
+    }
+    throw new Error('An error occurred while fetching service brand');
+  }
+}
+
+// ————————
+// React‑Query hook
+// ————————
+export function useServiceBrandData(enabled: boolean = true) {
+  return useQuery<ServiceBrandResponse, Error>({
+    queryKey: ['serviceBrandData'],
+    queryFn: fetchServiceBrand,
+    enabled,
+  });
+}

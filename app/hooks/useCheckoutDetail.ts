@@ -1,9 +1,10 @@
 // src/hooks/useCheckoutDetail.ts
+
 import { useQuery } from '@tanstack/react-query';
 
 export interface Amount {
   id: string;
-  amount: string; // The API returns the amount as a string (e.g., "10000")
+  amount: string; // The API returns the amount as a string (e.g., "10000" or "1000.00")
   currency: string;
   hibernateLazyInitializer?: Record<string, unknown>;
 }
@@ -16,8 +17,15 @@ export interface Brand {
   customerSupportPhone: string;
   coverPhoto: string;
   category: string;
-  returnPolicyUrl: string;
-  refundPolicyUrl: string;
+  // Merchant‐brand specific URLs (may be absent on a service brand)
+  returnPolicyUrl?: string;
+  refundPolicyUrl?: string;
+  // Service‐brand specific fields (may be absent on a merchant brand)
+  shortDescription?: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
+  tiktokUrl?: string;
+  qrCode?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,7 +44,9 @@ export interface Merchant {
   detailsSubmitted: boolean;
   requirementDeadline: string | null;
   verifiedDate: string | null;
-  brand: Brand;
+  // A merchant may have either a merchant‐brand or a service‐brand (or neither)
+  brand?: Brand | null;
+  serviceBrand?: Brand | null;
   hibernateLazyInitializer?: Record<string, unknown>;
 }
 
@@ -80,14 +90,19 @@ export interface Configuration {
   selfPayTiers: SelfPayTier[];
 }
 
-// Updated response interface returning checkout and configuration
+// Updated response interface returning checkout, configuration, and top‐level brand/serviceBrand
 export interface CheckoutDetailResponse {
   checkout: CheckoutDetail;
   configuration: Configuration;
+  brand: Brand | null;
+  serviceBrand: Brand | null;
 }
 
 // Fetch checkout details by token (using the token in the URL)
-async function fetchCheckoutDetail(checkoutToken: string, accessToken: string): Promise<CheckoutDetailResponse> {
+async function fetchCheckoutDetail(
+  checkoutToken: string,
+  accessToken: string
+): Promise<CheckoutDetailResponse> {
   const response = await fetch(
     `http://192.168.1.32:8080/api/checkout/details-by-token/${checkoutToken}`,
     {
@@ -111,7 +126,8 @@ async function fetchCheckoutDetail(checkoutToken: string, accessToken: string): 
 // Custom hook to fetch checkout detail using useQuery
 export function useCheckoutDetail(checkoutToken: string) {
   // Retrieve the access token from sessionStorage
-  const accessToken = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
+  const accessToken =
+    typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
 
   return useQuery<CheckoutDetailResponse, Error>({
     queryKey: ['checkoutDetail', checkoutToken],

@@ -3,12 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { IoIosArrowBack } from "react-icons/io";
-import ProtectedRoute from "~/compoments/ProtectedRoute";
-import Tabs from "~/compoments/tabs";
-import PaymentPlan from "~/routes/_protected.PaymentPlan";
-import SmartPaymentPlans from "~/routes/_protected.SmartPaymentPlans";
+import PaymentPlan from "./_protected.PaymentPlan";
+import SmartPaymentPlans from "./_protected.SmartPaymentPlans";
 import YearlyPaymentPlan from "./_protected.yearly-payment-plan";
 import SelfPayPaymentPlan from "./_protected.SelfPayPaymentPlan";
+import ProtectedRoute from "~/compoments/ProtectedRoute";
+import Tabs from "~/compoments/tabs";
 
 // A split entry for other users
 export interface SplitEntry {
@@ -16,7 +16,7 @@ export interface SplitEntry {
   amount: string; // dollars, e.g. "25.50"
 }
 
-// Supercharge per‑payment detail
+// Supercharge per-payment detail
 export interface SuperchargeDetail {
   amount: string;        // dollars, e.g. "10.00"
   paymentMethodId: string;
@@ -30,7 +30,7 @@ export interface PlansData {
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];  // discount IDs
   paymentMethodId?: string;
-  // only used for self‑pay:
+  // only used for self-pay:
   users?: { id: string; username: string; logo: string; isCurrentUser?: boolean }[];
   splitData?: { userAmounts: SplitEntry[] };
 }
@@ -41,13 +41,11 @@ const Plans: React.FC = () => {
   const location = useLocation();
 
   useEffect(() => {
-    // 1) Try React Router state
     if (location.state && Object.keys(location.state).length > 0) {
       setData(location.state as PlansData);
       return;
     }
 
-    // 2) Otherwise parse from URL
     const params = new URLSearchParams(location.search);
     const instantPowerAmount = params.get("instantPowerAmount") || "";
     const superchargeDetailsParam = params.get("superchargeDetails");
@@ -55,6 +53,8 @@ const Plans: React.FC = () => {
     const discountIdsParam = params.get("discountIds");
     const paymentType = (params.get("paymentType") as any) || "instantaneous";
     const paymentMethodId = params.get("paymentMethodId") || undefined;
+    const usersParam = params.get("users");
+    const splitDataParam = params.get("splitData");
 
     let superchargeDetails: SuperchargeDetail[] = [];
     if (superchargeDetailsParam) {
@@ -83,6 +83,24 @@ const Plans: React.FC = () => {
       }
     }
 
+    let users: PlansData["users"] = [];
+    if (usersParam) {
+      try {
+        users = JSON.parse(usersParam);
+      } catch {
+        console.error("Invalid users");
+      }
+    }
+
+    let splitData: PlansData["splitData"] | undefined;
+    if (splitDataParam) {
+      try {
+        splitData = JSON.parse(splitDataParam);
+      } catch {
+        console.error("Invalid splitData");
+      }
+    }
+
     setData({
       paymentType,
       instantPowerAmount,
@@ -90,6 +108,8 @@ const Plans: React.FC = () => {
       otherUserAmounts,
       selectedDiscounts,
       paymentMethodId,
+      users,
+      splitData,
     });
   }, [location]);
 
@@ -101,13 +121,11 @@ const Plans: React.FC = () => {
     );
   }
 
-  // determine label & content for the first tab
-  let firstLabel: string;
-  let firstContent: React.ReactNode;
+  // Determine the primary content based on paymentType
+  let primaryContent: React.ReactNode;
   switch (data.paymentType) {
     case "instantaneous":
-      firstLabel = "Payment Plan";
-      firstContent = (
+      primaryContent = (
         <PaymentPlan
           instantPowerAmount={data.instantPowerAmount}
           superchargeDetails={data.superchargeDetails}
@@ -119,8 +137,7 @@ const Plans: React.FC = () => {
       break;
 
     case "yearly":
-      firstLabel = "Yearly Plan";
-      firstContent = (
+      primaryContent = (
         <YearlyPaymentPlan
           yearlyPowerAmount={data.instantPowerAmount}
           superchargeDetails={data.superchargeDetails}
@@ -133,8 +150,7 @@ const Plans: React.FC = () => {
       break;
 
     case "selfpay":
-      firstLabel = "Self Pay";
-      firstContent = (
+      primaryContent = (
         <SelfPayPaymentPlan
           instantPowerAmount={data.instantPowerAmount}
           superchargeDetails={data.superchargeDetails}
@@ -148,26 +164,12 @@ const Plans: React.FC = () => {
       break;
 
     default:
-      firstLabel = "Payment";
-      firstContent = <p className="p-4 text-red-600">Invalid payment type: {data.paymentType}</p>;
+      primaryContent = (
+        <p className="p-4 text-red-600">
+          Invalid payment type: {data.paymentType}
+        </p>
+      );
   }
-
-  const tabs = [
-    { label: firstLabel, content: <div className="px-4">{firstContent}</div> },
-    {
-      label: "Smart Payment Plan",
-      content: (
-        <div className="px-4">
-          <SmartPaymentPlans
-            instantPowerAmount={data.instantPowerAmount}
-            superchargeDetails={data.superchargeDetails}
-            otherUserAmounts={data.otherUserAmounts}
-            selectedDiscounts={data.selectedDiscounts}
-          />
-        </div>
-      ),
-    },
-  ];
 
   return (
     <ProtectedRoute>
@@ -183,7 +185,32 @@ const Plans: React.FC = () => {
         </header>
 
         <div className="mt-4">
-          <Tabs tabs={tabs} />
+          {data.paymentType === "instantaneous" ? (
+            <Tabs
+              tabs={[
+                {
+                  label: "Payment Plan",
+                  content: <div className="px-4">{primaryContent}</div>,
+                },
+                {
+                  label: "Smart Payment Plan",
+                  content: (
+                    <div className="px-4">
+                      <SmartPaymentPlans
+                        instantPowerAmount={data.instantPowerAmount}
+                        superchargeDetails={data.superchargeDetails}
+                        otherUserAmounts={data.otherUserAmounts}
+                        selectedDiscounts={data.selectedDiscounts}
+                        paymentMethodId={data.paymentMethodId}
+                      />
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          ) : (
+            <div className="px-4">{primaryContent}</div>
+          )}
         </div>
       </div>
     </ProtectedRoute>

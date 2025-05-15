@@ -1,9 +1,17 @@
+// src/hooks/usePlaidTokens.ts
+
 import { useQuery } from '@tanstack/react-query';
 
-// Interface for Plaid Tokens Response
+// Interfaces for Plaid Tokens Response
+export interface PlaidTokensData {
+  hasPlaidLiabilityAccessToken: boolean;
+  hasPlaidUserToken: boolean;
+  hasRequiredTokens: boolean;
+}
+
 export interface PlaidTokensResponse {
   success: boolean;
-  data: boolean | null; // True if all tokens are present, false if missing, null on error
+  data: PlaidTokensData | null;  // now an object of flags, or null on error
   error: string | null;
 }
 
@@ -11,23 +19,27 @@ export interface PlaidTokensResponse {
 export async function fetchPlaidTokensStatus(): Promise<PlaidTokensResponse> {
   try {
     // Retrieve the token from sessionStorage
-    const token = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
+    const token =
+      typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
 
     if (!token) {
       throw new Error('No access token found');
     }
 
     // Call the API using the native fetch method
-    const response = await fetch('http://192.168.1.32:8080/api/user/has-required-plaid-tokens', {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`, // Passing the token in the Authorization header
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-        Expires: '0',
-      },
-    });
+    const response = await fetch(
+      'http://192.168.1.32:8080/api/user/has-required-plaid-tokens',
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+          Expires: '0',
+        },
+      }
+    );
 
     // Check if the response is OK
     if (!response.ok) {
@@ -35,9 +47,8 @@ export async function fetchPlaidTokensStatus(): Promise<PlaidTokensResponse> {
     }
 
     // Parse the JSON response
-    const data = await response.json();
-
-    return data as PlaidTokensResponse;
+    const json = await response.json();
+    return json as PlaidTokensResponse;
   } catch (error: any) {
     return {
       success: false,

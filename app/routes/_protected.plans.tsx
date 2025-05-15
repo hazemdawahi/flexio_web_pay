@@ -121,55 +121,52 @@ const Plans: React.FC = () => {
     );
   }
 
-  // Determine the primary content based on paymentType
-  let primaryContent: React.ReactNode;
-  switch (data.paymentType) {
-    case "instantaneous":
-      primaryContent = (
-        <PaymentPlan
-          instantPowerAmount={data.instantPowerAmount}
-          superchargeDetails={data.superchargeDetails}
-          otherUserAmounts={data.otherUserAmounts}
-          selectedDiscounts={data.selectedDiscounts}
-          paymentMethodId={data.paymentMethodId}
-        />
-      );
-      break;
+  const renderPrimaryContent = () => {
+    switch (data.paymentType) {
+      case "instantaneous":
+        return (
+          <PaymentPlan
+            instantPowerAmount={data.instantPowerAmount}
+            superchargeDetails={data.superchargeDetails}
+            otherUserAmounts={data.otherUserAmounts}
+            selectedDiscounts={data.selectedDiscounts}
+            paymentMethodId={data.paymentMethodId}
+          />
+        );
 
-    case "yearly":
-      primaryContent = (
-        <YearlyPaymentPlan
-          yearlyPowerAmount={data.instantPowerAmount}
-          superchargeDetails={data.superchargeDetails}
-          otherUserAmounts={data.otherUserAmounts}
-          paymentMethodId={data.paymentMethodId}
-          selectedDiscounts={data.selectedDiscounts}
-          modeSplit={false}
-        />
-      );
-      break;
+      case "yearly":
+        return (
+          <YearlyPaymentPlan
+            yearlyPowerAmount={data.instantPowerAmount}
+            superchargeDetails={data.superchargeDetails}
+            otherUserAmounts={data.otherUserAmounts}
+            paymentMethodId={data.paymentMethodId}
+            selectedDiscounts={data.selectedDiscounts}
+            modeSplit={false}
+          />
+        );
 
-    case "selfpay":
-      primaryContent = (
-        <SelfPayPaymentPlan
-          instantPowerAmount={data.instantPowerAmount}
-          superchargeDetails={data.superchargeDetails}
-          paymentMethodId={data.paymentMethodId!}
-          otherUserAmounts={data.otherUserAmounts}
-          selectedDiscounts={data.selectedDiscounts}
-          users={data.users || []}
-          splitData={data.splitData}
-        />
-      );
-      break;
+      case "selfpay":
+        return (
+          <SelfPayPaymentPlan
+            instantPowerAmount={data.instantPowerAmount}
+            superchargeDetails={data.superchargeDetails}
+            paymentMethodId={data.paymentMethodId!}
+            otherUserAmounts={data.otherUserAmounts}
+            selectedDiscounts={data.selectedDiscounts}
+            users={data.users || []}
+            splitData={data.splitData}
+          />
+        );
 
-    default:
-      primaryContent = (
-        <p className="p-4 text-red-600">
-          Invalid payment type: {data.paymentType}
-        </p>
-      );
-  }
+      default:
+        return (
+          <p className="p-4 text-red-600">
+            Invalid payment type: {data.paymentType}
+          </p>
+        );
+    }
+  };
 
   return (
     <ProtectedRoute>
@@ -184,13 +181,18 @@ const Plans: React.FC = () => {
           </button>
         </header>
 
-        <div className="mt-4">
-          {data.paymentType === "instantaneous" ? (
+        <div className="mt-4 px-4">
+          {data.paymentType === "selfpay" ? (
+            renderPrimaryContent()
+          ) : (
             <Tabs
               tabs={[
                 {
-                  label: "Payment Plan",
-                  content: <div className="px-4">{primaryContent}</div>,
+                  label:
+                    data.paymentType === "instantaneous"
+                      ? "Payment Plan"
+                      : "Yearly Plan",
+                  content: <div className="px-4">{renderPrimaryContent()}</div>,
                 },
                 {
                   label: "Smart Payment Plan",
@@ -208,8 +210,6 @@ const Plans: React.FC = () => {
                 },
               ]}
             />
-          ) : (
-            <div className="px-4">{primaryContent}</div>
           )}
         </div>
       </div>

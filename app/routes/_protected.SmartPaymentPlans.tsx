@@ -1,8 +1,14 @@
 // src/routes/_protected.SmartPaymentPlans.tsx
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { toast, Toaster } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { usePlaidTokensStatus } from "~/hooks/usePlaidTokens";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -13,10 +19,16 @@ import {
   LiabilityEvent as HookLiabilityEvent,
   PlanEvent as HookPlanEvent,
 } from "~/hooks/useFinancialCalendarPlan";
+import {
+  usePaymentMethods,
+  PaymentMethod,
+} from "~/hooks/usePaymentMethods";
 import CustomCalendar from "~/compoments/CustomCalendar";
 import FlipCard from "~/compoments/FlipCard";
 import FlippedContent from "~/compoments/FlippedContent";
 import PaymentCircle from "~/compoments/PaymentCircle";
+import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
+import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 
 interface SuperchargeDetail {
   amount: string;
@@ -71,7 +83,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     }, 0);
   }, [superchargeDetails]);
 
-  // only instantaneous amount drives the SmartPay plan, just like in PaymentPlan.tsx
+  // only instantaneous amount drives the SmartPay plan
   const purchaseAmount = displayedInstant;
 
   // fetch plan & calendar
@@ -94,9 +106,10 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     isLoading: plaidLoading,
     isError: plaidError,
   } = usePlaidTokensStatus();
-  const hasRequiredPlaid = plaidTokensStatus?.data?.hasRequiredTokens === true;
+  const hasRequiredPlaid =
+    plaidTokensStatus?.data?.hasRequiredTokens === true;
 
-  // user details
+  // user details & Smart Pay toggle
   const {
     data: userRes,
     isLoading: userLoading,
@@ -104,13 +117,38 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   } = useUserDetails();
   const smartPayEnabled = userRes?.data?.user.smartPay === true;
 
-  // flip‐card rotation
+  // payment methods
+  const {
+    data: pmData,
+    status: pmStatus,
+  } = usePaymentMethods();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState<PaymentMethod | null>(null);
+
+  // pick default on load
+  useEffect(() => {
+    const cards = pmData?.data?.data ?? [];
+    if (!cards.length || selectedPaymentMethod) return;
+    const firstCard =
+      cards.find((m) => m.type === "card") ?? null;
+    if (paymentMethodId) {
+      const found =
+        cards.find((m) => m.id === paymentMethodId) ??
+        firstCard;
+      setSelectedPaymentMethod(found);
+    } else {
+      setSelectedPaymentMethod(firstCard);
+    }
+  }, [pmData, paymentMethodId, selectedPaymentMethod]);
+
+  // flip-card rotation
   const [rotation, setRotation] = useState(0);
   const handleToggle = useCallback(() => {
     setRotation((r) => (r === 0 ? 180 : 0));
   }, []);
 
-  // selected‐date details
+  // selected-date details
   const [selectedDetails, setSelectedDetails] =
     useState<DateDetails | null>(null);
 
@@ -121,16 +159,22 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     const iso = `${y}-${m}-${d}`;
 
     const splitRaw =
-      calendarPlanData?.splitPayments.filter((p) => p.date === iso) ?? [];
+      calendarPlanData?.splitPayments.filter(
+        (p) => p.date === iso
+      ) ?? [];
     const splitPayments = splitRaw.map((p) => ({
       dueDate: p.date,
       amount: p.amount,
     }));
 
     const incomeEvents =
-      calendarPlanData?.incomeEvents.filter((e) => e.date === iso) ?? [];
+      calendarPlanData?.incomeEvents.filter(
+        (e) => e.date === iso
+      ) ?? [];
     const liabilityEvents =
-      calendarPlanData?.liabilityEvents.filter((l) => l.date === iso) ?? [];
+      calendarPlanData?.liabilityEvents.filter(
+        (l) => l.date === iso
+      ) ?? [];
 
     const planRaw =
       calendarPlanData?.planEvents.filter(
@@ -163,24 +207,40 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     handleToggle();
   };
 
-  // one‐time error toasts
+  // one-time error toasts
   useEffect(() => {
     if (planError && planErrorObj) {
       toast.error(`Plan error: ${planErrorObj.message}`);
     }
     if (planCalendarError && planCalendarErrorObj) {
-      toast.error(`Calendar error: ${planCalendarErrorObj.message}`);
+      toast.error(
+        `Calendar error: ${planCalendarErrorObj.message}`
+      );
     }
-  }, [planError, planErrorObj, planCalendarError, planCalendarErrorObj]);
+  }, [
+    planError,
+    planErrorObj,
+    planCalendarError,
+    planCalendarErrorObj,
+  ]);
 
-  // only non‐zero cycles
+  // only non-zero cycles
   const nonZeroCycles: Cycle[] =
-    planData?.cycles.filter((c) => c.allocatedPayment !== 0) ?? [];
+    planData?.cycles.filter(
+      (c) => c.allocatedPayment !== 0
+    ) ?? [];
 
   // proceed URL
   const handleProceed = () => {
+    if (!selectedPaymentMethod) {
+      toast.error("Please select a payment method.");
+      return;
+    }
     const params = new URLSearchParams(search);
-    params.set("instantPowerAmount", displayedInstant.toFixed(2));
+    params.set(
+      "instantPowerAmount",
+      displayedInstant.toFixed(2)
+    );
     params.set(
       "paymentPlan",
       JSON.stringify(
@@ -192,12 +252,22 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         }))
       )
     );
-    params.set("superchargeDetails", JSON.stringify(superchargeDetails));
-    params.set("otherUserAmounts", JSON.stringify(otherUserAmounts));
-    params.set("selectedDiscounts", JSON.stringify(selectedDiscounts));
-    if (paymentMethodId) {
-      params.set("paymentMethodId", paymentMethodId);
-    }
+    params.set(
+      "superchargeDetails",
+      JSON.stringify(superchargeDetails)
+    );
+    params.set(
+      "otherUserAmounts",
+      JSON.stringify(otherUserAmounts)
+    );
+    params.set(
+      "selectedDiscounts",
+      JSON.stringify(selectedDiscounts)
+    );
+    params.set(
+      "paymentMethodId",
+      selectedPaymentMethod.id
+    );
     navigate(`/payment_confirmation?${params.toString()}`);
   };
 
@@ -214,7 +284,8 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     return (
       <div className="flex items-center justify-center h-screen p-4">
         <p className="text-red-500 text-center">
-          Please connect your bank (Plaid) before using Smart Payment Plans.
+          Please connect your bank (Plaid) before using Smart
+          Payment Plans.
         </p>
       </div>
     );
@@ -259,7 +330,8 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
           <strong>Payments:</strong> {nonZeroCycles.length}
         </p>
         <p>
-          <strong>Total:</strong> ${purchaseAmount.toFixed(2)}
+          <strong>Total:</strong> $
+          {purchaseAmount.toFixed(2)}
         </p>
       </div>
 
@@ -271,7 +343,9 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
             <PaymentCircle
               key={c.cycleLabel}
               day={d.getDate()}
-              month={d.toLocaleString("default", { month: "short" })}
+              month={d.toLocaleString("default", {
+                month: "short",
+              })}
               percentage={c.percentage}
               amount={c.allocatedPayment.toFixed(2)}
             />
@@ -279,10 +353,10 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         })}
       </div>
 
-      {/* Flip‐card container */}
+      {/* Flip-card container */}
       <div
         className="w-full max-w-2xl mx-auto mb-6 border border-gray-300 rounded overflow-hidden"
-        style={{ height: "75vh" }}
+        style={{ height: "85vh" }}
       >
         <FlipCard
           rotation={rotation}
@@ -311,8 +385,29 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         />
       </div>
 
+      {/* Payment method selector */}
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold mb-3">
+          Payment method
+        </h2>
+        {pmStatus === "pending" ? (
+          <div className="flex justify-center">
+            <div className="loader h-16 w-16" />
+          </div>
+        ) : pmStatus === "error" ? (
+          <p className="text-red-500">
+            Error fetching methods
+          </p>
+        ) : (
+          <SelectedPaymentMethod
+            selectedMethod={selectedPaymentMethod}
+            onPress={() => setIsModalOpen(true)}
+          />
+        )}
+      </div>
+
       {/* Proceed button below calendar */}
-      <div className="flex justify-center mb-12 px-4">
+      <div className="flex justify-center mb-12 px-2">
         <button
           onClick={handleProceed}
           className="w-full bg-black text-white font-bold py-3 rounded hover:bg-gray-800"
@@ -320,6 +415,64 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
           Proceed to Confirmation
         </button>
       </div>
+
+      {/* Payment method modal */}
+      <AnimatePresence initial={false}>
+        {isModalOpen && (
+          <>
+            <motion.div
+              className="fixed inset-0 bg-black bg-opacity-50 z-40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsModalOpen(false)}
+            />
+            <motion.div
+              className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
+              initial={{ y: "100%", opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: "100%", opacity: 0 }}
+            >
+              <motion.div
+                className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-[75vh] overflow-y-auto"
+                initial={{ y: "100%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "100%" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex justify-between items-center p-4 border-b">
+                  <h3 className="font-bold">
+                    Select payment method
+                  </h3>
+                  <button
+                    onClick={() => navigate("/payment-settings")}
+                    className="bg-black text-white px-3 py-1 rounded"
+                  >
+                    Settings
+                  </button>
+                </div>
+                <div className="p-4 space-y-4">
+                  {pmData?.data?.data
+                    ?.filter((m) => m.type === "card")
+                    .map((method) => (
+                      <PaymentMethodItem
+                        key={method.id}
+                        method={method}
+                        selectedMethod={
+                          selectedPaymentMethod
+                        }
+                        onSelect={(m) => {
+                          setSelectedPaymentMethod(m);
+                          setIsModalOpen(false);
+                        }}
+                      />
+                    ))}
+                </div>
+              </motion.div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       <Toaster richColors />
     </div>

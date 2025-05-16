@@ -30,7 +30,7 @@ export interface User {
 // Define the shape of data to be passed to the Plans route
 export interface PlansData {
   paymentType: "instantaneous" | "yearly" | "selfpay";
-  instantPowerAmount: string; // in cents, as string
+  amount: string; // was instantPowerAmount, now generic amount
   superchargeDetails: { amount: string; paymentMethodId: string }[];
   paymentMethodId: string;
   otherUserAmounts: SplitEntry[];
@@ -126,10 +126,11 @@ const PowerOptionsContent: React.FC = () => {
    * Handle Self Pay click: go to /plans with paymentType "selfpay"
    */
   const handleSelfPayClick = () => {
+    const amountValue =
+      instantaneousPower != null ? instantaneousPower.toString() : "";
     const plansData: PlansData = {
       paymentType: "selfpay",
-      instantPowerAmount:
-        instantaneousPower != null ? instantaneousPower.toString() : "",
+      amount: amountValue,
       superchargeDetails: [],
       paymentMethodId: "",
       otherUserAmounts: splitData ? splitData.userAmounts : [],

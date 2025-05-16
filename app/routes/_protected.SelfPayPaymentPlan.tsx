@@ -41,8 +41,6 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     paymentMethodId: initialPaymentMethodId,
     otherUserAmounts = [],
     selectedDiscounts = [],
-    users = [],
-    splitData,
   } = {
     ...(state as Partial<PlansData>),
     ...props,
@@ -90,12 +88,15 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
   const { mutate: completeCheckout, status: checkoutStatus } = useCompleteCheckout();
 
   // Build plan request payload
-  const planRequest = useMemo(() => ({
-    frequency: paymentFrequency,
-    numberOfPayments: parseInt(numberOfPeriods, 10),
-    purchaseAmount: displayedCheckoutTotal,
-    startDate,
-  }), [paymentFrequency, numberOfPeriods, displayedCheckoutTotal, startDate]);
+  const planRequest = useMemo(
+    () => ({
+      frequency: paymentFrequency,
+      numberOfPayments: parseInt(numberOfPeriods, 10),
+      purchaseAmount: displayedCheckoutTotal,
+      startDate,
+    }),
+    [paymentFrequency, numberOfPeriods, displayedCheckoutTotal, startDate]
+  );
 
   // Pre-select a payment method (use initialPaymentMethodId if provided)
   useEffect(() => {
@@ -127,11 +128,12 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
   }, [calculatePlanError]);
 
   // Map calculated plan to displayable payments
-  const mockPayments: SplitPayment[] = calculatedPlan?.data?.splitPayments?.map((p) => ({
-    dueDate: p.dueDate,
-    amount: p.amount,
-    percentage: Number(((p.amount / displayedCheckoutTotal) * 100).toFixed(2)),
-  })) || [];
+  const mockPayments: SplitPayment[] =
+    calculatedPlan?.data?.splitPayments?.map((p) => ({
+      dueDate: p.dueDate,
+      amount: p.amount,
+      percentage: Number(((p.amount / displayedCheckoutTotal) * 100).toFixed(2)),
+    })) || [];
 
   const handleMethodSelect = useCallback((method: PaymentMethod) => {
     setSelectedPaymentMethod(method);
@@ -215,7 +217,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     }
     const maxDefault = paymentFrequency === "BIWEEKLY" ? 52 : 24;
     return Array.from({ length: maxDefault }, (_, i) => (
-      <option key={i+1} value={i+1}>{i+1}</option>
+      <option key={i + 1} value={i + 1}>{i + 1}</option>
     ));
   };
 
@@ -301,7 +303,10 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
 
           <div className="space-y-4 mb-5">
             <div>
-              <label htmlFor="numberOfPeriods" className="block mb-1 text-sm font-medium text-gray-700">
+              <label
+                htmlFor="numberOfPeriods"
+                className="block mb-1 text-sm font-medium text-gray-700"
+              >
                 Number of Periods
               </label>
               <select
@@ -314,7 +319,10 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
               </select>
             </div>
             <div>
-              <label htmlFor="paymentFrequency" className="block mb-1 text-sm font-medium text-gray-700">
+              <label
+                htmlFor="paymentFrequency"
+                className="block mb-1 text-sm font-medium text-gray-700"
+              >
                 Payment Frequency
               </label>
               <select
@@ -415,7 +423,9 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                     Payment Settings
                   </button>
                 </div>
-                <h2 className="px-4 mb-4 text-xl font-semibold">Select Payment Method</h2>
+                <h2 className="px-4 mb-4 text-xl font-semibold">
+                  Select Payment Method
+                </h2>
                 <div className="space-y-4 px-4 pb-4">
                   {paymentMethodsData?.data?.data
                     ?.filter((method) => method.type === "card")
@@ -427,7 +437,8 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                         onSelect={handleMethodSelect}
                         isLastItem={idx === arr.length - 1}
                       />
-                    ))}                </div>
+                    ))}
+                </div>
               </motion.div>
             </motion.div>
           </>

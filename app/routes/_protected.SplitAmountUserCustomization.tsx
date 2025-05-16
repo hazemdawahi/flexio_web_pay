@@ -39,10 +39,20 @@ interface SuperchargeDetail {
   paymentMethodId: string;
 }
 
+export interface PlansData {
+  paymentType: "instantaneous" | "yearly" | "selfpay";
+  amount: string;
+  superchargeDetails: SuperchargeDetail[];
+  otherUserAmounts: SplitEntry[];
+  selectedDiscounts: string[];
+  paymentMethodId?: string;
+  users?: User[];
+  splitData?: SplitData;
+}
+
 const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  // Cast location.state to our expected shape
   const { splitData, users, type = "split", selectedDiscounts = [] } =
     (location.state as LocationState) ?? {};
 
@@ -52,20 +62,22 @@ const SplitAmountUserCustomization: React.FC = () => {
     return null;
   }
 
+  // map "split" to "selfpay" for PlansData.paymentType
+  const planType: PlansData["paymentType"] =
+    type === "split" ? "selfpay" : (type as "instantaneous" | "yearly");
+
   const userAmountsArray: SplitEntry[] = splitData.userAmounts;
   const currentUserSplit: SplitEntry =
-    userAmountsArray.find((u: SplitEntry) =>
-      u.userId === users.find((x: User) => x.isCurrentUser)?.id
-    ) ?? userAmountsArray[0];
+    userAmountsArray.find((u) => u.userId === users.find((x) => x.isCurrentUser)?.id) ??
+    userAmountsArray[0];
 
   const { data: userData, isLoading: isUserLoading } = useUserDetails();
   const checkoutToken =
     typeof window !== "undefined"
       ? sessionStorage.getItem("checkoutToken") || ""
       : "";
-  useCheckoutDetail(checkoutToken); // just for loading
-  const { data: paymentData, isLoading: paymentLoading } =
-    usePaymentMethods();
+  useCheckoutDetail(checkoutToken);
+  const { data: paymentData, isLoading: paymentLoading } = usePaymentMethods();
 
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
@@ -77,15 +89,14 @@ const SplitAmountUserCustomization: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
 
-  const isYearly = type === "yearly";
+  const isYearly = planType === "yearly";
   const availablePower = isYearly
     ? userData?.data?.user?.yearlyPower
     : userData?.data?.user?.instantaneousPower;
 
-  // initialize single card
+  // pick default card
   useEffect(() => {
-    const cards =
-      paymentData?.data.data.filter((m) => m.type === "card") || [];
+    const cards = paymentData?.data.data.filter((m) => m.type === "card") || [];
     if (cards.length && !selectedPaymentMethod) {
       setSelectedPaymentMethod(cards[0]);
     }
@@ -93,9 +104,7 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   const addField = () => {
     setAdditionalFields((prev) => [...prev, "0.00"]);
-    const defaultCard = paymentData?.data.data.find(
-      (m) => m.type === "card"
-    ) ?? null;
+    const defaultCard = paymentData?.data.data.find((m) => m.type === "card") ?? null;
     setSelectedFieldPaymentMethods((prev) => [...prev, defaultCard]);
   };
 
@@ -132,22 +141,15 @@ const SplitAmountUserCustomization: React.FC = () => {
 
   const calculateTotalAmount = () => {
     const base = parseFloat(paymentAmount) || 0;
-    const extra = additionalFields.reduce(
-      (sum, f) => sum + parseFloat(f || "0"),
-      0
-    );
+    const extra = additionalFields.reduce((sum, f) => sum + parseFloat(f || "0"), 0);
     return base + extra;
   };
   const totalAmount = calculateTotalAmount();
 
   const handleFlex = () => {
-    if (
-      Math.abs(totalAmount - parseFloat(currentUserSplit.amount)) > 0.01
-    ) {
+    if (Math.abs(totalAmount - parseFloat(currentUserSplit.amount)) > 0.01) {
       toast.error(
-        `Total must equal your split of $${parseFloat(
-          currentUserSplit.amount
-        ).toFixed(2)}.`
+        `Total must equal your split of $${parseFloat(currentUserSplit.amount).toFixed(2)}.`
       );
       return;
     }
@@ -156,28 +158,25 @@ const SplitAmountUserCustomization: React.FC = () => {
       return;
     }
 
-    const superchargeDetails: SuperchargeDetail[] = additionalFields
+    const superchargeDetails = additionalFields
       .map((amt, i) => ({
         amount: amt,
         paymentMethodId: selectedFieldPaymentMethods[i]?.id ?? "",
       }))
-      .filter(
-        (d) => parseFloat(d.amount) > 0 && d.paymentMethodId
-      );
+      .filter((d) => parseFloat(d.amount) > 0 && d.paymentMethodId);
 
-    // navigate to /plans with correct paymentType
-    navigate("/plans", {
-      state: {
-        paymentType: type, // use incoming type
-        instantPowerAmount: paymentAmount,
-        superchargeDetails,
-        otherUserAmounts: userAmountsArray,
-        selectedDiscounts,
-        paymentMethodId: selectedPaymentMethod?.id,
-        users,
-        splitData,
-      },
-    });
+    const plansState: PlansData = {
+      paymentType: planType,
+      amount: paymentAmount,
+      superchargeDetails,
+      otherUserAmounts: userAmountsArray,
+      selectedDiscounts,
+      paymentMethodId: selectedPaymentMethod?.id ?? undefined,
+      users,
+      splitData,
+    };
+
+    navigate("/plans", { state: plansState });
   };
 
   const openModal = (idx?: number) => {
@@ -187,8 +186,7 @@ const SplitAmountUserCustomization: React.FC = () => {
   const closeModal = () => setIsModalOpen(false);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) =>
-      e.key === "Escape" && isModalOpen && closeModal();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && isModalOpen && closeModal();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
@@ -208,9 +206,7 @@ const SplitAmountUserCustomization: React.FC = () => {
     );
   }
 
-  const inputLabel = isYearly
-    ? "Yearly Power Amount"
-    : "Instant Power Amount";
+  const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
 
   return (
     <div className="min-h-screen bg-white p-6">
@@ -230,7 +226,7 @@ const SplitAmountUserCustomization: React.FC = () => {
         value={paymentAmount}
         onChangeText={handlePaymentAmountChange}
         instantPower={availablePower}
-        powerType={isYearly ? "yearly" : "instantaneous"}
+        powerType={planType === "yearly" ? "yearly" : "instantaneous"}
       />
 
       {additionalFields.map((f, i) => (
@@ -310,69 +306,3 @@ const SplitAmountUserCustomization: React.FC = () => {
 };
 
 export default SplitAmountUserCustomization;
-import axios from 'axios';
-import { useQuery } from '@tanstack/react-query';
-
-// ————————
-// Model the exact shape of your API response
-// ————————
-export interface ServiceBrand {
-  id: string;
-  displayName: string | null;
-  customerEmail: string | null;
-  displayLogo: string | null;
-  customerSupportPhone: string | null;
-  coverPhoto: string | null;
-  category: string;
-  shortDescription: string | null;
-  facebookUrl: string | null;
-  instagramUrl: string | null;
-  tiktokUrl: string | null;
-  qrCode: string; // base64‑encoded PNG
-}
-
-export interface ServiceBrandResponse {
-  success: boolean;
-  data: ServiceBrand | null;
-  error: string | null;
-}
-
-// ————————
-// Fetcher: GET current merchant’s Service‑Brand
-// ————————
-async function fetchServiceBrand(): Promise<ServiceBrandResponse> {
-  const token = localStorage.getItem('accessToken');
-  if (!token) {
-    throw new Error('No access token found');
-  }
-
-  try {
-    const { data } = await axios.get<ServiceBrandResponse>(
-      'https://api.example.com/api/service-brands/merchant',
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
-      }
-    );
-    return data;
-  } catch (error: any) {
-    if (error.response) {
-      const msg = error.response.data?.error ?? 'Failed to fetch service brand';
-      throw new Error(`Error: ${msg}`);
-    }
-    throw new Error('An error occurred while fetching service brand');
-  }
-}
-
-// ————————
-// React‑Query hook
-// ————————
-export function useServiceBrandData(enabled: boolean = true) {
-  return useQuery<ServiceBrandResponse, Error>({
-    queryKey: ['serviceBrandData'],
-    queryFn: fetchServiceBrand,
-    enabled,
-  });
-}

@@ -39,7 +39,8 @@ interface SplitEntry {
   amount: string;
 }
 interface SmartPaymentPlansProps {
-  instantPowerAmount: string;
+  instantPowerAmount?: string;
+  yearlyPowerAmount?: string;
   superchargeDetails: SuperchargeDetail[];
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];
@@ -62,6 +63,7 @@ interface DateDetails {
 
 const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   instantPowerAmount,
+  yearlyPowerAmount,
   superchargeDetails,
   otherUserAmounts,
   selectedDiscounts,
@@ -70,11 +72,12 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   const navigate = useNavigate();
   const { search } = useLocation();
 
-  // parse dollar amounts
-  const displayedInstant = useMemo(() => {
-    const n = parseFloat(instantPowerAmount);
+  // pick whichever amount is provided
+  const displayedAmount = useMemo(() => {
+    const raw = yearlyPowerAmount != null ? yearlyPowerAmount : instantPowerAmount ?? "0";
+    const n = parseFloat(raw);
     return isNaN(n) ? 0 : Number(n.toFixed(2));
-  }, [instantPowerAmount]);
+  }, [instantPowerAmount, yearlyPowerAmount]);
 
   const totalSupercharge = useMemo(() => {
     return superchargeDetails.reduce((sum, s) => {
@@ -83,10 +86,9 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     }, 0);
   }, [superchargeDetails]);
 
-  // only instantaneous amount drives the SmartPay plan
-  const purchaseAmount = displayedInstant;
+  // use displayedAmount for all plan/calendar calls
+  const purchaseAmount = displayedAmount;
 
-  // fetch plan & calendar
   const {
     data: planData,
     isLoading: planLoading,
@@ -100,7 +102,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     error: planCalendarErrorObj,
   } = useFinancialCalendarPlan(purchaseAmount);
 
-  // plaid tokens status
   const {
     data: plaidTokensStatus,
     isLoading: plaidLoading,
@@ -109,7 +110,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   const hasRequiredPlaid =
     plaidTokensStatus?.data?.hasRequiredTokens === true;
 
-  // user details & Smart Pay toggle
   const {
     data: userRes,
     isLoading: userLoading,
@@ -117,7 +117,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   } = useUserDetails();
   const smartPayEnabled = userRes?.data?.user.smartPay === true;
 
-  // payment methods
   const {
     data: pmData,
     status: pmStatus,
@@ -130,66 +129,51 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   useEffect(() => {
     const cards = pmData?.data?.data ?? [];
     if (!cards.length || selectedPaymentMethod) return;
-    const firstCard =
-      cards.find((m) => m.type === "card") ?? null;
+    const firstCard = cards.find((m) => m.type === "card") ?? null;
     if (paymentMethodId) {
-      const found =
-        cards.find((m) => m.id === paymentMethodId) ??
-        firstCard;
+      const found = cards.find((m) => m.id === paymentMethodId) ?? firstCard;
       setSelectedPaymentMethod(found);
     } else {
       setSelectedPaymentMethod(firstCard);
     }
   }, [pmData, paymentMethodId, selectedPaymentMethod]);
 
-  // flip-card rotation
   const [rotation, setRotation] = useState(0);
   const handleToggle = useCallback(() => {
     setRotation((r) => (r === 0 ? 180 : 0));
   }, []);
 
-  // selected-date details
   const [selectedDetails, setSelectedDetails] =
     useState<DateDetails | null>(null);
 
   const handleCalendarDateSelect = (date: Date) => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    const iso = `${y}-${m}-${d}`;
+    const y = date.getFullYear(),
+      m = String(date.getMonth() + 1).padStart(2, "0"),
+      d = String(date.getDate()).padStart(2, "0"),
+      iso = `${y}-${m}-${d}`;
 
     const splitRaw =
-      calendarPlanData?.splitPayments.filter(
-        (p) => p.date === iso
-      ) ?? [];
+      calendarPlanData?.splitPayments.filter((p) => p.date === iso) ?? [];
     const splitPayments = splitRaw.map((p) => ({
       dueDate: p.date,
       amount: p.amount,
     }));
 
     const incomeEvents =
-      calendarPlanData?.incomeEvents.filter(
-        (e) => e.date === iso
-      ) ?? [];
+      calendarPlanData?.incomeEvents.filter((e) => e.date === iso) ?? [];
     const liabilityEvents =
-      calendarPlanData?.liabilityEvents.filter(
-        (l) => l.date === iso
-      ) ?? [];
+      calendarPlanData?.liabilityEvents.filter((l) => l.date === iso) ?? [];
 
     const planRaw =
-      calendarPlanData?.planEvents.filter(
-        (evt) => evt.plannedPaymentDate === iso
-      ) ?? [];
+      calendarPlanData?.planEvents.filter((evt) => evt.plannedPaymentDate === iso) ?? [];
     const paymentPlanPayments = planRaw.map((evt) => ({
       dueDate: evt.plannedPaymentDate,
       amount: evt.allocatedPayment,
     }));
 
-    const avoidedRange = (
-      calendarPlanData?.avoidedDates ?? []
-    ).find((r) => {
-      const start = new Date(r.startDate);
-      const end = new Date(r.endDate);
+    const avoidedRange = (calendarPlanData?.avoidedDates ?? []).find((r) => {
+      const start = new Date(r.startDate),
+        end = new Date(r.endDate);
       return date >= start && date <= end;
     });
 
@@ -207,15 +191,12 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     handleToggle();
   };
 
-  // one-time error toasts
   useEffect(() => {
     if (planError && planErrorObj) {
       toast.error(`Plan error: ${planErrorObj.message}`);
     }
     if (planCalendarError && planCalendarErrorObj) {
-      toast.error(
-        `Calendar error: ${planCalendarErrorObj.message}`
-      );
+      toast.error(`Calendar error: ${planCalendarErrorObj.message}`);
     }
   }, [
     planError,
@@ -224,23 +205,23 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     planCalendarErrorObj,
   ]);
 
-  // only non-zero cycles
   const nonZeroCycles: Cycle[] =
-    planData?.cycles.filter(
-      (c) => c.allocatedPayment !== 0
-    ) ?? [];
+    planData?.cycles.filter((c) => c.allocatedPayment !== 0) ?? [];
 
-  // proceed URL
   const handleProceed = () => {
     if (!selectedPaymentMethod) {
       toast.error("Please select a payment method.");
       return;
     }
     const params = new URLSearchParams(search);
-    params.set(
-      "instantPowerAmount",
-      displayedInstant.toFixed(2)
-    );
+
+    // set only the one that was provided
+    if (yearlyPowerAmount != null) {
+      params.set("yearlyPowerAmount", displayedAmount.toFixed(2));
+    } else {
+      params.set("instantPowerAmount", displayedAmount.toFixed(2));
+    }
+
     params.set(
       "paymentPlan",
       JSON.stringify(
@@ -252,22 +233,11 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
         }))
       )
     );
-    params.set(
-      "superchargeDetails",
-      JSON.stringify(superchargeDetails)
-    );
-    params.set(
-      "otherUserAmounts",
-      JSON.stringify(otherUserAmounts)
-    );
-    params.set(
-      "selectedDiscounts",
-      JSON.stringify(selectedDiscounts)
-    );
-    params.set(
-      "paymentMethodId",
-      selectedPaymentMethod.id
-    );
+    params.set("superchargeDetails", JSON.stringify(superchargeDetails));
+    params.set("otherUserAmounts", JSON.stringify(otherUserAmounts));
+    params.set("selectedDiscounts", JSON.stringify(selectedDiscounts));
+    params.set("paymentMethodId", selectedPaymentMethod.id);
+
     navigate(`/payment_confirmation?${params.toString()}`);
   };
 
@@ -330,8 +300,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
           <strong>Payments:</strong> {nonZeroCycles.length}
         </p>
         <p>
-          <strong>Total:</strong> $
-          {purchaseAmount.toFixed(2)}
+          <strong>Total:</strong> ${purchaseAmount.toFixed(2)}
         </p>
       </div>
 
@@ -435,9 +404,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
             >
               <motion.div
                 className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-[75vh] overflow-y-auto"
-                initial={{ y: "100%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "100%" }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center p-4 border-b">
@@ -458,9 +424,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        selectedMethod={
-                          selectedPaymentMethod
-                        }
+                        selectedMethod={selectedPaymentMethod}
                         onSelect={(m) => {
                           setSelectedPaymentMethod(m);
                           setIsModalOpen(false);

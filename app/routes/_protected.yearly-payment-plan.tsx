@@ -29,10 +29,11 @@ export interface YearlyPaymentPlanProps {
   otherUserAmounts: { userId: string; amount: string }[];
   paymentMethodId?: string;
   selectedDiscounts?: string[];
-  modeSplit: boolean;
 }
 
-const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (props) => {
+const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
+  props
+) => {
   const navigate = useNavigate();
   const { state } = useLocation();
 
@@ -43,7 +44,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (props) => 
     otherUserAmounts = [],
     paymentMethodId: passedMethodId,
     selectedDiscounts = [],
-    modeSplit = false,
   } = {
     ...(state as Partial<YearlyPaymentPlanProps>),
     ...props,
@@ -146,7 +146,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (props) => 
 
   const handleConfirm = () => {
     if (!selectedPaymentMethod || requestedFlex === 0) {
-      toast.error("Select a card and ensure amount > 0");
+      toast.error("Select a card and ensure amount > 0");
       return;
     }
     if (!checkoutToken) {
@@ -308,9 +308,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (props) => 
                       method={card}
                       selectedMethod={selectedPaymentMethod}
                       onSelect={handleMethodSelect}
-                      isLastItem={
-                        idx === paymentMethodsData.data.data.length - 1
-                      }
+                      isLastItem={idx === paymentMethodsData.data.data.length - 1}
                     />
                   ))}
               </div>

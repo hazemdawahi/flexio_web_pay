@@ -5,10 +5,10 @@ import { useNavigate, useLocation } from "@remix-run/react";
 import { IoIosArrowBack } from "react-icons/io";
 import PaymentPlan from "./_protected.PaymentPlan";
 import SmartPaymentPlans from "./_protected.SmartPaymentPlans";
-import YearlyPaymentPlan from "./_protected.yearly-payment-plan";
 import SelfPayPaymentPlan from "./_protected.SelfPayPaymentPlan";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import Tabs from "~/compoments/tabs";
+import YearlyPaymentPlan from "./_protected.yearly-payment-plan";
 
 // A split entry for other users
 export interface SplitEntry {
@@ -25,14 +25,11 @@ export interface SuperchargeDetail {
 // Payload coming in to this page
 export interface PlansData {
   paymentType: "instantaneous" | "yearly" | "selfpay";
-  instantPowerAmount: string;   // dollars, e.g. "100.00"
+  amount: string;               // dollars, e.g. "100.00"
   superchargeDetails: SuperchargeDetail[];
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];  // discount IDs
   paymentMethodId?: string;
-  // only used for self-pay:
-  users?: { id: string; username: string; logo: string; isCurrentUser?: boolean }[];
-  splitData?: { userAmounts: SplitEntry[] };
 }
 
 const Plans: React.FC = () => {
@@ -47,14 +44,13 @@ const Plans: React.FC = () => {
     }
 
     const params = new URLSearchParams(location.search);
-    const instantPowerAmount = params.get("instantPowerAmount") || "";
+    // now reading "amount" instead of "instantPowerAmount"
+    const amount = params.get("amount") || "";
     const superchargeDetailsParam = params.get("superchargeDetails");
     const otherUserAmountsParam = params.get("otherUserAmounts");
     const discountIdsParam = params.get("discountIds");
     const paymentType = (params.get("paymentType") as any) || "instantaneous";
     const paymentMethodId = params.get("paymentMethodId") || undefined;
-    const usersParam = params.get("users");
-    const splitDataParam = params.get("splitData");
 
     let superchargeDetails: SuperchargeDetail[] = [];
     if (superchargeDetailsParam) {
@@ -83,33 +79,13 @@ const Plans: React.FC = () => {
       }
     }
 
-    let users: PlansData["users"] = [];
-    if (usersParam) {
-      try {
-        users = JSON.parse(usersParam);
-      } catch {
-        console.error("Invalid users");
-      }
-    }
-
-    let splitData: PlansData["splitData"] | undefined;
-    if (splitDataParam) {
-      try {
-        splitData = JSON.parse(splitDataParam);
-      } catch {
-        console.error("Invalid splitData");
-      }
-    }
-
     setData({
       paymentType,
-      instantPowerAmount,
+      amount,
       superchargeDetails,
       otherUserAmounts,
       selectedDiscounts,
       paymentMethodId,
-      users,
-      splitData,
     });
   }, [location]);
 
@@ -121,48 +97,47 @@ const Plans: React.FC = () => {
     );
   }
 
+  const { paymentType, amount, superchargeDetails, otherUserAmounts, selectedDiscounts, paymentMethodId } = data;
+
   const renderPrimaryContent = () => {
-    switch (data.paymentType) {
+    switch (paymentType) {
       case "instantaneous":
         return (
           <PaymentPlan
-            instantPowerAmount={data.instantPowerAmount}
-            superchargeDetails={data.superchargeDetails}
-            otherUserAmounts={data.otherUserAmounts}
-            selectedDiscounts={data.selectedDiscounts}
-            paymentMethodId={data.paymentMethodId}
+            instantPowerAmount={amount}
+            superchargeDetails={superchargeDetails}
+            otherUserAmounts={otherUserAmounts}
+            selectedDiscounts={selectedDiscounts}
+            paymentMethodId={paymentMethodId}
           />
         );
 
       case "yearly":
         return (
           <YearlyPaymentPlan
-            yearlyPowerAmount={data.instantPowerAmount}
-            superchargeDetails={data.superchargeDetails}
-            otherUserAmounts={data.otherUserAmounts}
-            paymentMethodId={data.paymentMethodId}
-            selectedDiscounts={data.selectedDiscounts}
-            modeSplit={false}
+            yearlyPowerAmount={amount}
+            superchargeDetails={superchargeDetails}
+            otherUserAmounts={otherUserAmounts}
+            paymentMethodId={paymentMethodId}
+            selectedDiscounts={selectedDiscounts}
           />
         );
 
       case "selfpay":
         return (
           <SelfPayPaymentPlan
-            instantPowerAmount={data.instantPowerAmount}
-            superchargeDetails={data.superchargeDetails}
-            paymentMethodId={data.paymentMethodId!}
-            otherUserAmounts={data.otherUserAmounts}
-            selectedDiscounts={data.selectedDiscounts}
-            users={data.users || []}
-            splitData={data.splitData}
+            instantPowerAmount={amount}
+            superchargeDetails={superchargeDetails}
+            paymentMethodId={paymentMethodId!}
+            otherUserAmounts={otherUserAmounts}
+            selectedDiscounts={selectedDiscounts}
           />
         );
 
       default:
         return (
           <p className="p-4 text-red-600">
-            Invalid payment type: {data.paymentType}
+            Invalid payment type: {paymentType}
           </p>
         );
     }
@@ -182,16 +157,13 @@ const Plans: React.FC = () => {
         </header>
 
         <div className="mt-4 px-4">
-          {data.paymentType === "selfpay" ? (
+          {paymentType === "selfpay" ? (
             renderPrimaryContent()
           ) : (
             <Tabs
               tabs={[
                 {
-                  label:
-                    data.paymentType === "instantaneous"
-                      ? "Payment Plan"
-                      : "Yearly Plan",
+                  label: paymentType === "instantaneous" ? "Payment Plan" : "Yearly Plan",
                   content: <div className="px-4">{renderPrimaryContent()}</div>,
                 },
                 {
@@ -199,11 +171,12 @@ const Plans: React.FC = () => {
                   content: (
                     <div className="px-4">
                       <SmartPaymentPlans
-                        instantPowerAmount={data.instantPowerAmount}
-                        superchargeDetails={data.superchargeDetails}
-                        otherUserAmounts={data.otherUserAmounts}
-                        selectedDiscounts={data.selectedDiscounts}
-                        paymentMethodId={data.paymentMethodId}
+                        instantPowerAmount={paymentType === "instantaneous" ? amount : undefined}
+                        yearlyPowerAmount={paymentType === "yearly" ? amount : undefined}
+                        superchargeDetails={superchargeDetails}
+                        otherUserAmounts={otherUserAmounts}
+                        selectedDiscounts={selectedDiscounts}
+                        paymentMethodId={paymentMethodId}
                       />
                     </div>
                   ),

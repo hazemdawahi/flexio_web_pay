@@ -27,7 +27,7 @@ interface SuperchargeDetail {
 }
 interface PlansData {
   paymentType: "instantaneous" | "yearly" | "selfpay";
-  instantPowerAmount: string;
+  amount: string;               // renamed from instantPowerAmount
   superchargeDetails: SuperchargeDetail[];
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];
@@ -183,7 +183,7 @@ const MerchantShoppingContent: React.FC = () => {
   // build & navigate
   const navigateToPlansPage = () => {
     if (parseFloat(paymentAmount) <= 0) {
-      toast.error(`${isYearly ? "Yearly" : "Instant"} amount must be > 0.`);
+      toast.error(`${isYearly ? "Yearly" : "Instant"} amount must be > 0.`);
       return;
     }
 
@@ -194,9 +194,9 @@ const MerchantShoppingContent: React.FC = () => {
 
     const stateForPlans: PlansData = {
       paymentType,
-      instantPowerAmount: paymentAmount,
+      amount: paymentAmount,
       superchargeDetails,
-      otherUserAmounts: [], // no splits here
+      otherUserAmounts: [],
       selectedDiscounts,
       paymentMethodId: selectedPaymentMethod?.id ?? undefined,
     };
@@ -248,14 +248,17 @@ const MerchantShoppingContent: React.FC = () => {
             Flex all of ${effectiveCheckoutTotal.toFixed(2)}
           </h1>
 
-          <FloatingLabelInputWithInstant
-            label={inputLabel}
-            value={paymentAmount}
-            onChangeText={setPaymentAmount}
-            keyboardType="text"
-            instantPower={userData?.data?.user?.instantaneousPower}
-            powerType={isYearly ? "yearly" : "instantaneous"}
-          />
+          {/* Main power-amount input with bottom margin */}
+          <div className="mb-4">
+            <FloatingLabelInputWithInstant
+              label={inputLabel}
+              value={paymentAmount}
+              onChangeText={setPaymentAmount}
+              keyboardType="text"
+              instantPower={userData?.data?.user?.instantaneousPower}
+              powerType={isYearly ? "yearly" : "instantaneous"}
+            />
+          </div>
 
           {additionalFields.map((fld, i) => (
             <div key={i} className="mb-4">

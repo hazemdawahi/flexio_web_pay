@@ -1,10 +1,11 @@
 // app/routes/SelfPayPaymentPlan.tsx
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
 import { useCalculatePaymentPlan, SplitPayment } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
+import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 import { toast, Toaster } from "sonner";
 import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
@@ -19,8 +20,6 @@ export interface SplitEntry {
 }
 
 export interface PlansData {
-  instantPowerAmount: string;
-  superchargeDetails: { amount: string; paymentMethodId: string }[];
   paymentMethodId: string;
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];
@@ -33,72 +32,127 @@ type PaymentFrequency = "BIWEEKLY" | "MONTHLY";
 const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
   const navigate = useNavigate();
   const { state } = useLocation();
-
-  // merge props over state
   const {
-    instantPowerAmount,
-    superchargeDetails,
     paymentMethodId: initialPaymentMethodId,
     otherUserAmounts = [],
-    selectedDiscounts = [],
-  } = {
-    ...(state as Partial<PlansData>),
-    ...props,
-  } as PlansData;
+    selectedDiscounts: initialDiscounts = [],
+  } = { ...(state as Partial<PlansData>), ...props } as PlansData;
 
-  // Retrieve checkout token and details
+  // --- Checkout & User ---
   const checkoutToken =
     typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
-  const {
-    data: checkoutData,
-    isLoading: checkoutLoading,
-    error: checkoutError,
-  } = useCheckoutDetail(checkoutToken);
-
-  // Retrieve current user details
-  const {
-    data: userDetailsData,
-    isLoading: userLoading,
-    isError: userError,
-  } = useUserDetails();
+  const { data: checkoutData, isLoading: checkoutLoading, error: checkoutError } =
+    useCheckoutDetail(checkoutToken);
+  const { data: userDetailsData } = useUserDetails();
   const currentUserId = userDetailsData?.data?.user?.id;
 
-  // Determine the amount to use: split entry if exists, otherwise full checkout total
+  // --- Determine Base Amount ---
   const rawTotal = checkoutData?.checkout?.totalAmount.amount ?? "0.00";
   let usedAmountStr = rawTotal;
-  if (otherUserAmounts.length > 0 && currentUserId) {
+  if (otherUserAmounts.length && currentUserId) {
     const me = otherUserAmounts.find((e) => e.userId === currentUserId);
-    if (me?.amount) {
-      usedAmountStr = me.amount;
-    }
+    if (me?.amount) usedAmountStr = me.amount;
   }
   const displayedCheckoutTotal = parseFloat(usedAmountStr) || 0;
 
-  // Local state for plan configuration
-  const [numberOfPeriods, setNumberOfPeriods] = useState<string>("1");
-  const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("BIWEEKLY");
-  const [startDate, setStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
+  // --- Load & Manage Discounts ---
+  const merchantId = checkoutData?.checkout?.merchant?.id || "";
+  const {
+    data: discounts,
+    isLoading: discountsLoading,
+    error: discountsError,
+  } = useAvailableDiscounts(merchantId, displayedCheckoutTotal);
+  const availableDiscounts = discounts ?? [];
+  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>(initialDiscounts);
 
-  // Hooks for payment methods, plan calculation, and checkout
+  const getDiscountValue = (d: any): number => {
+    if (d.type === "PERCENTAGE_OFF" && d.discountPercentage != null) {
+      return displayedCheckoutTotal * (d.discountPercentage / 100);
+    } else if (d.discountAmount != null) {
+      return d.discountAmount;
+    }
+    return 0;
+  };
+
+  // Auto-pick best discount only once on initial load
+  const didAutoPick = useRef(false);
+  useEffect(() => {
+    if (!didAutoPick.current && availableDiscounts.length) {
+      const valid = availableDiscounts.filter(
+        (d) => displayedCheckoutTotal - getDiscountValue(d) >= 0
+      );
+      if (valid.length) {
+        const best = valid.reduce((a, b) =>
+          getDiscountValue(b) > getDiscountValue(a) ? b : a
+        );
+        setSelectedDiscounts([String(best.id)]);
+      }
+      didAutoPick.current = true;
+    }
+  }, [availableDiscounts, displayedCheckoutTotal]);
+
+  // Compute selected discount amount
+  const discountValue = useMemo(() => {
+    const id = selectedDiscounts[0];
+    const found = availableDiscounts.find((d) => String(d.id) === id);
+    return found ? getDiscountValue(found) : 0;
+  }, [selectedDiscounts, availableDiscounts]);
+
+  // Toggle discount selection on click
+  const handleDiscountChange = (id: string | number) => {
+    const sid = String(id);
+    setSelectedDiscounts((prev) => (prev.includes(sid) ? [] : [sid]));
+  };
+
+  // --- Discounted Total ---
+  const discountedTotal = Math.max(0, displayedCheckoutTotal - discountValue);
+
+  // --- Plan Configuration State ---
+  const [numberOfPeriods, setNumberOfPeriods] = useState("1");
+  const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>("BIWEEKLY");
+  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState<PaymentMethod | null>(null);
+
   const { data: paymentMethodsData, status: paymentMethodsStatus } = usePaymentMethods();
   const { mutate: calculatePlan, data: calculatedPlan, error: calculatePlanError } =
     useCalculatePaymentPlan();
   const { mutate: completeCheckout, status: checkoutStatus } = useCompleteCheckout();
 
-  // Build plan request payload
+  // --- Recalculate Plan on Changes ---
   const planRequest = useMemo(
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: displayedCheckoutTotal,
+      purchaseAmount: discountedTotal,
       startDate,
     }),
-    [paymentFrequency, numberOfPeriods, displayedCheckoutTotal, startDate]
+    [paymentFrequency, numberOfPeriods, discountedTotal, startDate]
   );
 
-  // Pre-select a payment method (use initialPaymentMethodId if provided)
+  useEffect(() => {
+    if (discountedTotal > 0) {
+      calculatePlan(planRequest, {
+        onError: () => toast.error("Failed to calculate the payment plan."),
+      });
+    }
+  }, [planRequest, calculatePlan, discountedTotal]);
+
+  useEffect(() => {
+    if (calculatePlanError) {
+      toast.error("Unable to calculate the payment plan. Please try again later.");
+    }
+  }, [calculatePlanError]);
+
+  const mockPayments: SplitPayment[] =
+    calculatedPlan?.data?.splitPayments?.map((p) => ({
+      dueDate: p.dueDate,
+      amount: p.amount,
+      percentage: Number(((p.amount / discountedTotal) * 100).toFixed(2)),
+    })) ?? [];
+
+  // --- Preselect Payment Method ---
   useEffect(() => {
     if (paymentMethodsData?.data?.data?.length && !selectedPaymentMethod) {
       const methods = paymentMethodsData.data.data;
@@ -109,34 +163,8 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     }
   }, [paymentMethodsData, initialPaymentMethodId, selectedPaymentMethod]);
 
-  // Recalculate plan on changes
-  useEffect(() => {
-    if (displayedCheckoutTotal > 0) {
-      calculatePlan(planRequest, {
-        onError: () => {
-          toast.error("Failed to calculate the payment plan. Please try again.");
-        },
-      });
-    }
-  }, [planRequest, calculatePlan, displayedCheckoutTotal]);
-
-  // Show plan calculation errors
-  useEffect(() => {
-    if (calculatePlanError) {
-      toast.error("Unable to calculate the payment plan. Please try again later.");
-    }
-  }, [calculatePlanError]);
-
-  // Map calculated plan to displayable payments
-  const mockPayments: SplitPayment[] =
-    calculatedPlan?.data?.splitPayments?.map((p) => ({
-      dueDate: p.dueDate,
-      amount: p.amount,
-      percentage: Number(((p.amount / displayedCheckoutTotal) * 100).toFixed(2)),
-    })) || [];
-
-  const handleMethodSelect = useCallback((method: PaymentMethod) => {
-    setSelectedPaymentMethod(method);
+  const handleMethodSelect = useCallback((m: PaymentMethod) => {
+    setSelectedPaymentMethod(m);
     setIsModalOpen(false);
   }, []);
 
@@ -144,7 +172,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     if (paymentMethodsStatus === "pending") {
       return (
         <div className="flex justify-center items-center">
-          <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
+          <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16" />
         </div>
       );
     }
@@ -159,16 +187,16 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     );
   };
 
-  // Determine available frequencies based on tiers
+  // --- Tier Logic & Number Options ---
   let availablePaymentFrequencies: PaymentFrequency[] = ["BIWEEKLY", "MONTHLY"];
   if (checkoutData?.configuration?.selfPayTiers) {
     const tiers = checkoutData.configuration.selfPayTiers;
-    const fullAmount = parseFloat(rawTotal);
+    const full = parseFloat(rawTotal);
     let hasMonthly = false;
     for (const tier of tiers) {
       const min = parseFloat(tier.minAmount);
       const max = parseFloat(tier.maxAmount);
-      if ((min === 0 && max === 0) || (fullAmount >= min && fullAmount <= max)) {
+      if ((min === 0 && max === 0) || (full >= min && full <= max)) {
         const minMo = Math.ceil(tier.minTerm / 4);
         const maxMo = Math.floor(tier.maxTerm / 4);
         if (maxMo >= minMo && minMo > 0) {
@@ -177,18 +205,14 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
         }
       }
     }
-    if (!hasMonthly) {
-      availablePaymentFrequencies = ["BIWEEKLY"];
-    }
+    if (!hasMonthly) availablePaymentFrequencies = ["BIWEEKLY"];
   }
-
   useEffect(() => {
     if (!availablePaymentFrequencies.includes(paymentFrequency)) {
       setPaymentFrequency("BIWEEKLY");
     }
   }, [availablePaymentFrequencies, paymentFrequency]);
 
-  // Generate number-of-period options
   const getNumberOptions = () => {
     if (checkoutData?.configuration?.selfPayTiers?.length) {
       const full = parseFloat(rawTotal);
@@ -199,12 +223,13 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
       });
       if (tier) {
         if (paymentFrequency === "BIWEEKLY") {
-          const min = tier.minTerm;
-          const max = tier.maxTerm;
-          return Array.from({ length: max - min + 1 }, (_, i) => {
-            const v = min + i;
-            return <option key={v} value={v}>{v}</option>;
-          });
+          return Array.from(
+            { length: tier.maxTerm - tier.minTerm + 1 },
+            (_, i) => {
+              const v = tier.minTerm + i;
+              return <option key={v} value={v}>{v}</option>;
+            }
+          );
         } else {
           const min = Math.ceil(tier.minTerm / 4);
           const max = Math.floor(tier.maxTerm / 4);
@@ -221,7 +246,6 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     ));
   };
 
-  // Validate tier selection
   let isTierValid = false;
   if (!checkoutLoading && checkoutData?.configuration?.selfPayTiers) {
     const full = parseFloat(rawTotal);
@@ -230,18 +254,19 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     isTierValid = checkoutData.configuration.selfPayTiers.some((t) => {
       const min = parseFloat(t.minAmount);
       const max = parseFloat(t.maxAmount);
-      const qualifiesAmt = (min === 0 && max === 0) || (full >= min && full <= max);
-      const qualifiesTerm = term >= t.minTerm && term <= t.maxTerm;
-      return qualifiesAmt && qualifiesTerm;
+      const okAmt = (min === 0 && max === 0) || (full >= min && full <= max);
+      const okTerm = term >= t.minTerm && term <= t.maxTerm;
+      return okAmt && okTerm;
     });
   }
 
+  // --- Confirm Handler ---
   const handleConfirm = () => {
     if (!selectedPaymentMethod) {
       toast.error("Select a payment method first.");
       return;
     }
-    if (displayedCheckoutTotal === 0) {
+    if (discountedTotal === 0) {
       toast.error("Amount must be greater than zero.");
       return;
     }
@@ -255,10 +280,6 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
       instantAmount: 0,
       yearlyAmount: 0,
       selectedPaymentMethod: selectedPaymentMethod.id,
-      superchargeDetails: superchargeDetails.map((d) => ({
-        paymentMethodId: d.paymentMethodId,
-        amount: parseFloat(d.amount),
-      })),
       paymentFrequency,
       numberOfPayments: parseInt(numberOfPeriods, 10),
       offsetStartDate: startDate,
@@ -275,9 +296,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
         toast.success("Payment plan confirmed!");
         navigate(-1);
       },
-      onError: () => {
-        toast.error("Checkout failed. Please try again.");
-      },
+      onError: () => toast.error("Checkout failed. Please try again."),
     });
   };
 
@@ -295,18 +314,17 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
         </div>
       ) : (
         <div className="bg-white p-4 min-h-screen">
+          {/* Header */}
           <div className="mb-5">
             <h1 className="text-2xl font-bold">
-              Self Pay Payment Plan for ${displayedCheckoutTotal.toFixed(2)}
+              Self Pay Plan for ${discountedTotal.toFixed(2)}
             </h1>
           </div>
 
+          {/* Number of Periods & Frequency */}
           <div className="space-y-4 mb-5">
             <div>
-              <label
-                htmlFor="numberOfPeriods"
-                className="block mb-1 text-sm font-medium text-gray-700"
-              >
+              <label htmlFor="numberOfPeriods" className="block mb-1 text-sm font-medium text-gray-700">
                 Number of Periods
               </label>
               <select
@@ -319,10 +337,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
               </select>
             </div>
             <div>
-              <label
-                htmlFor="paymentFrequency"
-                className="block mb-1 text-sm font-medium text-gray-700"
-              >
+              <label htmlFor="paymentFrequency" className="block mb-1 text-sm font-medium text-gray-700">
                 Payment Frequency
               </label>
               <select
@@ -340,55 +355,103 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
             </div>
           </div>
 
-          {displayedCheckoutTotal > 0 && (
-            <div className="mb-5">
-              <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
-              {calculatedPlan?.data ? (
-                <PaymentPlanMocking
-                  payments={mockPayments}
-                  showChangeDateButton
-                  isCollapsed={false}
-                  initialDate={new Date(startDate)}
-                  onDateSelected={(date) =>
-                    setStartDate(date.toISOString().split("T")[0])
-                  }
-                />
-              ) : (
-                <div className="flex justify-center items-center">
-                  <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16"></div>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Plan Preview */}
+          <div className="mb-5">
+            <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
+            {calculatedPlan?.data ? (
+              <PaymentPlanMocking
+                payments={mockPayments}
+                showChangeDateButton
+                isCollapsed={false}
+                initialDate={new Date(startDate)}
+                onDateSelected={(date) => setStartDate(date.toISOString().split("T")[0])}
+              />
+            ) : (
+              <div className="flex justify-center items-center">
+                <div className="loader ease-linear rounded-full border-8 border-t-8 border-gray-200 h-16 w-16" />
+              </div>
+            )}
+          </div>
 
+          {/* Discounts */}
+          <div className="mb-5">
+            {availableDiscounts.length > 0 && (
+              <h2 className="text-xl font-semibold mb-3">Available Discounts</h2>
+            )}
+            {discountsLoading ? (
+              <p>Loading discounts…</p>
+            ) : discountsError ? (
+              <p className="text-red-500">Error loading discounts</p>
+            ) : (
+              <ul>
+                {availableDiscounts.map((d: any) => {
+                  const disabled = displayedCheckoutTotal - getDiscountValue(d) < 0;
+                  const sid = String(d.id);
+                  return (
+                    <li
+                      key={d.id}
+                      onClick={() => !disabled && handleDiscountChange(d.id)}
+                      className={`flex items-center justify-between border p-2 mb-2 rounded cursor-pointer ${
+                        disabled ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      <div>
+                        <p className="font-bold">{d.discountName}</p>
+                        <p>
+                          {d.type === "PERCENTAGE_OFF"
+                            ? `${d.discountPercentage}% off`
+                            : `$${d.discountAmount.toFixed(2)} off`}
+                        </p>
+                        {d.expiresAt && (
+                          <p className="text-sm text-gray-500">
+                            Expires: {new Date(d.expiresAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                      <input
+                        type="radio"
+                        name="discount"
+                        checked={selectedDiscounts.includes(sid)}
+                        disabled={disabled}
+                        readOnly
+                        className="ml-4 w-4 h-4 accent-blue-600"
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* Payment Method */}
           <div className="mb-5">
             <h2 className="text-xl font-semibold mb-3">Payment Method</h2>
             {renderPaymentMethodSection()}
           </div>
 
+          {/* Confirm Button */}
           <button
             onClick={handleConfirm}
-            disabled={
-              !selectedPaymentMethod || displayedCheckoutTotal === 0 || !isTierValid
-            }
+            disabled={!selectedPaymentMethod || discountedTotal === 0 || !isTierValid}
             className={`w-full py-3 font-bold text-white rounded-lg ${
-              !selectedPaymentMethod || displayedCheckoutTotal === 0 || !isTierValid
+              !selectedPaymentMethod || discountedTotal === 0 || !isTierValid
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-black hover:bg-gray-800"
             }`}
           >
             {checkoutStatus === "pending" ? (
               <div className="flex items-center justify-center">
-                <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2"></div>
+                <div className="loader ease-linear rounded-full border-4 border-t-4 border-white h-6 w-6 mr-2" />
                 Processing…
               </div>
             ) : (
-              `Self Pay $${displayedCheckoutTotal.toFixed(2)}`
+              `Self Pay $${discountedTotal.toFixed(2)}`
             )}
           </button>
         </div>
       )}
 
+      {/* Payment Method Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <>
@@ -423,12 +486,10 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                     Payment Settings
                   </button>
                 </div>
-                <h2 className="px-4 mb-4 text-xl font-semibold">
-                  Select Payment Method
-                </h2>
+                <h2 className="px-4 mb-4 text-xl font-semibold">Select Payment Method</h2>
                 <div className="space-y-4 px-4 pb-4">
                   {paymentMethodsData?.data?.data
-                    ?.filter((method) => method.type === "card")
+                    ?.filter((m) => m.type === "card")
                     .map((method, idx, arr) => (
                       <PaymentMethodItem
                         key={method.id}

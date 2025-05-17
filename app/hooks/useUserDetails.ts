@@ -33,6 +33,26 @@ export interface Settings {
   csatMessage: string | null;
 }
 
+export interface SmartPayPreference {
+  id: string;
+  livingSituation: string;
+  rentAmount: number;
+  rentDueDate: string;
+  mortgageInstallmentAmount: number | null;
+  grossIncome: number;
+  grossIncomeFrequency: string;
+  under150DurationMin: number;
+  under150DurationMax: number;
+  range300to500DurationMin: number;
+  range300to500DurationMax: number;
+  range1000to2000DurationMin: number;
+  range1000to2000DurationMax: number;
+  range5000to10000DurationMin: number;
+  range5000to10000DurationMax: number;
+  maximumMonthlyInstallment: number;
+  optimumMonthlyInstallment: number;
+}
+
 export interface UserDetails {
   id: string;
   phoneNumber: string;
@@ -45,40 +65,41 @@ export interface UserDetails {
   yearlyPower: number;
   instantaneousPower: number;
   interestFreeAmount: number;
+  creditScore: number;
   dateOfBirth: string;
   smartPay: boolean;
+  yourCardId: string | null;
   notify_Token: string | null;
+  subscriptionId: string | null;
+  plaidAccountId: string | null;
   totalOwed: number;
+  primaryMethod?: string;
   autoPay: boolean;
   remainingAvoidedDays: number;
   logo: string | null;
-  gender: string;
   sendbirdAccessToken: string | null;
-  settings: Settings;
+  underReview: boolean;
+  accepted: boolean;
+  settings: Settings | null;
   billingAddress: Address;
   shippingAddress: Address;
-  createdAt: string;
-  updatedAt: string;
-  phoneVerified: boolean;
-  emailVerified: boolean;
-  subscribed: boolean;
-}
-
-export interface LatestActiveCard {
-  id: number;
-  stripeCardId: string;
-  spendingLimit: number;
-  paymentFrequency: number;
-  planType: 'MONTHLY' | 'BIWEEKLY' | null;
-  status: 'active' | 'inactive';
-  offsetStartDate: string | null;
+  smartPayPreference: SmartPayPreference;
+  reviewInformations: any[];
+  financialDistresses: any[];
   createdAt: string | null;
-  updatedAt: string | null;
+  updatedAt: string;
+  lastCreditUpdate: string;
+  lastTwoMonthUpdatedDate: string;
+  latestThreeMonthUpdatedDate: string;
+  yearlyTerms: number;
+  lastYearlyTermsUpdatedDate: string;
+  subscribed: boolean;
+  emailVerified: boolean;
+  phoneVerified: boolean;
 }
 
 export interface UserDetailsResponseData {
   user: UserDetails;
-  latestActiveCard: LatestActiveCard | null;
 }
 
 export interface UserDetailsResponse {
@@ -95,7 +116,6 @@ export async function fetchUserDetails(token: string): Promise<UserDetailsRespon
       Authorization: `Bearer ${token}`, // Passing the token in the Authorization header
       'Content-Type': 'application/json',
     },
-
   });
 
   console.log("Response Status:", response.status);

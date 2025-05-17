@@ -1,6 +1,6 @@
 // app/routes/MerchantShoppingContent.tsx
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -16,29 +16,18 @@ import { Toaster, toast } from "sonner";
 import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 
-// matches app/routes/Plans.tsx → interface PlansData
-interface SplitEntry {
-  userId: string;
-  amount: string;
-}
-interface SuperchargeDetail {
-  amount: string;
-  paymentMethodId: string;
-}
+interface SplitEntry { userId: string; amount: string; }
+interface SuperchargeDetail { amount: string; paymentMethodId: string; }
 interface PlansData {
   paymentType: "instantaneous" | "yearly" | "selfpay";
-  amount: string;               // renamed from instantPowerAmount
+  amount: string;
   superchargeDetails: SuperchargeDetail[];
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];
   paymentMethodId?: string;
-  users?: { id: string; username: string; logo: string; isCurrentUser?: boolean }[];
-  splitData?: { userAmounts: SplitEntry[] };
 }
 
-interface LocationState {
-  type?: "instantaneous" | "yearly";
-}
+interface LocationState { type?: "instantaneous" | "yearly"; }
 
 const MerchantShoppingContent: React.FC = () => {
   const location = useLocation();
@@ -57,14 +46,6 @@ const MerchantShoppingContent: React.FC = () => {
     error: paymentError,
   } = usePaymentMethods();
 
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
-  const [additionalFields, setAdditionalFields] = useState<string[]>([]);
-  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
-  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
-  const [paymentAmount, setPaymentAmount] = useState("0.00");
-
   const {
     data: userData,
     isLoading: isUserLoading,
@@ -80,84 +61,97 @@ const MerchantShoppingContent: React.FC = () => {
     status: checkoutStatus,
   } = useCheckoutDetail(checkoutToken);
 
-  // parse checkout total as dollars
   const checkoutTotalAmount = checkoutData
     ? parseFloat(checkoutData.checkout.totalAmount.amount)
     : 0;
 
-  const merchantId = checkoutData?.checkout.merchant.id;
-  const { data: merchantDetailData } = useMerchantDetail(merchantId || "");
+  const merchantId = checkoutData?.checkout.merchant.id || "";
+  const { data: merchantDetailData } = useMerchantDetail(merchantId);
   const baseUrl = "http://192.168.1.32:8080";
 
-  const orderAmount = checkoutTotalAmount;
   const {
-    data: discounts,
+    data: discounts = [],
     isLoading: discountsLoading,
     error: discountsError,
-  } = useAvailableDiscounts(merchantId || "", orderAmount);
-  const availableDiscounts = discounts ?? [];
+  } = useAvailableDiscounts(merchantId, checkoutTotalAmount);
 
-  const getDiscountValue = (d: any): number => {
-    if (d.type === "PERCENTAGE_OFF" && d.discountPercentage != null) {
-      return checkoutTotalAmount * (d.discountPercentage / 100);
-    } else if (d.discountAmount != null) {
-      return d.discountAmount;
-    }
-    return 0;
-  };
+  // --- form state ---
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [additionalFields, setAdditionalFields] = useState<string[]>([]);
+  const [selectedPaymentMethods, setSelectedPaymentMethods] = useState<(PaymentMethod | null)[]>([]);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
 
-  // pick best discount by value
+  // --- restore from history.state on mount ---
   useEffect(() => {
-    if (availableDiscounts.length > 0) {
-      const valid = availableDiscounts.filter(
-        (d: any) => checkoutTotalAmount - getDiscountValue(d) >= 0
-      );
-      if (valid.length) {
-        const best = valid.reduce((prev: any, curr: any) =>
-          getDiscountValue(curr) > getDiscountValue(prev) ? curr : prev
+    const st = window.history.state || {};
+    if (st.merchantForm) {
+      const {
+        paymentAmount,
+        additionalFields,
+        selectedMethods,
+        selectedDiscounts,
+        selectedPaymentMethodId,
+      } = st.merchantForm as any;
+
+      setPaymentAmount(paymentAmount);
+      setAdditionalFields(additionalFields);
+      setSelectedDiscounts(selectedDiscounts);
+
+      if (paymentData) {
+        const all = paymentData.data.data;
+        setSelectedPaymentMethods(
+          selectedMethods.map((id: string | null) =>
+            id ? all.find(m => m.id === id) || null : null
+          )
         );
-        setSelectedDiscounts([String(best.id)]);
-      } else {
-        setSelectedDiscounts([]);
+        setSelectedPaymentMethod(
+          all.find(m => m.id === selectedPaymentMethodId) || null
+        );
       }
     }
-  }, [availableDiscounts, checkoutTotalAmount]);
+  }, [paymentData]);
 
-  const selectedDiscount = availableDiscounts.find(
-    (d: any) => String(d.id) === selectedDiscounts[0]
+  // --- prime default card on first load ---
+  useEffect(() => {
+    if (!selectedPaymentMethod && paymentData) {
+      const cards = paymentData.data.data.filter(m => m.type === "card");
+      if (cards.length) setSelectedPaymentMethod(cards[0]);
+    }
+  }, [paymentData, selectedPaymentMethod]);
+
+  // --- discount helpers ---
+  const getDiscountValue = (d: any): number =>
+    d.type === "PERCENTAGE_OFF"
+      ? checkoutTotalAmount * (d.discountPercentage / 100)
+      : d.discountAmount || 0;
+
+  const handleDiscountChange = (id: string | number) => {
+    const sid = String(id);
+    setSelectedDiscounts(prev => (prev.includes(sid) ? [] : [sid]));
+  };
+
+  const selectedDiscount = discounts.find(d =>
+    selectedDiscounts.includes(String(d.id))
   );
   const effectiveCheckoutTotal = selectedDiscount
     ? Math.max(0, checkoutTotalAmount - getDiscountValue(selectedDiscount))
     : checkoutTotalAmount;
 
-  // prime selectedPaymentMethod
-  useEffect(() => {
-    const cards = paymentData?.data.data.filter((m) => m.type === "card") ?? [];
-    if (cards.length && !selectedPaymentMethod) {
-      setSelectedPaymentMethod(cards[0]);
-    }
-  }, [paymentData]);
-
+  // --- supercharge fields handlers ---
   const addField = () => {
-    setAdditionalFields((prev) => [...prev, "0.00"]);
-    setSelectedPaymentMethods((prev) => [...prev, selectedPaymentMethod]);
+    setAdditionalFields(prev => [...prev, ""]);
+    setSelectedPaymentMethods(prev => [...prev, selectedPaymentMethod]);
   };
 
   const updateField = (i: number, v: string) => {
-    setAdditionalFields((prev) => {
+    setAdditionalFields(prev => {
       const u = [...prev];
       u[i] = v;
       return u;
     });
-  };
-
-  const calculateTotal = () =>
-    parseFloat(paymentAmount || "0") +
-    additionalFields.reduce((acc, x) => acc + parseFloat(x || "0"), 0);
-  const totalAmount = calculateTotal();
-
-  const handleDiscountChange = (id: string | number) => {
-    setSelectedDiscounts([String(id)]);
   };
 
   const openModal = (i: number) => {
@@ -166,26 +160,36 @@ const MerchantShoppingContent: React.FC = () => {
   };
   const closeModal = () => setIsModalOpen(false);
 
-  const handleMethodSelect = useCallback(
-    (m: PaymentMethod) => {
-      if (activeFieldIndex != null) {
-        setSelectedPaymentMethods((prev) => {
-          const u = [...prev];
-          u[activeFieldIndex] = m;
-          return u;
-        });
-      }
-      setIsModalOpen(false);
-    },
-    [activeFieldIndex]
-  );
+  const handleMethodSelect = useCallback((m: PaymentMethod) => {
+    if (activeFieldIndex != null) {
+      setSelectedPaymentMethods(prev => {
+        const u = [...prev];
+        u[activeFieldIndex] = m;
+        return u;
+      });
+    }
+    setIsModalOpen(false);
+  }, [activeFieldIndex]);
 
-  // build & navigate
+  // --- navigation: stash form then go ---
   const navigateToPlansPage = () => {
     if (parseFloat(paymentAmount) <= 0) {
       toast.error(`${isYearly ? "Yearly" : "Instant"} amount must be > 0.`);
       return;
     }
+
+    window.history.replaceState(
+      {
+        merchantForm: {
+          paymentAmount,
+          additionalFields,
+          selectedMethods: selectedPaymentMethods.map(m => m?.id || null),
+          selectedDiscounts,
+          selectedPaymentMethodId: selectedPaymentMethod?.id || null,
+        },
+      },
+      ""
+    );
 
     const superchargeDetails: SuperchargeDetail[] = additionalFields.map((amt, idx) => ({
       amount: parseFloat(amt).toFixed(2),
@@ -198,12 +202,13 @@ const MerchantShoppingContent: React.FC = () => {
       superchargeDetails,
       otherUserAmounts: [],
       selectedDiscounts,
-      paymentMethodId: selectedPaymentMethod?.id ?? undefined,
+      paymentMethodId: selectedPaymentMethod?.id,
     };
 
     navigate("/plans", { state: stateForPlans });
   };
 
+  // --- loading & error ---
   const isLoading =
     isUserLoading || paymentLoading || checkoutLoading || checkoutStatus === "pending";
   const isErrorState =
@@ -226,8 +231,7 @@ const MerchantShoppingContent: React.FC = () => {
     );
   }
 
-  const cardPaymentMethods =
-    paymentData?.data.data.filter((m) => m.type === "card") || [];
+  const cardPaymentMethods = paymentData?.data.data.filter(m => m.type === "card") || [];
   const inputLabel = isYearly ? "Yearly Power Amount" : "Instant Power Amount";
 
   return (
@@ -248,14 +252,13 @@ const MerchantShoppingContent: React.FC = () => {
             Flex all of ${effectiveCheckoutTotal.toFixed(2)}
           </h1>
 
-          {/* Main power-amount input with bottom margin */}
           <div className="mb-4">
             <FloatingLabelInputWithInstant
               label={inputLabel}
               value={paymentAmount}
               onChangeText={setPaymentAmount}
               keyboardType="text"
-              instantPower={userData?.data?.user?.instantaneousPower}
+              instantPower={userData?.data?.user?.instantaneousPower ?? 0}
               powerType={isYearly ? "yearly" : "instantaneous"}
             />
           </div>
@@ -265,18 +268,18 @@ const MerchantShoppingContent: React.FC = () => {
               <FloatingLabelInputOverdraft
                 label="Supercharge Amount"
                 value={fld}
-                onChangeText={(v) => updateField(i, v)}
+                onChangeText={v => updateField(i, v)}
                 keyboardType="text"
-                selectedMethod={selectedPaymentMethods[i]}
+                selectedMethod={selectedPaymentMethods[i] ?? null}
                 onPaymentMethodPress={() => openModal(i)}
               />
             </div>
           ))}
 
           {/* Discounts Section */}
-          {(discountsLoading || discountsError || availableDiscounts.length > 0) && (
+          {(discountsLoading || discountsError || discounts.length > 0) && (
             <div className="mb-4">
-              {availableDiscounts.length > 0 && (
+              {discounts.length > 0 && (
                 <h2 className="text-lg font-semibold mb-2">Available Discounts</h2>
               )}
               {discountsLoading ? (
@@ -285,8 +288,9 @@ const MerchantShoppingContent: React.FC = () => {
                 <p className="text-red-500">Error loading discounts</p>
               ) : (
                 <ul>
-                  {availableDiscounts.map((d: any) => {
+                  {discounts.map((d: any) => {
                     const disabled = checkoutTotalAmount - getDiscountValue(d) < 0;
+                    const sid = String(d.id);
                     return (
                       <li
                         key={d.id}
@@ -315,19 +319,18 @@ const MerchantShoppingContent: React.FC = () => {
                                 : `$${d.discountAmount.toFixed(2)} off`}
                             </p>
                             {d.expiresAt && (
-                              <p>Expires: {new Date(d.expiresAt).toLocaleString()}</p>
+                              <p className="text-sm text-gray-500">
+                                Expires: {new Date(d.expiresAt).toLocaleString()}
+                              </p>
                             )}
                           </div>
                         </div>
                         <input
                           type="radio"
                           name="discount"
+                          checked={selectedDiscounts.includes(sid)}
                           disabled={disabled}
-                          checked={selectedDiscounts.includes(String(d.id))}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            if (!disabled) handleDiscountChange(d.id);
-                          }}
+                          readOnly
                           className="ml-4 w-4 h-4 accent-blue-600"
                         />
                       </li>
@@ -338,7 +341,7 @@ const MerchantShoppingContent: React.FC = () => {
             </div>
           )}
 
-          {/* Buttons with extra top spacing */}
+          {/* Buttons */}
           <div className="mt-6 flex space-x-4 mb-4">
             <button
               onClick={addField}
@@ -378,7 +381,7 @@ const MerchantShoppingContent: React.FC = () => {
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: "100%", opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()}
                   >
                     <div className="flex justify-end p-4">
                       <button
@@ -388,13 +391,15 @@ const MerchantShoppingContent: React.FC = () => {
                         Payment Settings
                       </button>
                     </div>
-                    <h2 className="px-4 mb-4 text-xl font-semibold">Select Payment Method</h2>
+                    <h2 className="px-4 mb-4 text-xl font-semibold">
+                      Select Payment Method
+                    </h2>
                     <div className="space-y-4 px-4 pb-4">
                       {cardPaymentMethods.map((method, idx) => (
                         <PaymentMethodItem
                           key={method.id}
                           method={method}
-                          selectedMethod={selectedPaymentMethods[activeFieldIndex ?? 0]}
+                          selectedMethod={selectedPaymentMethods[activeFieldIndex ?? 0] ?? null}
                           onSelect={handleMethodSelect}
                           isLastItem={idx === cardPaymentMethods.length - 1}
                         />

@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { usePaymentMethods, PaymentMethod } from "~/hooks/usePaymentMethods";
 import { useCalculatePaymentPlan } from "~/hooks/useCalculatePaymentPlan";
-import { useUserDetails } from "~/hooks/useUserDetails";
 import { useCompleteCheckout, CompleteCheckoutPayload } from "~/hooks/useCompleteCheckout";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -16,18 +15,17 @@ type PaymentFrequency = "BIWEEKLY" | "MONTHLY";
 
 interface SplitEntry {
   userId: string;
-  amount: string; // dollars as string
+  amount: string;
 }
 
 interface SuperchargeDetail {
-  amount: string; // dollars as string
+  amount: string;
   paymentMethodId: string;
 }
 
 interface PaymentPlanProps {
-  instantPowerAmount: string; // dollars as string
+  instantPowerAmount: string;
   superchargeDetails: SuperchargeDetail[];
-  paymentMethodId?: string;
   otherUserAmounts?: SplitEntry[];
   selectedDiscounts?: string[];
 }
@@ -35,7 +33,6 @@ interface PaymentPlanProps {
 const PaymentPlan: React.FC<PaymentPlanProps> = ({
   instantPowerAmount,
   superchargeDetails,
-  paymentMethodId,
   otherUserAmounts = [],
   selectedDiscounts = [],
 }) => {
@@ -43,12 +40,11 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   const { search } = useLocation();
   const modeSplit = new URLSearchParams(search).get("split") === "true";
 
-  // parse dollars
-  const displayedInstant =
-    Number(parseFloat(instantPowerAmount).toFixed(2)) || 0;
+  // Dollar parsing
+  const displayedInstant = Number(parseFloat(instantPowerAmount).toFixed(2)) || 0;
   const totalSupercharge = useMemo(
     () =>
-      superchargeDetails.reduce<number>(
+      superchargeDetails.reduce(
         (acc, d) => acc + Number(parseFloat(d.amount) || 0),
         0
       ),
@@ -57,48 +53,43 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   const purchaseAmountDollars = modeSplit
     ? displayedInstant + totalSupercharge
     : displayedInstant;
-
-  // convert to cents for API
   const purchaseAmountCents = Math.round(purchaseAmountDollars * 100);
 
-  // state
+  // Component state
   const [numberOfPeriods, setNumberOfPeriods] = useState("1");
   const [paymentFrequency, setPaymentFrequency] =
     useState<PaymentFrequency>("MONTHLY");
-  const [startDate, setStartDate] = useState<string>(
+  const [startDate, setStartDate] = useState(
     () => new Date().toISOString().split("T")[0]
   );
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // data hooks
+  // loading flag for plan
+  const [loadingPlan, setLoadingPlan] = useState(true);
+
+  // Data hooks
   const { data: paymentMethodsData, status: paymentMethodsStatus } =
     usePaymentMethods();
-  const { data: userDetailsData } = useUserDetails();
   const {
     mutate: calculatePlan,
     data: calculatedPlan,
-    error: calculateError,
-    isPending: planLoading,
   } = useCalculatePaymentPlan();
   const { mutate: completeCheckout, status: checkoutStatus } =
     useCompleteCheckout();
 
   const checkoutToken = sessionStorage.getItem("checkoutToken");
 
-  // pick default card
+  // pick default card once
   useEffect(() => {
-    const cards = paymentMethodsData?.data?.data ?? [];
-    if (!cards.length || selectedPaymentMethod) return;
-    const firstCard = cards.find((m) => m.type === "card") ?? null;
-    if (paymentMethodId) {
-      const found = cards.find((m) => m.id === paymentMethodId) ?? firstCard;
-      setSelectedPaymentMethod(found);
-    } else {
-      setSelectedPaymentMethod(firstCard);
+    const cards = paymentMethodsData?.data?.data?.filter(
+      (m) => m.type === "card"
+    ) ?? [];
+    if (cards.length && !selectedPaymentMethod) {
+      setSelectedPaymentMethod(cards[0]);
     }
-  }, [paymentMethodsData, paymentMethodId, selectedPaymentMethod]);
+  }, [paymentMethodsData, selectedPaymentMethod]);
 
   // build and send plan request whenever inputs change
   const planRequest = useMemo(
@@ -113,8 +104,13 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
 
   useEffect(() => {
     if (!purchaseAmountCents) return;
+    setLoadingPlan(true);
     calculatePlan(planRequest, {
-      onError: () => toast.error("Could not calculate plan"),
+      onSuccess: () => setLoadingPlan(false),
+      onError: () => {
+        toast.error("Could not calculate plan");
+        setLoadingPlan(false);
+      },
     });
   }, [planRequest]);
 
@@ -129,7 +125,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     [calculatedPlan]
   );
 
-  // handlers
+  // Handlers
   const handleMethodSelect = useCallback((m: PaymentMethod) => {
     setSelectedPaymentMethod(m);
     setIsModalOpen(false);
@@ -166,9 +162,9 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     };
 
     completeCheckout(payload, {
-      onSuccess: (data) => {
+      onSuccess: ({ data }) => {
         toast.success("Payment plan confirmed!");
-        (window.opener || window.parent || window).postMessage(
+        window.postMessage(
           {
             status: otherUserAmounts.length ? "PENDING" : "COMPLETED",
             checkoutToken,
@@ -181,8 +177,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     });
   };
 
-  const getMaxNumber = (f: PaymentFrequency) =>
-    f === "BIWEEKLY" ? 26 : 12;
+  const getMaxNumber = (f: PaymentFrequency) => (f === "BIWEEKLY" ? 26 : 12);
   const periodOptions = Array.from(
     { length: getMaxNumber(paymentFrequency) },
     (_, i) => i + 1
@@ -225,7 +220,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
                 numberOfPeriods === "1" ? "bg-gray-100" : ""
               }`}
             >
-              <option value="BIWEEKLY">Bi‑weekly</option>
+              <option value="BIWEEKLY">Bi-weekly</option>
               <option value="MONTHLY">Monthly</option>
             </select>
           </div>
@@ -234,7 +229,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         {!!purchaseAmountDollars && (
           <div className="mb-6">
             <h2 className="text-xl font-semibold mb-3">Payment plan</h2>
-            {planLoading ? (
+            {loadingPlan ? (
               <div className="flex justify-center">
                 <div className="loader h-16 w-16" />
               </div>
@@ -283,7 +278,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         </button>
       </div>
 
-      <AnimatePresence initial={false}>
+      <AnimatePresence>
         {isModalOpen && (
           <>
             <motion.div
@@ -301,9 +296,6 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
             >
               <motion.div
                 className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-[75vh] overflow-y-auto"
-                initial={{ y: "100%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "100%" }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center p-4 border-b">

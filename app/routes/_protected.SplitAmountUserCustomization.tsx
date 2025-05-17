@@ -28,14 +28,14 @@ export interface SplitData {
 }
 
 interface LocationState {
-  splitData: SplitData;
-  users: User[];
+  splitData?: SplitData;
+  users?: User[];
   type?: "instantaneous" | "yearly" | "split";
   selectedDiscounts?: string[];
 }
 
 interface SuperchargeDetail {
-  amount: string;       // dollars as string
+  amount: string;
   paymentMethodId: string;
 }
 
@@ -52,58 +52,86 @@ export interface PlansData {
 
 const SplitAmountUserCustomization: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
-  const { splitData, users, type = "split", selectedDiscounts = [] } =
-    (location.state as LocationState) ?? {};
+  const location = useLocation<unknown, LocationState>();
 
-  if (!splitData || users.length === 0) {
+  // Merge initial location.state with history.state
+  const hist = (window.history.state as any) || {};
+  const loc = location.state || {};
+
+  const splitData = loc.splitData ?? hist.splitData;
+  const users = loc.users ?? hist.users;
+  const type = loc.type ?? hist.type ?? "split";
+  const selectedDiscounts = loc.selectedDiscounts ?? hist.selectedDiscounts ?? [];
+
+  if (!splitData || !users || users.length === 0) {
     toast.error("No user split data provided.");
     navigate(-1);
     return null;
   }
 
-  // map "split" to "selfpay" for PlansData.paymentType
+  // Determine planType
   const planType: PlansData["paymentType"] =
     type === "split" ? "selfpay" : (type as "instantaneous" | "yearly");
 
-  const userAmountsArray: SplitEntry[] = splitData.userAmounts;
-  const currentUserSplit: SplitEntry =
-    userAmountsArray.find((u) => u.userId === users.find((x) => x.isCurrentUser)?.id) ??
+  const userAmountsArray = splitData.userAmounts;
+  const currentUserSplit =
+    userAmountsArray.find((u) => u.userId === users.find((x) => x.isCurrentUser)?.id) ||
     userAmountsArray[0];
 
+  // Hooks
   const { data: userData, isLoading: isUserLoading } = useUserDetails();
   const checkoutToken =
-    typeof window !== "undefined"
-      ? sessionStorage.getItem("checkoutToken") || ""
-      : "";
+    typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
   useCheckoutDetail(checkoutToken);
   const { data: paymentData, isLoading: paymentLoading } = usePaymentMethods();
 
-  const [selectedPaymentMethod, setSelectedPaymentMethod] =
-    useState<PaymentMethod | null>(null);
-  const [paymentAmount, setPaymentAmount] =
-    useState<string>(currentUserSplit.amount);
+  // Form state
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<string>("");
   const [additionalFields, setAdditionalFields] = useState<string[]>([]);
-  const [selectedFieldPaymentMethods, setSelectedFieldPaymentMethods] =
-    useState<(PaymentMethod | null)[]>([]);
+  const [selectedFieldPaymentMethods, setSelectedFieldPaymentMethods] = useState<
+    (PaymentMethod | null)[]
+  >([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
+
+  // Restore form + original data from history.state
+  useEffect(() => {
+    const st = (window.history.state as any)?.splitForm;
+    if (st) {
+      setPaymentAmount(st.paymentAmount);
+      setAdditionalFields(st.additionalFields);
+      // restore per-field cards
+      if (paymentData) {
+        const cards = paymentData.data.data;
+        setSelectedFieldPaymentMethods(
+          st.selectedFieldMethodIds.map((id: string | null) =>
+            id ? cards.find((c) => c.id === id) || null : null
+          )
+        );
+        setSelectedPaymentMethod(
+          cards.find((c) => c.id === st.selectedMethodId) || null
+        );
+      }
+    }
+  }, [paymentData]);
+
+  // Default card pick
+  useEffect(() => {
+    const cards = paymentData?.data.data.filter((m) => m.type === "card") || [];
+    if (cards.length && !selectedPaymentMethod) {
+      setSelectedPaymentMethod(cards[0]);
+    }
+  }, [paymentData, selectedPaymentMethod]);
 
   const isYearly = planType === "yearly";
   const availablePower = isYearly
     ? userData?.data?.user?.yearlyPower
     : userData?.data?.user?.instantaneousPower;
 
-  // pick default card
-  useEffect(() => {
-    const cards = paymentData?.data.data.filter((m) => m.type === "card") || [];
-    if (cards.length && !selectedPaymentMethod) {
-      setSelectedPaymentMethod(cards[0]);
-    }
-  }, [paymentData]);
-
+  // Handlers
   const addField = () => {
-    setAdditionalFields((prev) => [...prev, "0.00"]);
+    setAdditionalFields((prev) => [...prev, ""]);
     const defaultCard = paymentData?.data.data.find((m) => m.type === "card") ?? null;
     setSelectedFieldPaymentMethods((prev) => [...prev, defaultCard]);
   };
@@ -147,6 +175,7 @@ const SplitAmountUserCustomization: React.FC = () => {
   const totalAmount = calculateTotalAmount();
 
   const handleFlex = () => {
+    // validation
     if (Math.abs(totalAmount - parseFloat(currentUserSplit.amount)) > 0.01) {
       toast.error(
         `Total must equal your split of $${parseFloat(currentUserSplit.amount).toFixed(2)}.`
@@ -158,6 +187,26 @@ const SplitAmountUserCustomization: React.FC = () => {
       return;
     }
 
+    // stash everything into history.state
+    window.history.replaceState(
+      {
+        // keep original splitData & users
+        splitData,
+        users,
+        type,
+        selectedDiscounts,
+        // form values
+        splitForm: {
+          paymentAmount,
+          additionalFields,
+          selectedFieldMethodIds: selectedFieldPaymentMethods.map((m) => m?.id || null),
+          selectedMethodId: selectedPaymentMethod?.id || null,
+        },
+      },
+      ""
+    );
+
+    // build supercharge details
     const superchargeDetails = additionalFields
       .map((amt, i) => ({
         amount: amt,
@@ -185,6 +234,7 @@ const SplitAmountUserCustomization: React.FC = () => {
   };
   const closeModal = () => setIsModalOpen(false);
 
+  // modal esc + body scroll lock
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && isModalOpen && closeModal();
     window.addEventListener("keydown", onKey);
@@ -197,6 +247,7 @@ const SplitAmountUserCustomization: React.FC = () => {
     };
   }, [isModalOpen]);
 
+  // loading
   const isLoading = isUserLoading || paymentLoading;
   if (isLoading) {
     return (

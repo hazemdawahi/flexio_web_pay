@@ -27,7 +27,6 @@ export interface YearlyPaymentPlanProps {
   yearlyPowerAmount: string;
   superchargeDetails: { amount: string; paymentMethodId: string }[];
   otherUserAmounts: { userId: string; amount: string }[];
-  paymentMethodId?: string;
   selectedDiscounts?: string[];
 }
 
@@ -42,70 +41,90 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     yearlyPowerAmount = "0",
     superchargeDetails = [],
     otherUserAmounts = [],
-    paymentMethodId: passedMethodId,
     selectedDiscounts = [],
   } = {
     ...(state as Partial<YearlyPaymentPlanProps>),
     ...props,
   };
 
-  // Load user profile (for annual cap)
+  // --- Hooks (always run in same order) ---
   const { data: userDetailsData, isLoading: userLoading } = useUserDetails();
-  const userYearlyPower = userDetailsData?.data?.user?.yearlyPower || 0;
-  const maxAnnualFlex = userYearlyPower / 5;
-  const requestedFlex = parseFloat(yearlyPowerAmount) || 0;
 
-  // Calculate month options
-  const computedMin =
-    maxAnnualFlex > 0 && requestedFlex > 0
-      ? Math.ceil((requestedFlex * 12) / maxAnnualFlex)
-      : 12;
-  const minMonths = Math.max(12, computedMin);
-  const maxMonths = 60;
-  const monthOptions = useMemo(() => {
-    const arr: number[] = [];
-    for (let m = minMonths; m <= maxMonths; m++) arr.push(m);
-    return arr;
-  }, [minMonths, maxMonths]);
+  const { data: paymentMethodsData, status: pmStatus } =
+    usePaymentMethods();
 
-  const [selectedMonths, setSelectedMonths] = useState(monthOptions[0] || 12);
-  useEffect(() => {
-    if (!monthOptions.includes(selectedMonths)) {
-      setSelectedMonths(monthOptions[0] || 12);
-    }
-  }, [monthOptions]);
-
-  const paymentFrequency: "MONTHLY" = "MONTHLY";
-  const [startDate, setStartDate] = useState(
-    () => new Date().toISOString().split("T")[0]
-  );
-
-  // Fetch payment methods & calculate plan
-  const { data: paymentMethodsData, status: pmStatus } = usePaymentMethods();
   const {
     mutate: calculatePlan,
     data: calculatedPlan,
     isPending: planLoading,
   } = useCalculatePaymentPlan();
 
-  // Modal control
+  const { mutate: completeCheckout, status: checkoutStatus } =
+    useCompleteCheckout();
+
+  const [selectedPaymentMethod, setSelectedPaymentMethod] =
+    useState<PaymentMethod | null>(null);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const openModal = () => setIsModalOpen(true);
   const closeModal = () => setIsModalOpen(false);
 
-  // Pick default card
-  const [selectedPaymentMethod, setSelectedPaymentMethod] =
-    useState<PaymentMethod | null>(null);
+  const [startDate, setStartDate] = useState(
+    () => new Date().toISOString().split("T")[0]
+  );
+
+  // --- End hooks ---
+
+  // Show loader until we have the user
+  if (userLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-white">
+        <div className="loader" />
+      </div>
+    );
+  }
+
+  // Safe defaults from userDetails
+  const user = userDetailsData?.data?.user;
+  const userYearlyPower = user?.yearlyPower || 0;
+  const yearlyTerms = user?.yearlyTerms || 5; // in years
+
+  const maxAnnualFlex = userYearlyPower / yearlyTerms; // cap per year
+  const requestedFlex = parseFloat(yearlyPowerAmount) || 0;
+
+  // Duration (months) options
+  const computedMin =
+    maxAnnualFlex > 0 && requestedFlex > 0
+      ? Math.ceil((requestedFlex * 12) / maxAnnualFlex)
+      : 12;
+  const minMonths = Math.max(12, computedMin);
+  const maxMonths = yearlyTerms * 12; // use yearlyTerms
+
+  const monthOptions = useMemo(() => {
+    const arr: number[] = [];
+    for (let m = minMonths; m <= maxMonths; m++) arr.push(m);
+    return arr;
+  }, [minMonths, maxMonths]);
+
+  const [selectedMonths, setSelectedMonths] = useState(
+    monthOptions[0] || 12
+  );
+  useEffect(() => {
+    if (!monthOptions.includes(selectedMonths)) {
+      setSelectedMonths(monthOptions[0] || 12);
+    }
+  }, [monthOptions, selectedMonths]);
+
+  const paymentFrequency: "MONTHLY" = "MONTHLY";
+
+  // Default payment method
   useEffect(() => {
     const cards =
       paymentMethodsData?.data?.data.filter((c) => c.type === "card") ?? [];
     if (cards.length && !selectedPaymentMethod) {
-      const found = passedMethodId
-        ? cards.find((c) => c.id === passedMethodId)
-        : cards[0];
-      setSelectedPaymentMethod(found ?? cards[0]);
+      setSelectedPaymentMethod(cards[0]);
     }
-  }, [paymentMethodsData, passedMethodId]);
+  }, [paymentMethodsData, selectedPaymentMethod]);
 
   // Recalculate plan when inputs change
   const planRequest = useMemo(
@@ -123,13 +142,13 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
         onError: () => toast.error("Failed to calculate plan"),
       });
     }
-  }, [planRequest, requestedFlex]);
+  }, [planRequest, requestedFlex, calculatePlan]);
 
   // Map API splitPayments to UI format
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments.map((p) => ({
       ...p,
-      percentage: Number(((p.amount / requestedFlex) * 100).toFixed(2)),
+      percentage: Number(((p.amount / (requestedFlex || 1)) * 100).toFixed(2)),
     })) || [];
 
   const handleMethodSelect = useCallback((card: PaymentMethod) => {
@@ -137,8 +156,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     closeModal();
   }, []);
 
-  const { mutate: completeCheckout, status: checkoutStatus } =
-    useCompleteCheckout();
   const checkoutToken =
     typeof window !== "undefined"
       ? sessionStorage.getItem("checkoutToken")
@@ -185,25 +202,12 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     });
   };
 
-  if (userLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-white">
-        <div className="loader" />
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="flex flex-col p-4 bg-white min-h-screen">
         <h1 className="text-2xl font-bold mb-3">
           Flex your payments for ${requestedFlex.toFixed(2)}
         </h1>
-        {maxAnnualFlex > 0 && (
-          <p className="text-sm text-gray-600 mb-4">
-            Max per year: ${maxAnnualFlex.toFixed(2)}
-          </p>
-        )}
 
         <div className="mb-5">
           <label className="block text-sm font-medium mb-1">
@@ -308,7 +312,9 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
                       method={card}
                       selectedMethod={selectedPaymentMethod}
                       onSelect={handleMethodSelect}
-                      isLastItem={idx === paymentMethodsData.data.data.length - 1}
+                      isLastItem={
+                        idx === paymentMethodsData.data.data.length - 1
+                      }
                     />
                   ))}
               </div>

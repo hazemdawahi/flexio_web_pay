@@ -29,7 +29,6 @@ export interface PlansData {
   superchargeDetails: SuperchargeDetail[];
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];  // discount IDs
-  paymentMethodId?: string;
 }
 
 const Plans: React.FC = () => {
@@ -44,13 +43,11 @@ const Plans: React.FC = () => {
     }
 
     const params = new URLSearchParams(location.search);
-    // now reading "amount" instead of "instantPowerAmount"
     const amount = params.get("amount") || "";
     const superchargeDetailsParam = params.get("superchargeDetails");
     const otherUserAmountsParam = params.get("otherUserAmounts");
     const discountIdsParam = params.get("discountIds");
     const paymentType = (params.get("paymentType") as any) || "instantaneous";
-    const paymentMethodId = params.get("paymentMethodId") || undefined;
 
     let superchargeDetails: SuperchargeDetail[] = [];
     if (superchargeDetailsParam) {
@@ -85,7 +82,6 @@ const Plans: React.FC = () => {
       superchargeDetails,
       otherUserAmounts,
       selectedDiscounts,
-      paymentMethodId,
     });
   }, [location]);
 
@@ -97,7 +93,13 @@ const Plans: React.FC = () => {
     );
   }
 
-  const { paymentType, amount, superchargeDetails, otherUserAmounts, selectedDiscounts, paymentMethodId } = data;
+  const {
+    paymentType,
+    amount,
+    superchargeDetails,
+    otherUserAmounts,
+    selectedDiscounts,
+  } = data;
 
   const renderPrimaryContent = () => {
     switch (paymentType) {
@@ -108,7 +110,6 @@ const Plans: React.FC = () => {
             superchargeDetails={superchargeDetails}
             otherUserAmounts={otherUserAmounts}
             selectedDiscounts={selectedDiscounts}
-            paymentMethodId={paymentMethodId}
           />
         );
 
@@ -118,7 +119,6 @@ const Plans: React.FC = () => {
             yearlyPowerAmount={amount}
             superchargeDetails={superchargeDetails}
             otherUserAmounts={otherUserAmounts}
-            paymentMethodId={paymentMethodId}
             selectedDiscounts={selectedDiscounts}
           />
         );
@@ -126,9 +126,6 @@ const Plans: React.FC = () => {
       case "selfpay":
         return (
           <SelfPayPaymentPlan
-            instantPowerAmount={amount}
-            superchargeDetails={superchargeDetails}
-            paymentMethodId={paymentMethodId!}
             otherUserAmounts={otherUserAmounts}
             selectedDiscounts={selectedDiscounts}
           />
@@ -163,7 +160,10 @@ const Plans: React.FC = () => {
             <Tabs
               tabs={[
                 {
-                  label: paymentType === "instantaneous" ? "Payment Plan" : "Yearly Plan",
+                  label:
+                    paymentType === "instantaneous"
+                      ? "Payment Plan"
+                      : "Yearly Plan",
                   content: <div className="px-4">{renderPrimaryContent()}</div>,
                 },
                 {
@@ -171,12 +171,15 @@ const Plans: React.FC = () => {
                   content: (
                     <div className="px-4">
                       <SmartPaymentPlans
-                        instantPowerAmount={paymentType === "instantaneous" ? amount : undefined}
-                        yearlyPowerAmount={paymentType === "yearly" ? amount : undefined}
+                        instantPowerAmount={
+                          paymentType === "instantaneous" ? amount : undefined
+                        }
+                        yearlyPowerAmount={
+                          paymentType === "yearly" ? amount : undefined
+                        }
                         superchargeDetails={superchargeDetails}
                         otherUserAmounts={otherUserAmounts}
                         selectedDiscounts={selectedDiscounts}
-                        paymentMethodId={paymentMethodId}
                       />
                     </div>
                   ),

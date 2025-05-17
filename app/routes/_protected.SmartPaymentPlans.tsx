@@ -44,7 +44,6 @@ interface SmartPaymentPlansProps {
   superchargeDetails: SuperchargeDetail[];
   otherUserAmounts: SplitEntry[];
   selectedDiscounts: string[];
-  paymentMethodId?: string;
 }
 interface PaymentDetail {
   dueDate: string;
@@ -67,14 +66,16 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   superchargeDetails,
   otherUserAmounts,
   selectedDiscounts,
-  paymentMethodId,
 }) => {
   const navigate = useNavigate();
   const { search } = useLocation();
 
   // pick whichever amount is provided
   const displayedAmount = useMemo(() => {
-    const raw = yearlyPowerAmount != null ? yearlyPowerAmount : instantPowerAmount ?? "0";
+    const raw =
+      yearlyPowerAmount != null
+        ? yearlyPowerAmount
+        : instantPowerAmount ?? "0";
     const n = parseFloat(raw);
     return isNaN(n) ? 0 : Number(n.toFixed(2));
   }, [instantPowerAmount, yearlyPowerAmount]);
@@ -117,26 +118,17 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
   } = useUserDetails();
   const smartPayEnabled = userRes?.data?.user.smartPay === true;
 
-  const {
-    data: pmData,
-    status: pmStatus,
-  } = usePaymentMethods();
+  const { data: pmData, status: pmStatus } = usePaymentMethods();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
 
-  // pick default on load
+  // pick default card on load
   useEffect(() => {
-    const cards = pmData?.data?.data ?? [];
+    const cards = pmData?.data?.data?.filter((m) => m.type === "card") ?? [];
     if (!cards.length || selectedPaymentMethod) return;
-    const firstCard = cards.find((m) => m.type === "card") ?? null;
-    if (paymentMethodId) {
-      const found = cards.find((m) => m.id === paymentMethodId) ?? firstCard;
-      setSelectedPaymentMethod(found);
-    } else {
-      setSelectedPaymentMethod(firstCard);
-    }
-  }, [pmData, paymentMethodId, selectedPaymentMethod]);
+    setSelectedPaymentMethod(cards[0]);
+  }, [pmData, selectedPaymentMethod]);
 
   const [rotation, setRotation] = useState(0);
   const handleToggle = useCallback(() => {
@@ -165,7 +157,9 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       calendarPlanData?.liabilityEvents.filter((l) => l.date === iso) ?? [];
 
     const planRaw =
-      calendarPlanData?.planEvents.filter((evt) => evt.plannedPaymentDate === iso) ?? [];
+      calendarPlanData?.planEvents.filter(
+        (evt) => evt.plannedPaymentDate === iso
+      ) ?? [];
     const paymentPlanPayments = planRaw.map((evt) => ({
       dueDate: evt.plannedPaymentDate,
       amount: evt.allocatedPayment,
@@ -198,12 +192,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     if (planCalendarError && planCalendarErrorObj) {
       toast.error(`Calendar error: ${planCalendarErrorObj.message}`);
     }
-  }, [
-    planError,
-    planErrorObj,
-    planCalendarError,
-    planCalendarErrorObj,
-  ]);
+  }, [planError, planErrorObj, planCalendarError, planCalendarErrorObj]);
 
   const nonZeroCycles: Cycle[] =
     planData?.cycles.filter((c) => c.allocatedPayment !== 0) ?? [];
@@ -236,7 +225,6 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     params.set("superchargeDetails", JSON.stringify(superchargeDetails));
     params.set("otherUserAmounts", JSON.stringify(otherUserAmounts));
     params.set("selectedDiscounts", JSON.stringify(selectedDiscounts));
-    params.set("paymentMethodId", selectedPaymentMethod.id);
 
     navigate(`/payment_confirmation?${params.toString()}`);
   };
@@ -254,8 +242,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     return (
       <div className="flex items-center justify-center h-screen p-4">
         <p className="text-red-500 text-center">
-          Please connect your bank (Plaid) before using Smart
-          Payment Plans.
+          Please connect your bank (Plaid) before using Smart Payment Plans.
         </p>
       </div>
     );
@@ -305,7 +292,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       </div>
 
       {/* Circles */}
-      <div className="flex space-x-4 overflow-x-auto mb-6">
+      <div className="flex space-x-4 overflow-x-auto mb-6 scrollbar-hide">
         {nonZeroCycles.map((c) => {
           const d = new Date(c.plannedPaymentDate);
           return (
@@ -324,7 +311,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
 
       {/* Flip-card container */}
       <div
-        className="w-full max-w-2xl mx-auto mb-6 border border-gray-300 rounded overflow-hidden"
+        className="w-full max-w-2xl mx-auto mb-6 border border-gray-300 rounded"
         style={{ height: "85vh" }}
       >
         <FlipCard
@@ -356,17 +343,13 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
 
       {/* Payment method selector */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold mb-3">
-          Payment method
-        </h2>
+        <h2 className="text-xl font-semibold mb-3">Payment method</h2>
         {pmStatus === "pending" ? (
           <div className="flex justify-center">
             <div className="loader h-16 w-16" />
           </div>
         ) : pmStatus === "error" ? (
-          <p className="text-red-500">
-            Error fetching methods
-          </p>
+          <p className="text-red-500">Error fetching methods</p>
         ) : (
           <SelectedPaymentMethod
             selectedMethod={selectedPaymentMethod}
@@ -407,9 +390,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center p-4 border-b">
-                  <h3 className="font-bold">
-                    Select payment method
-                  </h3>
+                  <h3 className="font-bold">Select payment method</h3>
                   <button
                     onClick={() => navigate("/payment-settings")}
                     className="bg-black text-white px-3 py-1 rounded"

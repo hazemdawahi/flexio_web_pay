@@ -1,4 +1,4 @@
-// app/routes/YearlyPaymentPlan.tsx
+// File: app/routes/YearlyPaymentPlan.tsx
 
 import React, {
   useState,
@@ -49,16 +49,12 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
 
   // --- Hooks (always run in same order) ---
   const { data: userDetailsData, isLoading: userLoading } = useUserDetails();
-
-  const { data: paymentMethodsData, status: pmStatus } =
-    usePaymentMethods();
-
+  const { data: paymentMethodsData, status: pmStatus } = usePaymentMethods();
   const {
     mutate: calculatePlan,
     data: calculatedPlan,
     isPending: planLoading,
   } = useCalculatePaymentPlan();
-
   const { mutate: completeCheckout, status: checkoutStatus } =
     useCompleteCheckout();
 
@@ -72,8 +68,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
   const [startDate, setStartDate] = useState(
     () => new Date().toISOString().split("T")[0]
   );
-
-  // --- End hooks ---
 
   // Show loader until we have the user
   if (userLoading) {
@@ -89,16 +83,15 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
   const userYearlyPower = user?.yearlyPower || 0;
   const yearlyTerms = user?.yearlyTerms || 5; // in years
 
-  const maxAnnualFlex = userYearlyPower / yearlyTerms; // cap per year
   const requestedFlex = parseFloat(yearlyPowerAmount) || 0;
 
   // Duration (months) options
   const computedMin =
-    maxAnnualFlex > 0 && requestedFlex > 0
-      ? Math.ceil((requestedFlex * 12) / maxAnnualFlex)
+    userYearlyPower > 0 && requestedFlex > 0
+      ? Math.ceil((requestedFlex * 12) / (userYearlyPower / yearlyTerms))
       : 12;
   const minMonths = Math.max(12, computedMin);
-  const maxMonths = yearlyTerms * 12; // use yearlyTerms
+  const maxMonths = yearlyTerms * 12;
 
   const monthOptions = useMemo(() => {
     const arr: number[] = [];
@@ -106,7 +99,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     return arr;
   }, [minMonths, maxMonths]);
 
-  const [selectedMonths, setSelectedMonths] = useState(
+  const [selectedMonths, setSelectedMonths] = useState<number>(
     monthOptions[0] || 12
   );
   useEffect(() => {
@@ -114,8 +107,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
       setSelectedMonths(monthOptions[0] || 12);
     }
   }, [monthOptions, selectedMonths]);
-
-  const paymentFrequency: "MONTHLY" = "MONTHLY";
 
   // Default payment method
   useEffect(() => {
@@ -129,12 +120,12 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
   // Recalculate plan when inputs change
   const planRequest = useMemo(
     () => ({
-      frequency: paymentFrequency,
+      frequency: "MONTHLY" as const,
       numberOfPayments: selectedMonths,
       purchaseAmount: requestedFlex,
       startDate,
     }),
-    [paymentFrequency, selectedMonths, requestedFlex, startDate]
+    [selectedMonths, requestedFlex, startDate]
   );
   useEffect(() => {
     if (requestedFlex > 0) {
@@ -148,7 +139,9 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments.map((p) => ({
       ...p,
-      percentage: Number(((p.amount / (requestedFlex || 1)) * 100).toFixed(2)),
+      percentage: Number(
+        ((p.amount / (requestedFlex || 1)) * 100).toFixed(2)
+      ),
     })) || [];
 
   const handleMethodSelect = useCallback((card: PaymentMethod) => {
@@ -180,7 +173,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
         paymentMethodId: d.paymentMethodId,
         amount: parseFloat(d.amount),
       })),
-      paymentFrequency,
+      paymentFrequency: "MONTHLY",
       numberOfPayments: selectedMonths,
       offsetStartDate: startDate,
       otherUsers: otherUserAmounts.map((u) => ({
@@ -202,28 +195,76 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     });
   };
 
+  // compute filled percentage
+  const fillPercent =
+    ((selectedMonths - minMonths) / (maxMonths - minMonths)) * 100;
+
   return (
     <>
+      {/* Global slider‐thumb styling */}
+      <style>
+        {`
+        input[type="range"] {
+          --thumb-size: 16px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: var(--thumb-size);
+          height: var(--thumb-size);
+          border-radius: 50%;
+          background: #00BFFF;
+          border: none;
+          cursor: pointer;
+          margin-top: calc((8px - var(--thumb-size)) / 2);
+        }
+        input[type="range"]::-moz-range-thumb {
+          width: var(--thumb-size);
+          height: var(--thumb-size);
+          border-radius: 50%;
+          background: #00BFFF;
+          border: none;
+          cursor: pointer;
+        }
+        input[type="range"]::-ms-thumb {
+          width: var(--thumb-size);
+          height: var(--thumb-size);
+          border-radius: 50%;
+          background: #00BFFF;
+          border: none;
+          cursor: pointer;
+        }
+        `}
+      </style>
+
       <div className="flex flex-col p-4 bg-white min-h-screen">
+        {/* Updated header */}
         <h1 className="text-2xl font-bold mb-3">
-          Flex your payments for ${requestedFlex.toFixed(2)}
+          Flex your ${requestedFlex.toFixed(2)} on {selectedMonths}{" "}
+          {selectedMonths === 1 ? "month" : "months"}
         </h1>
 
+        {/* Slider */}
         <div className="mb-5">
-          <label className="block text-sm font-medium mb-1">
-            Duration (months)
-          </label>
-          <select
+        
+          <input
+            type="range"
+            min={minMonths}
+            max={maxMonths}
             value={selectedMonths}
             onChange={(e) => setSelectedMonths(+e.target.value)}
-            className="w-full p-2 border rounded-md shadow-sm"
-          >
-            {monthOptions.map((m) => (
-              <option key={m} value={m}>
-                {m} {m === 1 ? "month" : "months"}
-              </option>
-            ))}
-          </select>
+            style={{
+              background: `linear-gradient(to right, #00BFFF 0%, #00BFFF ${fillPercent}%, #ccc ${fillPercent}%, #ccc 100%)`,
+              height: 8,
+              borderRadius: 4,
+              appearance: "none",
+            }}
+            className="w-full cursor-pointer"
+          />
+          <div className="flex justify-between text-sm font-medium mt-1">
+            <span>{minMonths} months</span>
+            <span>{maxMonths} months</span>
+          </div>
         </div>
 
         <div className="mb-5">
@@ -270,7 +311,9 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
         >
           {checkoutStatus === "pending"
             ? "Processing…"
-            : `Flex $${requestedFlex.toFixed(2)} over ${selectedMonths} ${
+            : `Flex $${requestedFlex.toFixed(
+                2
+              )} over ${selectedMonths} ${
                 selectedMonths === 1 ? "month" : "months"
               }`}
         </button>

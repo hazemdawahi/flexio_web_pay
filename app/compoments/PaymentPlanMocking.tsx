@@ -24,9 +24,10 @@ const ExampleCustomInput = forwardRef(
     { onClick, className }: { onClick?: () => void; className?: string },
     ref: React.Ref<HTMLButtonElement>
   ) => (
-    <button className={className} onClick={onClick} ref={ref}>
-      Change Starting Date
-    </button>
+    <button className={`${className} font-bold`} onClick={onClick} ref={ref}>
+    Change Starting Date
+  </button>
+  
   )
 );
 
@@ -85,7 +86,7 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
               maxDate={maxDate}
               withPortal
               customInput={
-                <ExampleCustomInput className="px-3 py-1 bg-black text-white rounded hover:bg-gray-800 transition-colors" />
+<ExampleCustomInput className="px-3 py-1 bg-[#00BFFF] text-white rounded transition-colors" />
               }
             />
           )}

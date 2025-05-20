@@ -1,4 +1,4 @@
-// app/routes/_protected.PaymentPlan.tsx
+// src/routes/_protected.PaymentPlan.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
@@ -40,7 +40,7 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   const { search } = useLocation();
   const modeSplit = new URLSearchParams(search).get("split") === "true";
 
-  // Dollar parsing
+  // Dollar parsing (all amounts in dollars)
   const displayedInstant = Number(parseFloat(instantPowerAmount).toFixed(2)) || 0;
   const totalSupercharge = useMemo(
     () =>
@@ -53,7 +53,6 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
   const purchaseAmountDollars = modeSplit
     ? displayedInstant + totalSupercharge
     : displayedInstant;
-  const purchaseAmountCents = Math.round(purchaseAmountDollars * 100);
 
   // Component state
   const [numberOfPeriods, setNumberOfPeriods] = useState("1");
@@ -66,7 +65,6 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     useState<PaymentMethod | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // loading flag for plan
   const [loadingPlan, setLoadingPlan] = useState(true);
 
   // Data hooks
@@ -96,14 +94,14 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: Number(numberOfPeriods),
-      purchaseAmount: purchaseAmountCents,
+      purchaseAmount: purchaseAmountDollars, // now in dollars
       startDate,
     }),
-    [paymentFrequency, numberOfPeriods, purchaseAmountCents, startDate]
+    [paymentFrequency, numberOfPeriods, purchaseAmountDollars, startDate]
   );
 
   useEffect(() => {
-    if (!purchaseAmountCents) return;
+    if (purchaseAmountDollars <= 0) return;
     setLoadingPlan(true);
     calculatePlan(planRequest, {
       onSuccess: () => setLoadingPlan(false),
@@ -114,25 +112,24 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
     });
   }, [planRequest]);
 
-  // map API splitPayments (in cents) back to dollars for UI
+  // API already returns amounts in dollars—just round to 2 decimals
   const uiPayments = useMemo(
     () =>
       calculatedPlan?.data?.splitPayments?.map((p) => ({
-        amount: Number((p.amount / 100).toFixed(2)),
+        amount: Number(p.amount.toFixed(2)),
         dueDate: p.dueDate,
         percentage: p.percentage,
       })) ?? [],
     [calculatedPlan]
   );
 
-  // Handlers
   const handleMethodSelect = useCallback((m: PaymentMethod) => {
     setSelectedPaymentMethod(m);
     setIsModalOpen(false);
   }, []);
 
   const handleConfirm = () => {
-    if (!selectedPaymentMethod || purchaseAmountCents <= 0) {
+    if (!selectedPaymentMethod || purchaseAmountDollars <= 0) {
       toast.error("Pick a payment method and amount > 0");
       return;
     }
@@ -264,10 +261,10 @@ const PaymentPlan: React.FC<PaymentPlanProps> = ({
         </div>
 
         <button
-          disabled={purchaseAmountCents <= 0 || checkoutStatus === "pending"}
+          disabled={purchaseAmountDollars <= 0 || checkoutStatus === "pending"}
           onClick={handleConfirm}
           className={`w-full py-3 rounded-lg font-bold text-white ${
-            purchaseAmountCents <= 0
+            purchaseAmountDollars <= 0
               ? "bg-gray-400 cursor-not-allowed"
               : "bg-black hover:bg-gray-800"
           }`}

@@ -154,7 +154,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     () => ({
       frequency: paymentFrequency,
       numberOfPayments: parseInt(numberOfPeriods, 10),
-      purchaseAmount: discountedTotal,
+      purchaseAmount: discountedTotal,   // dollars, no cent conversion
       startDate,
     }),
     [paymentFrequency, numberOfPeriods, discountedTotal, startDate]
@@ -180,9 +180,9 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments?.map((p) => ({
       dueDate: p.dueDate,
-      amount: p.amount,
+      amount: Number(p.amount.toFixed(2)),          // dollars
       percentage: Number(
-        ((p.amount / discountedTotal) * 100).toFixed(2)
+        ((p.amount / (discountedTotal || 1)) * 100).toFixed(2)
       ),
     })) ?? [];
 
@@ -268,25 +268,19 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
     ));
   };
 
-  const isTierValid = (() => {
-    const full = parseFloat(rawTotal);
-    const periods = parseInt(numberOfPeriods, 10);
-    const tierForFreq = tiers.find(
-      (t) => t.termType === paymentFrequency
-    );
-    if (tierForFreq) {
-      const okAmt =
-        (parseFloat(tierForFreq.minAmount) === 0 &&
-          parseFloat(tierForFreq.maxAmount) === 0) ||
-        (full >= parseFloat(tierForFreq.minAmount) &&
-          full <= parseFloat(tierForFreq.maxAmount));
-      const okTerm =
-        periods >= tierForFreq.minTerm &&
-        periods <= tierForFreq.maxTerm;
-      return okAmt && okTerm;
-    }
-    return false;
-  })();
+  const rawFull = parseFloat(rawTotal);
+  const periods = parseInt(numberOfPeriods, 10);
+  const tierForFreq = tiers.find(
+    (t) => t.termType === paymentFrequency
+  );
+  const isTierValid = tierForFreq
+    ? ((rawFull >= parseFloat(tierForFreq.minAmount) &&
+        rawFull <= parseFloat(tierForFreq.maxAmount)) ||
+       (parseFloat(tierForFreq.minAmount) === 0 &&
+        parseFloat(tierForFreq.maxAmount) === 0)) &&
+      periods >= tierForFreq.minTerm &&
+      periods <= tierForFreq.maxTerm
+    : false;
 
   // --- Confirm Handler ---
   const handleConfirm = () => {
@@ -309,11 +303,11 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
       superchargeDetails: [],
       selectedPaymentMethod: selectedPaymentMethod.id,
       paymentFrequency,
-      numberOfPayments: parseInt(numberOfPeriods, 10),
+      numberOfPayments: periods,
       offsetStartDate: startDate,
       otherUsers: otherUserAmounts.map((u) => ({
         userId: u.userId,
-        amount: Math.round(parseFloat(u.amount) * 100),
+        amount: Number(parseFloat(u.amount).toFixed(2)),  // dollars
       })),
       discountIds: selectedDiscounts,
       selfPayActive: true,
@@ -397,9 +391,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
               >
                 {availablePaymentFrequencies.map((freq) => (
                   <option key={freq} value={freq}>
-                    {freq === "BIWEEKLY"
-                      ? "Bi-weekly"
-                      : "Monthly"}
+                    {freq === "BIWEEKLY" ? "Bi-weekly" : "Monthly"}
                   </option>
                 ))}
               </select>
@@ -419,9 +411,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
               isCollapsed={false}
               initialDate={new Date(startDate)}
               onDateSelected={(date) =>
-                setStartDate(
-                  date.toISOString().split("T")[0]
-                )
+                setStartDate(date.toISOString().split("T")[0])
               }
             />
           ) : (
@@ -447,21 +437,16 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
               <ul>
                 {discounts.map((d: any) => {
                   const disabled =
-                    displayedCheckoutTotal -
-                      getDiscountValue(d) <
-                    0;
+                    displayedCheckoutTotal - getDiscountValue(d) < 0;
                   const sid = String(d.id);
                   return (
                     <li
                       key={d.id}
                       onClick={() =>
-                        !disabled &&
-                        handleDiscountChange(d.id)
+                        !disabled && handleDiscountChange(d.id)
                       }
                       className={`flex items-center justify-between border p-2 mb-2 rounded cursor-pointer ${
-                        disabled
-                          ? "opacity-50 cursor-not-allowed"
-                          : ""
+                        disabled ? "opacity-50 cursor-not-allowed" : ""
                       }`}
                     >
                       <div className="flex items-center">
@@ -474,7 +459,8 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                               )
                                 ? merchantDetailData.data.brand
                                     .displayLogo
-                                : `${baseUrl}${merchantDetailData.data.brand.displayLogo}`
+                                : `${baseUrl}${merchantDetailData.data
+                                    .brand.displayLogo}`
                             }
                             alt={
                               merchantDetailData.data.brand
@@ -490,16 +476,12 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                           <p>
                             {d.type === "PERCENTAGE_OFF"
                               ? `${d.discountPercentage}% off`
-                              : `$${d.discountAmount.toFixed(
-                                  2
-                                )} off`}
+                              : `$${d.discountAmount.toFixed(2)} off`}
                           </p>
                           {d.expiresAt && (
                             <p className="text-sm text-gray-500">
                               Expires:{" "}
-                              {new Date(
-                                d.expiresAt
-                              ).toLocaleString()}
+                              {new Date(d.expiresAt).toLocaleString()}
                             </p>
                           )}
                         </div>
@@ -507,9 +489,7 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                       <input
                         type="radio"
                         name="discount"
-                        checked={selectedDiscounts.includes(
-                          sid
-                        )}
+                        checked={selectedDiscounts.includes(sid)}
                         disabled={disabled}
                         readOnly
                         className="ml-4 w-4 h-4 accent-blue-600"
@@ -579,16 +559,10 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
               <motion.div
                 className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-3/4 overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
-                initial={{ y: "100%", opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: "100%", opacity: 0 }}
-                transition={{ duration: 0.3 }}
               >
                 <div className="flex justify-end p-4">
                   <button
-                    onClick={() =>
-                      navigate("/payment-settings")
-                    }
+                    onClick={() => navigate("/payment-settings")}
                     className="bg-black text-white font-bold py-2 px-4 rounded-lg"
                   >
                     Payment Settings
@@ -604,13 +578,9 @@ const SelfPayPaymentPlan: React.FC<Partial<PlansData>> = (props) => {
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        selectedMethod={
-                          selectedPaymentMethod
-                        }
+                        selectedMethod={selectedPaymentMethod}
                         onSelect={handleMethodSelect}
-                        isLastItem={
-                          idx === arr.length - 1
-                        }
+                        isLastItem={idx === arr.length - 1}
                       />
                     ))}
                 </div>

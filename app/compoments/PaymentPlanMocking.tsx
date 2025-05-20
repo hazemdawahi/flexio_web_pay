@@ -1,8 +1,9 @@
-// app/components/PaymentPlanMocking.tsx
-import React, { useState, useEffect, forwardRef } from 'react';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
-import { useNavigate } from 'react-router-dom';
+// src/components/PaymentPlanMocking.tsx
+
+import React, { useState, useEffect, forwardRef } from "react";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { useNavigate } from "react-router-dom";
 
 interface SplitPayment {
   amount: number;
@@ -15,19 +16,17 @@ interface PaymentPlanMockingProps {
   showEditButton?: boolean;
   showChangeDateButton?: boolean;
   onDateSelected?: (date: Date) => void;
-  initialDate?: Date; // New prop to receive the currently selected starting date
+  initialDate?: Date;
 }
 
-// Custom input component using forwardRef that always displays "Change Starting Date"
 const ExampleCustomInput = forwardRef(
   (
     { onClick, className }: { onClick?: () => void; className?: string },
     ref: React.Ref<HTMLButtonElement>
   ) => (
     <button className={`${className} font-bold`} onClick={onClick} ref={ref}>
-    Change Starting Date
-  </button>
-  
+      Change Starting Date
+    </button>
   )
 );
 
@@ -39,32 +38,30 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
   onDateSelected,
   initialDate,
 }) => {
-  // Use the initialDate prop as the starting value; default to today if not provided.
-  const [selectedDate, setSelectedDate] = useState<Date>(initialDate || new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(
+    initialDate || new Date()
+  );
   const navigate = useNavigate();
 
-  // Update the internal state when the parent's initialDate changes.
   useEffect(() => {
     if (initialDate) {
       setSelectedDate(initialDate);
     }
   }, [initialDate]);
 
-  if (isCollapsed) {
-    return null;
-  }
+  if (isCollapsed) return null;
 
-  // Calculate total amount from the payments list without further conversion
-  const totalAmount = payments.reduce((total: number, payment: SplitPayment) => total + payment.amount, 0);
+  // **NO** *100 here—sum API amounts directly
+  const totalAmount = payments.reduce((sum, p) => sum + p.amount, 0);
 
   const handleEditPress = () => {
-    navigate('/payment-plans');
+    navigate("/payment-plans");
   };
 
   const handleDateChange = (date: Date | null) => {
     if (date) {
       setSelectedDate(date);
-      onDateSelected && onDateSelected(date);
+      onDateSelected?.(date);
     }
   };
 
@@ -74,9 +71,11 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
 
   return (
     <div className="p-6 border rounded-lg bg-white shadow-md">
-      {/* Header Section */}
+      {/* Header */}
       <div className="flex justify-between items-center mb-6">
-        <span className="text-lg font-semibold">{`${payments.length} Total Payments`}</span>
+        <span className="text-lg font-semibold">
+          {payments.length} Total Payments
+        </span>
         <div className="flex space-x-2">
           {showChangeDateButton && (
             <DatePicker
@@ -86,7 +85,7 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
               maxDate={maxDate}
               withPortal
               customInput={
-<ExampleCustomInput className="px-3 py-1 bg-[#00BFFF] text-white rounded transition-colors" />
+                <ExampleCustomInput className="px-3 py-1 bg-[#00BFFF] text-white rounded transition-colors" />
               }
             />
           )}
@@ -101,30 +100,24 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
         </div>
       </div>
 
-      {/* Vertical Stepper */}
+      {/* Stepper */}
       <div className="relative">
-        {/* Vertical Line */}
-        <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-black"></div>
-
-        {/* Payment Steps */}
+        <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-black" />
         <div className="ml-4">
           {payments.map((payment, index) => {
             const isLast = index === payments.length - 1;
             return (
               <div key={index} className="flex items-start mb-8">
-                {/* Dot and Connector */}
                 <div className="flex flex-col items-center">
-                  <div className="w-5 h-5 bg-white border-2 border-black rounded-full z-10"></div>
-                  {!isLast && <div className="w-px flex-1 bg-black"></div>}
+                  <div className="w-5 h-5 bg-white border-2 border-black rounded-full z-10" />
+                  {!isLast && <div className="w-px flex-1 bg-black" />}
                 </div>
-
-                {/* Payment Details */}
                 <div className="ml-4">
                   <p className="text-md font-medium">
                     {new Date(payment.dueDate).toLocaleDateString(undefined, {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
                     })}
                   </p>
                   <p className="text-sm text-gray-600">
@@ -135,10 +128,10 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
             );
           })}
 
-          {/* Total Amount */}
+          {/* Total */}
           <div className="flex items-start mt-4">
             <div className="flex flex-col items-center">
-              <div className="w-5 h-5 bg-white border-2 border-black rounded-full z-10"></div>
+              <div className="w-5 h-5 bg-white border-2 border-black rounded-full z-10" />
             </div>
             <div className="ml-4">
               <p className="text-md font-semibold">Total</p>

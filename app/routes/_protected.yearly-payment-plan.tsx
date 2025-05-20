@@ -47,7 +47,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     ...props,
   };
 
-  // --- Hooks (always run in same order) ---
+  // --- Hooks ---
   const { data: userDetailsData, isLoading: userLoading } = useUserDetails();
   const { data: paymentMethodsData, status: pmStatus } = usePaymentMethods();
   const {
@@ -60,7 +60,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
 
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod | null>(null);
-
   const [isModalOpen, setIsModalOpen] = useState(false);
   const openModal = () => setIsModalOpen(true);
   const closeModal = () => setIsModalOpen(false);
@@ -69,7 +68,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     () => new Date().toISOString().split("T")[0]
   );
 
-  // Show loader until we have the user
   if (userLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
@@ -78,14 +76,14 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     );
   }
 
-  // Safe defaults from userDetails
   const user = userDetailsData?.data?.user;
   const userYearlyPower = user?.yearlyPower || 0;
-  const yearlyTerms = user?.yearlyTerms || 5; // in years
+  const yearlyTerms = user?.yearlyTerms || 5;
 
-  const requestedFlex = parseFloat(yearlyPowerAmount) || 0;
+  // requestedFlex in dollars, rounded to 2 decimals
+  const requestedFlex = Number(parseFloat(yearlyPowerAmount).toFixed(2)) || 0;
 
-  // Duration (months) options
+  // Duration (months)
   const computedMin =
     userYearlyPower > 0 && requestedFlex > 0
       ? Math.ceil((requestedFlex * 12) / (userYearlyPower / yearlyTerms))
@@ -108,7 +106,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     }
   }, [monthOptions, selectedMonths]);
 
-  // Default payment method
+  // Default card
   useEffect(() => {
     const cards =
       paymentMethodsData?.data?.data.filter((c) => c.type === "card") ?? [];
@@ -117,12 +115,12 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     }
   }, [paymentMethodsData, selectedPaymentMethod]);
 
-  // Recalculate plan when inputs change
+  // Recalculate plan
   const planRequest = useMemo(
     () => ({
       frequency: "MONTHLY" as const,
       numberOfPayments: selectedMonths,
-      purchaseAmount: requestedFlex,
+      purchaseAmount: requestedFlex,   // dollars, no *100
       startDate,
     }),
     [selectedMonths, requestedFlex, startDate]
@@ -135,10 +133,11 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     }
   }, [planRequest, requestedFlex, calculatePlan]);
 
-  // Map API splitPayments to UI format
+  // Map API splitPayments to UI, keep p.amount as dollars
   const mockPayments: SplitPayment[] =
     calculatedPlan?.data?.splitPayments.map((p) => ({
-      ...p,
+      amount: Number(p.amount.toFixed(2)),
+      dueDate: p.dueDate,
       percentage: Number(
         ((p.amount / (requestedFlex || 1)) * 100).toFixed(2)
       ),
@@ -167,18 +166,18 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     const payload: CompleteCheckoutPayload = {
       checkoutToken,
       instantAmount: 0,
-      yearlyAmount: requestedFlex,
+      yearlyAmount: requestedFlex,    // dollars
       selectedPaymentMethod: selectedPaymentMethod.id,
       superchargeDetails: superchargeDetails.map((d) => ({
         paymentMethodId: d.paymentMethodId,
-        amount: parseFloat(d.amount),
+        amount: Number(parseFloat(d.amount).toFixed(2)),
       })),
       paymentFrequency: "MONTHLY",
       numberOfPayments: selectedMonths,
       offsetStartDate: startDate,
       otherUsers: otherUserAmounts.map((u) => ({
         userId: u.userId,
-        amount: parseFloat(u.amount),
+        amount: Number(parseFloat(u.amount).toFixed(2)),
       })),
       discountIds: selectedDiscounts,
       selfPayActive: false,
@@ -195,58 +194,27 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
     });
   };
 
-  // compute filled percentage
+  // slider fill percent
   const fillPercent =
     ((selectedMonths - minMonths) / (maxMonths - minMonths)) * 100;
 
   return (
     <>
-      {/* Global slider‐thumb styling */}
       <style>
         {`
-        input[type="range"] {
-          --thumb-size: 16px;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          width: var(--thumb-size);
-          height: var(--thumb-size);
-          border-radius: 50%;
-          background: #00BFFF;
-          border: none;
-          cursor: pointer;
-          margin-top: calc((8px - var(--thumb-size)) / 2);
-        }
-        input[type="range"]::-moz-range-thumb {
-          width: var(--thumb-size);
-          height: var(--thumb-size);
-          border-radius: 50%;
-          background: #00BFFF;
-          border: none;
-          cursor: pointer;
-        }
-        input[type="range"]::-ms-thumb {
-          width: var(--thumb-size);
-          height: var(--thumb-size);
-          border-radius: 50%;
-          background: #00BFFF;
-          border: none;
-          cursor: pointer;
-        }
+        input[type="range"] {-webkit-appearance:none;width:100%;}
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; width:16px;height:16px;border-radius:50%;background:#00BFFF;cursor:pointer;margin-top:-4px;}
         `}
       </style>
 
       <div className="flex flex-col p-4 bg-white min-h-screen">
-        {/* Updated header */}
         <h1 className="text-2xl font-bold mb-3">
-          Flex your ${requestedFlex.toFixed(2)} on {selectedMonths}{" "}
+          Flex your ${requestedFlex.toFixed(2)} over {selectedMonths}{" "}
           {selectedMonths === 1 ? "month" : "months"}
         </h1>
 
         {/* Slider */}
         <div className="mb-5">
-        
           <input
             type="range"
             min={minMonths}
@@ -259,7 +227,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
               borderRadius: 4,
               appearance: "none",
             }}
-            className="w-full cursor-pointer"
           />
           <div className="flex justify-between text-sm font-medium mt-1">
             <span>{minMonths} months</span>
@@ -267,6 +234,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
           </div>
         </div>
 
+        {/* Payment Plan */}
         <div className="mb-5">
           <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
           {planLoading ? (
@@ -286,6 +254,7 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
           )}
         </div>
 
+        {/* Payment Method */}
         <div className="mb-5">
           <h2 className="text-xl font-semibold mb-3">Payment Method</h2>
           {pmStatus === "pending" ? (
@@ -330,7 +299,6 @@ const YearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (
               transition={{ duration: 0.2 }}
               onClick={closeModal}
             />
-
             <motion.div
               className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end"
               initial={{ y: "100%", opacity: 0 }}

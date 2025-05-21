@@ -24,6 +24,12 @@ export interface SplitPayment {
   type: string
 }
 
+export interface RentEvent {          
+  date: string
+  amount: number
+  type: string
+}
+
 export interface AvoidedDate {
   id: string
   startDate: string
@@ -40,6 +46,7 @@ export interface FinancialCalendarPlanData {
   splitPayments: SplitPayment[]
   incomeEvents: IncomeEvent[]
   liabilityEvents: LiabilityEvent[]
+  rentEvents: RentEvent[]            // ← added
   avoidedDates: AvoidedDate[]
   planEvents: PlanEvent[]
 }

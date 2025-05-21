@@ -18,6 +18,7 @@ import {
   IncomeEvent as HookIncomeEvent,
   LiabilityEvent as HookLiabilityEvent,
   PlanEvent as HookPlanEvent,
+  RentEvent as HookRentEvent,           // ← added
 } from "~/hooks/useFinancialCalendarPlan";
 import {
   usePaymentMethods,
@@ -27,9 +28,8 @@ import CustomCalendar from "~/compoments/CustomCalendar";
 import FlipCard from "~/compoments/FlipCard";
 import FlippedContent from "~/compoments/FlippedContent";
 import PaymentCircle from "~/compoments/PaymentCircle";
-import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import PaymentMethodItem from "~/compoments/PaymentMethodItem";
-
+import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 interface SuperchargeDetail {
   amount: string;
   paymentMethodId: string;
@@ -54,6 +54,7 @@ interface DateDetails {
   splitPayments: PaymentDetail[];
   incomeEvents: HookIncomeEvent[];
   liabilityEvents: HookLiabilityEvent[];
+  rentEvents: HookRentEvent[];            // ← added
   paymentPlanPayments: PaymentDetail[];
   isAvoided: boolean;
   avoidedRangeName?: string;
@@ -156,6 +157,12 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
     const liabilityEvents =
       calendarPlanData?.liabilityEvents.filter((l) => l.date === iso) ?? [];
 
+    const rentRaw =
+      (calendarPlanData?.rentEvents ?? []).filter((r) => r.date === iso);
+    const rentEvents = rentRaw.map((r) => ({
+      ...r
+    }));
+
     const planRaw =
       calendarPlanData?.planEvents.filter(
         (evt) => evt.plannedPaymentDate === iso
@@ -176,6 +183,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
       splitPayments,
       incomeEvents,
       liabilityEvents,
+      rentEvents,                        // ← added
       paymentPlanPayments,
       isAvoided: !!avoidedRange,
       avoidedRangeName: avoidedRange?.name,
@@ -322,6 +330,7 @@ const SmartPaymentPlans: React.FC<SmartPaymentPlansProps> = ({
               splitPayments={calendarPlanData?.splitPayments ?? []}
               incomeEvents={calendarPlanData?.incomeEvents ?? []}
               liabilityEvents={calendarPlanData?.liabilityEvents ?? []}
+              rentEvents={calendarPlanData?.rentEvents ?? []}         // ← added
               avoidedDates={calendarPlanData?.avoidedDates ?? []}
               planEvents={calendarPlanData?.planEvents ?? []}
               renderSplitPayment={false}

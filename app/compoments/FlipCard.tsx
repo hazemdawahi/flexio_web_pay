@@ -1,23 +1,22 @@
 import React from 'react';
 
 interface FlipCardProps {
-  /** Rotation in degrees (0–180) */
+  /** 0–180 degrees */
   rotation: number;
-  /** What to render on the front face */
   frontContent: React.ReactNode;
-  /** What to render on the back face */
   backContent: React.ReactNode;
 }
 
 /**
- * A simple 3D CSS flip‐card for the web.
+ * A CSS‐only 3D flip card.
+ * Wrap this in a container that sets width/height.
  */
 const FlipCard: React.FC<FlipCardProps> = ({
   rotation,
   frontContent,
   backContent,
 }) => {
-  const containerStyle: React.CSSProperties = {
+  const wrapper: React.CSSProperties = {
     width: '100%',
     height: '100%',
     position: 'relative',
@@ -25,21 +24,23 @@ const FlipCard: React.FC<FlipCardProps> = ({
     transform: `perspective(1000px) rotateY(${rotation}deg)`,
     transition: 'transform 0.5s ease-out',
   };
-  const faceStyle: React.CSSProperties = {
+  const face: React.CSSProperties = {
     position: 'absolute',
-    top: 0, left: 0,
-    width: '100%', height: '100%',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
     backfaceVisibility: 'hidden',
   };
-  const backStyle: React.CSSProperties = {
-    ...faceStyle,
+  const backFace: React.CSSProperties = {
+    ...face,
     transform: 'rotateY(180deg)',
   };
 
   return (
-    <div style={containerStyle}>
-      <div style={faceStyle}>{frontContent}</div>
-      <div style={backStyle}>{backContent}</div>
+    <div style={wrapper}>
+      <div style={face}>{frontContent}</div>
+      <div style={backFace}>{backContent}</div>
     </div>
   );
 };

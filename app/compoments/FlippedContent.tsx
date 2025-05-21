@@ -1,3 +1,4 @@
+// src/components/FlippedContent.tsx
 import React from 'react'
 import { toast } from 'sonner'
 import { MdOutlineError, MdDeleteOutline } from 'react-icons/md'
@@ -5,6 +6,7 @@ import { MdOutlineError, MdDeleteOutline } from 'react-icons/md'
 interface SplitPayment { dueDate: string; amount: number }
 interface IncomeEvent  { date: string; amount: number; provider: string }
 interface LiabilityEvent { date: string; amount: number; type: string }
+interface RentEvent    { date: string; amount: number; type: string }   // ← added
 interface PaymentPlanPayment { dueDate: string; amount: number }
 
 export interface FinancialEventDetails {
@@ -12,6 +14,7 @@ export interface FinancialEventDetails {
   splitPayments: SplitPayment[]
   incomeEvents: IncomeEvent[]
   liabilityEvents: LiabilityEvent[]
+  rentEvents?: RentEvent[]                       // ← added
   paymentPlanPayments?: PaymentPlanPayment[]
   isAvoided?: boolean
   avoidedRangeName?: string
@@ -27,7 +30,11 @@ interface Props {
 }
 
 export default function FlippedContent({
-  details, onToggle, onRemoveAvoidedDate, isDeleting, readonly=false
+  details,
+  onToggle,
+  onRemoveAvoidedDate,
+  isDeleting,
+  readonly = false,
 }: Props) {
   if (!details) {
     return (
@@ -36,24 +43,34 @@ export default function FlippedContent({
         <button
           onClick={onToggle}
           className="px-6 py-2 border border-gray-300 rounded hover:bg-gray-100"
-        >Back</button>
+        >
+          Back
+        </button>
       </div>
     )
   }
 
   const {
-    date, splitPayments, incomeEvents,
-    liabilityEvents, paymentPlanPayments,
-    isAvoided, avoidedRangeName, avoidedRangeId
+    date,
+    splitPayments,
+    incomeEvents,
+    liabilityEvents,
+    rentEvents = [],                           // ← defaulted
+    paymentPlanPayments,
+    isAvoided,
+    avoidedRangeName,
+    avoidedRangeId,
   } = details
 
   return (
     <div className="max-h-[80vh] overflow-y-auto bg-white rounded-lg p-6 flex flex-col items-center">
-      <h2 className="text-xl font-bold mb-4">Details for {new Date(date).toDateString()}</h2>
+      <h2 className="text-xl font-bold mb-4">
+        Details for {new Date(date).toDateString()}
+      </h2>
 
       {isAvoided && avoidedRangeName && (
         <div className="flex items-center bg-red-100 p-3 rounded mb-4 w-full">
-          <MdOutlineError size={24} className="text-red-600"/>
+          <MdOutlineError size={24} className="text-red-600" />
           <div className="flex-1 ml-2">
             <p className="text-red-600 font-semibold">{avoidedRangeName}</p>
             <p className="text-red-600 text-sm">{new Date(date).toDateString()}</p>
@@ -78,7 +95,7 @@ export default function FlippedContent({
 
       {liabilityEvents.length > 0 && (
         <Section title="Liability Events:">
-          {liabilityEvents.map((e,i) =>
+          {liabilityEvents.map((e, i) =>
             <p key={i} className="ml-4">{e.type}: ${e.amount.toFixed(2)}</p>
           )}
         </Section>
@@ -86,7 +103,7 @@ export default function FlippedContent({
 
       {splitPayments.length > 0 && (
         <Section title="Split Payments:">
-          {splitPayments.map((p,i) =>
+          {splitPayments.map((p, i) =>
             <p key={i} className="ml-4">
               Due on {new Date(p.dueDate).toLocaleDateString()}: ${p.amount.toFixed(2)}
             </p>
@@ -96,15 +113,23 @@ export default function FlippedContent({
 
       {incomeEvents.length > 0 && (
         <Section title="Income Events:">
-          {incomeEvents.map((e,i) =>
+          {incomeEvents.map((e, i) =>
             <p key={i} className="ml-4">{e.provider}: ${e.amount.toFixed(2)}</p>
+          )}
+        </Section>
+      )}
+
+      {rentEvents.length > 0 && (                    // ← added
+        <Section title="Rent Events:">
+          {rentEvents.map((r, i) =>
+            <p key={i} className="ml-4">{r.type}: ${r.amount.toFixed(2)}</p>
           )}
         </Section>
       )}
 
       {paymentPlanPayments && paymentPlanPayments.length > 0 && (
         <Section title="Payment Plan:">
-          {paymentPlanPayments.map((p,i) =>
+          {paymentPlanPayments.map((p, i) =>
             <button
               key={i}
               onClick={() => toast(`Plan payment: $${p.amount.toFixed(2)}`)}
@@ -119,7 +144,9 @@ export default function FlippedContent({
       <button
         onClick={onToggle}
         className="mt-4 px-6 py-2 border border-gray-300 rounded hover:bg-gray-100"
-      >Back To Calendar</button>
+      >
+        Back To Calendar
+      </button>
     </div>
   )
 }

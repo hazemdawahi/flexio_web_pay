@@ -1,3 +1,4 @@
+// DayCell.tsx
 import React, { useRef } from 'react'
 
 interface EventMap {
@@ -5,6 +6,7 @@ interface EventMap {
     liability?: boolean
     splitPayment?: boolean
     income?: boolean
+    rent?: boolean               // ← added
     paymentPlan?: boolean
   }
 }
@@ -23,8 +25,15 @@ interface Props {
 }
 
 export default function DayCell({
-  day, eventMap, inRange, isStart, isEnd, avoided,
-  onSingleTap, onDoubleTap, onLongPress
+  day,
+  eventMap,
+  inRange,
+  isStart,
+  isEnd,
+  avoided,
+  onSingleTap,
+  onDoubleTap,
+  onLongPress
 }: Props) {
   const clickRef = useRef<NodeJS.Timeout | null>(null)
   const longRef  = useRef<NodeJS.Timeout | null>(null)
@@ -37,7 +46,6 @@ export default function DayCell({
   }
 
   const handleClick = () => {
-    // delay single-click to distinguish dblclick
     if (!clickRef.current) {
       clickRef.current = setTimeout(() => {
         onSingleTap(day)
@@ -76,6 +84,7 @@ export default function DayCell({
         {eventMap[day]?.liability    && <span className="w-2 h-2 bg-pink-200 rounded-full"/>}
         {eventMap[day]?.splitPayment && <span className="w-2 h-2 bg-purple-200 rounded-full"/>}
         {eventMap[day]?.income       && <span className="w-2 h-2 bg-green-200 rounded-full"/>}
+        {eventMap[day]?.rent         && <span className="w-2 h-2 bg-orange-500 rounded-full"/>} {/* ← added */}
         {eventMap[day]?.paymentPlan  && <span className="w-2 h-2 bg-purple-100 rounded-full"/>}
       </div>
     </div>

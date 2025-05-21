@@ -1,11 +1,13 @@
+// CustomCalendar.tsx
 import React, { useEffect, useState } from 'react'
 import { toast, Toaster } from 'sonner'
 import { GoChevronLeft, GoChevronRight } from 'react-icons/go'
-import DayCell from './DayCell';
+import DayCell from './DayCell'
 
 interface SplitPayment { date: string; amount: number; type: string }
 interface IncomeEvent  { date: string; amount: number; provider: string }
 interface LiabilityEvent { date: string; amount: number; type: string }
+interface RentEvent    { date: string; amount: number; type: string }   // ← added
 interface AvoidedDate { id: string; startDate: string; endDate: string; name: string }
 interface PlanEvent   { plannedPaymentDate: string; allocatedPayment: number }
 interface PaymentPlanPayment { dueDate: string; amount: number }
@@ -20,6 +22,7 @@ export interface CalendarProps {
   splitPayments: SplitPayment[]
   incomeEvents: IncomeEvent[]
   liabilityEvents: LiabilityEvent[]
+  rentEvents?: RentEvent[]                    // ← added
   avoidedDates?: AvoidedDate[]
   paymentPlanPayments?: PaymentPlanPayment[]
   planEvents?: PlanEvent[]
@@ -40,6 +43,7 @@ export default function CustomCalendar({
   splitPayments,
   incomeEvents,
   liabilityEvents,
+  rentEvents = [],                             // ← defaulted
   avoidedDates = [],
   paymentPlanPayments = [],
   planEvents = [],
@@ -49,20 +53,26 @@ export default function CustomCalendar({
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState<Date>(initialDate || new Date())
 
-  useEffect(() => { initialDate && setCurrentDate(initialDate) }, [initialDate])
+  useEffect(() => {
+    if (initialDate) setCurrentDate(initialDate)
+  }, [initialDate])
 
   const daysInMonth = (m: number, y: number) =>
     new Date(y, m + 1, 0).getDate()
 
-  const generateCalendarGrid = (): (number|null)[] => {
-    const days: (number|null)[] = []
+  const generateCalendarGrid = (): (number | null)[] => {
+    const days: (number | null)[] = []
     const firstWeekday = new Date(
       currentDate.getFullYear(),
       currentDate.getMonth(),
       1
     ).getDay()
     for (let i = 0; i < firstWeekday; i++) days.push(null)
-    const total = daysInMonth(currentDate.getMonth(), currentDate.getFullYear())
+
+    const total = daysInMonth(
+      currentDate.getMonth(),
+      currentDate.getFullYear()
+    )
     for (let d = 1; d <= total; d++) days.push(d)
     while (days.length % 7) days.push(null)
     return days
@@ -72,6 +82,7 @@ export default function CustomCalendar({
     const map: Record<number, any> = {}
     const year = currentDate.getFullYear()
     const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+
     function mark(dateStr: string, key: string) {
       if (dateStr.startsWith(`${year}-${month}-`)) {
         const day = parseInt(dateStr.slice(-2), 10)
@@ -79,15 +90,19 @@ export default function CustomCalendar({
         map[day][key] = true
       }
     }
+
     liabilityEvents.forEach(e => mark(e.date, 'liability'))
     renderSplitPayment && splitPayments.forEach(s => mark(s.date, 'splitPayment'))
     incomeEvents.forEach(i => mark(i.date, 'income'))
+    rentEvents.forEach(r => mark(r.date, 'rent'))        // ← added
     planEvents.forEach(p => mark(p.plannedPaymentDate, 'paymentPlan'))
     paymentPlanPayments.forEach(p => mark(p.dueDate, 'paymentPlan'))
+
     return map as Record<number, {
       liability?: boolean
       splitPayment?: boolean
       income?: boolean
+      rent?: boolean                            // ← added
       paymentPlan?: boolean
     }>
   }
@@ -144,7 +159,7 @@ export default function CustomCalendar({
     }
   }
 
-  const changeMonth = (dir: 'prev'|'next') =>
+  const changeMonth = (dir: 'prev' | 'next') =>
     setCurrentDate(new Date(
       currentDate.getFullYear(),
       currentDate.getMonth() + (dir === 'prev' ? -1 : 1),
@@ -158,7 +173,7 @@ export default function CustomCalendar({
           <GoChevronLeft size={24} className="text-blue-600"/>
         </button>
         <div className="text-lg font-bold">
-          {currentDate.toLocaleString('default', { month:'long' })}{' '}
+          {currentDate.toLocaleString('default', { month: 'long' })}{' '}
           {currentDate.getFullYear()}
         </div>
         <button onClick={() => changeMonth('next')} className="p-2">
@@ -198,6 +213,7 @@ export default function CustomCalendar({
         <LegendDot className="bg-pink-200" label="Liability Event"/>
         {renderSplitPayment && <LegendDot className="bg-purple-200" label="Split Payment"/>}
         <LegendDot className="bg-green-200" label="Income Event"/>
+        <LegendDot className="bg-orange-500" label="Rent Event"/>  {/* ← added */}
         {(planEvents.length > 0 || paymentPlanPayments.length > 0) &&
           <LegendDot className="bg-purple-100" label="Payment Plan"/>
         }

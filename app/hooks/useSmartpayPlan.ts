@@ -2,7 +2,7 @@ import axios from 'axios'
 import { useQuery } from '@tanstack/react-query'
 
 // Base URL
-const BASE_URL = 'http://192.168.1.32:8080'
+const BASE_URL = 'http://192.168.1.121:8080'
 
 // --- Response Interfaces ---
 

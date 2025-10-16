@@ -24,7 +24,7 @@ const CheckoutDetails: React.FC = () => {
 
   // Handler for proceeding to purchase options
   const handleProceed = () => {
-    navigate("/purchase-options", { replace: true, state: { source } });
+    navigate("/UnifiedOptionsPage", { replace: true, state: { source } });
   };
 
   // Render a loading state while fetching data

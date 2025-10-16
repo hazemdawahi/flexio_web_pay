@@ -1,49 +1,47 @@
 // src/hooks/useRefreshSession.ts
+import { useMutation } from "@tanstack/react-query";
 
-import { useMutation } from '@tanstack/react-query';
-import axios from 'axios';
+const API_BASE =
+  (typeof process !== "undefined" &&
+    ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
+  "http://192.168.1.121:8080";
 
-// Define the response interface
-export interface RefreshResponseData {
+type RefreshResponse = {
   success: boolean;
-  data?: {
-    accessToken: string;
-    inapp?: boolean;
-  };
+  data?: { accessToken?: string; inapp?: boolean };
   error?: string;
-}
+};
 
-// Function to perform the refresh session request with axios
-async function refreshSession(): Promise<RefreshResponseData> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
-
-  try {
-    const response = await axios.get<RefreshResponseData>('http://192.168.1.32:8080/api/user/refresh', {
-      headers: {
-        'Accept': 'application/json',
-      },
-      withCredentials: true, // Ensure cookies are sent with the request
-      signal: controller.signal,
-    });
-
-    return response.data;
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new Error('Refresh request timed out');
-    } else if (axios.isAxiosError(error) && error.response) {
-      throw new Error(`Refresh failed: ${error.response.data.error}`);
-    } else {
-      throw new Error('Refresh failed');
-    }
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-// Create the custom hook using React Query's useMutation
 export function useRefreshSession() {
-  return useMutation<RefreshResponseData, Error, void>({
-    mutationFn: refreshSession,
+  return useMutation<RefreshResponse, Error, void>({
+    mutationFn: async () => {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 7000);
+
+      try {
+        const res = await fetch(`${API_BASE}/api/user/refresh-tokens`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+        });
+
+        // Try to parse JSON, but don't let a parse error hang things
+        let json: RefreshResponse = { success: false };
+        try {
+          json = (await res.json()) as RefreshResponse;
+        } catch {
+          // ignore parse errors; treat like failure
+        }
+
+        if (!res.ok) {
+          // Surface a standard Error so mutateAsync rejects and our provider catches
+          throw new Error(json?.error || `Refresh failed: ${res.status}`);
+        }
+        return json;
+      } finally {
+        clearTimeout(id);
+      }
+    },
   });
 }

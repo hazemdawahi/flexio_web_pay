@@ -1,76 +1,129 @@
 // src/hooks/usePaymentMethods.ts
-import { useQuery } from '@tanstack/react-query';
-import axios from 'axios';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
-// Interfaces for Payment Methods
-
-export interface UsBankAccount {
-  last4: string;
-  account_type: string;
-  account_holder_type: string;
-  bank_name: string;
-  routing_number: string;
-  primary: boolean;
-}
-
+/* =========================
+ * Types
+ * ========================= */
 export interface Card {
+  brand: string;
   last4: string;
-  country: string;
-  funding: string;
   exp_month: number;
   exp_year: number;
-  brand: string;
+  funding: string;
+  country: string;
   primary: boolean;
+  [key: string]: any;
+}
+
+export interface BankAccount {
+  institutionLogo: string;
+  institutionName: string;
+  needsReconnection: boolean;
+  accounts: Array<{
+    accountName: string;
+    mask: string;
+    [key: string]: any;
+  }>;
+  [key: string]: any;
 }
 
 export interface PaymentMethod {
-  created: number;
+  type: 'card' | 'bank';
   id: string;
-  type: 'us_bank_account' | 'card';
+  created?: number;
   card?: Card;
-  usBankAccount?: UsBankAccount;
-}
-
-export interface PaymentMethodsResponseData {
-  data: PaymentMethod[];
-  success: boolean;
-  error: any;
+  bank?: BankAccount;
+  [key: string]: any;
 }
 
 export interface PaymentMethodsResponse {
   success: boolean;
-  data: PaymentMethodsResponseData;
+  data: {
+    data: PaymentMethod[];
+    cardCount: number;
+    bankAccountCount: number;
+    error: any;
+    [key: string]: any;
+  };
   error: any;
 }
 
-// Async function to fetch payment methods from the API
-async function fetchPaymentMethods(token: string): Promise<PaymentMethodsResponse> {
-  const response = await axios.get<PaymentMethodsResponse>(
-    'http://192.168.1.32:8080/customer/payment-methods',
-    {
-      headers: {
-        Authorization: `Bearer ${token}`, // Passing the token in the Authorization header
-      },
-      
-    },    
+/* =========================
+ * Env helpers (web)
+ * ========================= */
+const isBrowser = typeof window !== 'undefined';
 
-  );
-
-  return response.data;
+function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
+  for (const c of candidates) {
+    const v = (typeof c === 'string' ? c : '').trim();
+    const low = v.toLowerCase();
+    if (!v) continue;
+    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
+    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slashes
+  }
+  return undefined;
 }
 
-// Custom hook to fetch payment methods using useQuery
-export function usePaymentMethods() {
-  // Retrieve the access token from sessionStorage
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
+const API_BASE =
+  pickValidApiHost(
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
+    (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
+    (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
+  ) ?? 'http://192.168.1.121:8080';
 
-  return useQuery<PaymentMethodsResponse, Error>({
-    queryKey: ['paymentMethods'],
-    queryFn: () => {
-      if (!token) throw new Error('No access token available');
-      return fetchPaymentMethods(token);
+/* =========================
+ * API
+ * ========================= */
+async function fetchPaymentMethodsStrict(): Promise<PaymentMethod[]> {
+  if (!isBrowser) throw new Error('Token storage unavailable during SSR');
+  const token = window.sessionStorage.getItem('accessToken');
+  if (!token) throw new Error('No access token found');
+
+  const res = await fetch(`${API_BASE}/customer/payment-methods?t=${Date.now()}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
     },
-    enabled: !!token,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    // credentials: 'include', // enable only if your API needs cookies in addition to the Bearer token
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Payment methods HTTP ${res.status}${text ? `: ${text}` : ''}`);
+  }
+
+  const json = (await res.json()) as PaymentMethodsResponse;
+
+  if (!json?.success) {
+    throw new Error(
+      `Payment methods API error: ${json?.error ?? json?.data?.error ?? 'unknown'}`
+    );
+  }
+
+  return json?.data?.data ?? [];
+}
+
+/* =========================
+ * Hook
+ * ========================= */
+/**
+ * STRICT per-user cache partition.
+ * - Only runs when a real userId exists (no "anon" fallback)
+ * - Returns PaymentMethod[] directly
+ *
+ * Usage:
+ *   const { data, isLoading, error } = usePaymentMethods(user?.id)
+ */
+export function usePaymentMethods(userId: string | undefined) {
+  return useQuery<PaymentMethod[], Error>({
+    queryKey: ['paymentMethods', userId], // unique per identity
+    queryFn: fetchPaymentMethodsStrict,
+    enabled: !!userId && isBrowser,       // never run for unknown identity or during SSR
+    placeholderData: keepPreviousData,
+    staleTime: 1000 * 60 * 5,             // optional: cache for 5 minutes
+    refetchOnWindowFocus: true,
   });
 }

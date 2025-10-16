@@ -1,21 +1,33 @@
-// src/components/ProtectedRoute.tsx
-
 import React from "react";
-import { Navigate } from "@remix-run/react";
+import { useLocation, useNavigate } from "@remix-run/react";
 import { useSession } from "~/context/SessionContext";
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-}
+type Props = { children: React.ReactNode };
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+// Public pages you never want to bounce away from
+const PUBLIC_ROUTES = new Set<string>(["/login", "/register", "/forgot-password"]);
+
+/**
+ * Guardrails:
+ * - If there's no accessToken, silently redirect to /login (once) and render nothing.
+ * - Never block forever with a spinner.
+ * - Never redirect when you're already on a public route.
+ */
+export default function ProtectedRoute({ children }: Props) {
   const { accessToken } = useSession();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const redirectedRef = React.useRef(false);
 
-  if (!accessToken) {
-    return <Navigate to="/login" replace />;
-  }
+  React.useEffect(() => {
+    if (!accessToken && !PUBLIC_ROUTES.has(location.pathname) && !redirectedRef.current) {
+      redirectedRef.current = true;
+      navigate("/login", { replace: true });
+    }
+  }, [accessToken, location.pathname, navigate]);
+
+  // If not authenticated, render nothing while the redirect occurs.
+  if (!accessToken) return null;
 
   return <>{children}</>;
-};
-
-export default ProtectedRoute;
+}

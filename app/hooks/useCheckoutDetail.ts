@@ -2,28 +2,34 @@
 
 import { useQuery } from '@tanstack/react-query';
 
+/** ===== Shared value objects ===== */
 export interface Amount {
   id: string;
-  amount: string; // e.g. "1000.00"
+  amount: string; // string as returned by backend (e.g., "1000")
   currency: string;
+  createdAt?: string;
+  updatedAt?: string;
   hibernateLazyInitializer?: Record<string, unknown>;
 }
 
+/** ===== Branding & Contacts (updated for categories) ===== */
 export interface Brand {
   id: string;
   displayName: string;
   customerEmail: string;
-  displayLogo: string;
+  displayLogo: string;   // may be relative (e.g., "/api/files/uploads/...png")
   customerSupportPhone: string;
-  coverPhoto: string;
-  category: string;
+  coverPhoto: string;    // may be relative (e.g., "/api/files/uploads/...jpeg")
+  /** New payload provides categories: [] (array). Keep legacy 'category' optional for BC. */
+  categories?: string[];
+  category?: string;     // legacy single category (optional now)
   returnPolicyUrl?: string;
   refundPolicyUrl?: string;
   shortDescription?: string;
   facebookUrl?: string;
   instagramUrl?: string;
   tiktokUrl?: string;
-  qrCode?: string;
+  qrCode?: string;       // base64-encoded PNG in sample
   createdAt: string;
   updatedAt: string;
 }
@@ -150,42 +156,50 @@ export interface Merchant {
   merchantType: string;
 }
 
+/** ===== Checkout detail shape (unchanged for the new sample) ===== */
 export interface CheckoutDetail {
   id: string;
+  version?: number;
   redirectCheckoutUrl: string | null;
   token: string;
   checkoutToken: string;
   reference: string | null;
   sandbox: boolean;
   checkoutDetails: unknown | null;
-  state: string;
-  paymentSchemes: unknown[];
+  state: string;             // e.g., "CREATED"
+  checkoutType: string;      // e.g., "ONLINE"
+  originalAmount: Amount;
   totalAmount: Amount;
-  merchant: Merchant;
   expires: string | null;
   createdAt: string;
   updatedAt: string;
-  user: unknown | null;
-  checkoutEvents: unknown[];
-  checkoutType: string;
-  discounts: unknown[];
-  capturedRecords: unknown[];
-  refundRecords: unknown[];
+  completedAt?: string | null;
+  postCompletionCaptureProcessedAt?: string | null;
+  discounts: Discount[];
 }
 
+/** ===== Response wrapper (UPDATED: merchantBaseId present; keep old fields for BC) ===== */
 export interface CheckoutDetailResponse {
   checkout: CheckoutDetail;
-  configuration: Configuration;
+  /** New key from sample */
+  merchantBaseId: string | null;
+  /** Keep legacy/optional fields for older responses */
+  configuration?: Configuration | null;
+  merchant?: Merchant | null;
+  /** Brand is present in the new sample */
   brand: Brand | null;
-  serviceBrand: Brand | null;
+  discounts: Discount[];
+  /** Optional legacy id if some environments still return it */
+  merchantId?: string | null;
 }
 
+/** ===== Networking ===== */
 async function fetchCheckoutDetail(
   checkoutToken: string,
   accessToken: string
 ): Promise<CheckoutDetailResponse> {
   const response = await fetch(
-    `http://192.168.1.32:8080/api/checkout/details-by-token/${checkoutToken}`,
+    `http://192.168.1.121:8080/api/checkout/details-by-token/${checkoutToken}`,
     {
       method: 'GET',
       headers: {
@@ -205,6 +219,7 @@ async function fetchCheckoutDetail(
   return (await response.json()) as CheckoutDetailResponse;
 }
 
+/** ===== React Query Hook ===== */
 export function useCheckoutDetail(checkoutToken: string) {
   const accessToken =
     typeof window !== 'undefined'

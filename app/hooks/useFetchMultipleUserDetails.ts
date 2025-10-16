@@ -88,7 +88,7 @@ async function fetchMultipleUserDetails(userIds: string[]): Promise<UserDetailsR
       throw new Error('No access token found');
     }
 
-    const response = await fetch('http://192.168.1.32:8080/api/user/user-details', {
+    const response = await fetch('http://192.168.1.121:8080/api/user/user-details', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,

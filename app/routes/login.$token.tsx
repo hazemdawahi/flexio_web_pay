@@ -1,11 +1,13 @@
-// src/routes/login.tsx
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { useLogin, LoginRequest } from "~/hooks/useLogin";
 import { useVerifyLogin, VerifyLoginRequest } from "~/hooks/useVerifyLogin";
 import { useSession } from "~/context/SessionContext";
 import FloatingLabelInput from "~/compoments/Floatinglabelinpunt";
+
+// ✅ Payment methods + user details
+import { usePaymentMethods } from "~/hooks/usePaymentMethods";
+import { useUserDetails } from "~/hooks/useUserDetails";
 
 const LoginPage: React.FC = () => {
   const [userInput, setUserInput] = useState("");
@@ -22,13 +24,54 @@ const LoginPage: React.FC = () => {
   const verifyLoginMutation = useVerifyLogin();
   const { setAccessToken } = useSession();
 
-  // If an access token already exists, redirect directly to purchase-options.
+  // Pull user details envelope (UserDetailsResponse)
+  const { data: userResp } = useUserDetails();
+
+  // ✅ FIX: derive userId from the envelope (data?.user?.id), not directly from response
+  const userId = userResp?.data?.user?.id as string | undefined;
+
+  // Enable payment methods fetch only when we actually have a userId
+  const {
+    data: paymentMethods,
+    isLoading: pmLoading,
+    error: pmError,
+  } = usePaymentMethods(userId);
+
+  // Derived: do we have at least one card?
+  const hasCard = useMemo(() => {
+    if (!paymentMethods || !Array.isArray(paymentMethods)) return false;
+    return paymentMethods.some((pm) => pm.type === "card" && pm.card);
+  }, [paymentMethods]);
+
+  // If an access token already exists, show connecting state while we decide where to go
   useEffect(() => {
     const token = sessionStorage.getItem("accessToken");
-    if (token) {
-      navigate(`/purchase-options`, { replace: true, state: { source } });
+    if (!token) return; // user not logged yet; continue normal flow
+    setIsConnecting(true);
+  }, []);
+
+  // Once logged in (existing token OR just verified), route based on payment methods
+  useEffect(() => {
+    const token = sessionStorage.getItem("accessToken");
+    if (!token) return;            // not authenticated yet
+    if (!userId) return;           // user details not ready yet
+    if (pmLoading) return;         // still checking PMs
+
+    // If fetching PMs failed, route to AddCardRequired (strict requirement)
+    if (pmError) {
+      navigate(`/AddCardRequired`, { replace: true, state: { source } });
+      setIsConnecting(false);
+      return;
     }
-  }, [navigate, source]);
+
+    // Route based on card presence
+    if (hasCard) {
+      navigate(`/UnifiedOptionsPage`, { replace: true, state: { source } });
+    } else {
+      navigate(`/AddCardRequired`, { replace: true, state: { source } });
+    }
+    setIsConnecting(false);
+  }, [userId, pmLoading, pmError, hasCard, navigate, source]);
 
   const handleFirstContinue = () => {
     setError("");
@@ -73,11 +116,9 @@ const LoginPage: React.FC = () => {
           // Save the access token in sessionStorage and context
           sessionStorage.setItem("accessToken", data.data.accessToken);
           setAccessToken(data.data.accessToken);
-          // Navigate to purchase-options page instead of checkout-details
-          navigate(`/purchase-options`, {
-            replace: true,
-            state: { source },
-          });
+
+          // Let the post-auth effect above check payment methods and route
+          setIsConnecting(true);
         } else {
           setError(data.error || "Invalid OTP. Please try again.");
         }
@@ -95,7 +136,10 @@ const LoginPage: React.FC = () => {
   };
 
   const isLoading =
-    loginMutation.isPending || verifyLoginMutation.isPending || isConnecting;
+    loginMutation.isPending ||
+    verifyLoginMutation.isPending ||
+    isConnecting ||
+    pmLoading;
 
   return (
     <div className="max-w-md mx-auto px-5 py-10 bg-white font-sans">

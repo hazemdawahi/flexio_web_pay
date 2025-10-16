@@ -24,7 +24,7 @@ async function attachPaymentMethod({ paymentMethodId }: AttachPaymentMethodParam
 
     // Make the API request to attach the payment method to the customer
     const response = await axios.post<AttachPaymentMethodResponse>(
-      'http://192.168.1.32:8080/customer/attach-payment-method',
+      'http://192.168.1.121:8080/customer/attach-payment-method',
       { paymentMethodId }, // Send the payment method ID in the request body
       {
         headers: {

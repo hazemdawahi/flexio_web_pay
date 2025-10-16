@@ -16,7 +16,7 @@ async function monitorProduct(productId: string): Promise<MonitorProductResponse
   }
 
   // Construct the URL using the provided productId.
-  const url = `http://192.168.1.32:8080/api/monitored-products/user/monitor/${productId}`;
+  const url = `http://192.168.1.121:8080/api/monitored-products/user/monitor/${productId}`;
 
   // Call the API. Since the endpoint does not require a request body, we pass an empty object.
   const response = await axios.post<MonitorProductResponse>(

@@ -22,7 +22,7 @@ async function verifyLoginData(verifyRequest: VerifyLoginRequest): Promise<Verif
   const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
 
   try {
-    const response = await fetch('http://192.168.1.32:8080/api/user/verify/login', { // Adjust the endpoint as needed
+    const response = await fetch('http://192.168.1.121:8080/api/user/verify/login', { // Adjust the endpoint as needed
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

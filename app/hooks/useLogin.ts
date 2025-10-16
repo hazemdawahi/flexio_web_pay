@@ -18,7 +18,7 @@ async function loginData(loginRequest: LoginRequest): Promise<LoginResponse> {
   const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
 
   try {
-    const response = await fetch('http://192.168.1.32:8080/api/user/login', {
+    const response = await fetch('http://192.168.1.121:8080/api/user/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

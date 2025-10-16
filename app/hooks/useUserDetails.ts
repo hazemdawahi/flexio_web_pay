@@ -1,7 +1,10 @@
 // src/hooks/useUserDetails.ts
 import { useQuery } from '@tanstack/react-query';
 
-// Interfaces for User Details
+////////////////////////////////////////////////////////////////////////////////
+// Public Types — aligned to the provided payload
+////////////////////////////////////////////////////////////////////////////////
+
 export interface Address {
   id: string;
   line1: string;
@@ -9,97 +12,77 @@ export interface Address {
   state: string;
   zipCode: string;
   country: string;
-  type: string; // Indicates address type (billing/shipping)
-}
-
-export interface Settings {
-  id: string;
-  overdraft: boolean;
-  biometrics: boolean;
-  paymentDue: boolean;
-  purchaseComplete: boolean;
-  offersSupprise: boolean;
-  autoPay: boolean;
-  pinCode: string | null;
-  overdraftPaymentMethodId: string | null;
-  planFrequency: number;
-  planType: string | null;
-  planLinkedMethodId: string | null;
-  planAmount: number | null;
-  requests: boolean;
-  offsetDays: number | null;
-  channelUrl: string | null;
-  confirmMessage: string | null;
-  csatMessage: string | null;
-}
-
-export interface SmartPayPreference {
-  id: string;
-  livingSituation: string;
-  rentAmount: number;
-  rentDueDate: string;
-  mortgageInstallmentAmount: number | null;
-  grossIncome: number;
-  grossIncomeFrequency: string;
-  under150DurationMin: number;
-  under150DurationMax: number;
-  range300to500DurationMin: number;
-  range300to500DurationMax: number;
-  range1000to2000DurationMin: number;
-  range1000to2000DurationMax: number;
-  range5000to10000DurationMin: number;
-  range5000to10000DurationMax: number;
-  maximumMonthlyInstallment: number;
-  optimumMonthlyInstallment: number;
+  type: string;         // "billing" | "shipping"
+  version?: number;     // present in payload
 }
 
 export interface UserDetails {
+  // core identity
+  version: number;
   id: string;
   phoneNumber: string;
   countryCode: string;
   email: string;
+  identityVerified: boolean;
+
+  // profile
   firstName: string;
   lastName: string;
-  middleName: string | null;
+  middleName: string | null | ""; // backend sends "" sometimes
   username: string;
+  dateOfBirth: string;
+
+  // power/credit
   yearlyPower: number;
   instantaneousPower: number;
-  interestFreeAmount: number;
   creditScore: number;
-  dateOfBirth: string;
+
+  // product flags
   smartPay: boolean;
-  yourCardId: string | null;
-  notify_Token: string | null;
-  subscriptionId: string | null;
-  plaidAccountId: string | null;
-  totalOwed: number;
-  primaryMethod?: string;
-  autoPay: boolean;
-  remainingAvoidedDays: number;
+
+  // payment + platform fields
+  marqetaCardToken: string | null;
+  primaryMethod: string | null;              // string in payload, nullable safe
+  primaryPlaidAccountId: string | null;
+
+  // assets
   logo: string | null;
+
+  // messaging / support
   sendbirdAccessToken: string | null;
-  underReview: boolean;
-  accepted: boolean;
-  settings: Settings | null;
-  billingAddress: Address;
-  shippingAddress: Address;
-  smartPayPreference: SmartPayPreference;
-  reviewInformations: any[];
-  financialDistresses: any[];
-  createdAt: string | null;
+  sendbirdDeskCustomerId: number | null;
+  channelUrl: string | null;
+
+  // timestamps
+  createdAt: string;
   updatedAt: string;
   lastCreditUpdate: string;
   lastTwoMonthUpdatedDate: string;
   latestThreeMonthUpdatedDate: string;
+
+  // yearly terms
   yearlyTerms: number;
   lastYearlyTermsUpdatedDate: string;
-  subscribed: boolean;
+
+  // addresses
+  billingAddress: Address;
+  shippingAddress: Address;
+
+  // preferences
+  smartPayPreference: unknown | null; // payload has null for now
+
+  // verifications
   emailVerified: boolean;
   phoneVerified: boolean;
 }
 
+/** The complete data envelope your API returns for this route. */
 export interface UserDetailsResponseData {
   user: UserDetails;
+  totalOwed: number;
+  interestFreeCreditAmount: number;
+  remainingAvoidedDays: number;
+  subscribed: boolean;
 }
 
 export interface UserDetailsResponse {
@@ -108,39 +91,221 @@ export interface UserDetailsResponse {
   error: string | null;
 }
 
-// Async function to fetch user details using the `fetch` API
-export async function fetchUserDetails(token: string): Promise<UserDetailsResponse> {
-  const response = await fetch('http://192.168.1.32:8080/api/user/user-details', {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`, // Passing the token in the Authorization header
-      'Content-Type': 'application/json',
-    },
-  });
+////////////////////////////////////////////////////////////////////////////////
+// Raw Types (only for mapping; mirror payload exactly)
+////////////////////////////////////////////////////////////////////////////////
 
-  console.log("Response Status:", response.status);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-
-  const data: UserDetailsResponse = await response.json();
-  return data;
+interface RawAddress {
+  version?: number;
+  id: string;
+  line1: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+  type: string;
 }
 
-// Custom hook to fetch user details using useQuery
+interface RawUser {
+  version: number;
+  id: string;
+  phoneNumber: string;
+  countryCode: string;
+  email: string;
+  identityVerified: boolean;
+  firstName: string;
+  lastName: string;
+  middleName: string | null | "";
+  username: string;
+  yearlyPower: number;
+  instantaneousPower: number;
+  creditScore: number;
+  dateOfBirth: string;
+  smartPay: boolean;
+  marqetaCardToken: string | null;
+  primaryMethod: string | null;
+  primaryPlaidAccountId: string | null;
+  logo: string | null;
+  sendbirdAccessToken: string | null;
+  sendbirdDeskCustomerId: number | null;
+  channelUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastCreditUpdate: string;
+  lastTwoMonthUpdatedDate: string;
+  latestThreeMonthUpdatedDate: string;
+  yearlyTerms: number;
+  lastYearlyTermsUpdatedDate: string;
+  billingAddress: RawAddress;
+  shippingAddress: RawAddress;
+  smartPayPreference: unknown | null;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+}
+
+interface RawUserDetailsEnvelope {
+  success: boolean;
+  data: {
+    user: RawUser;
+    totalOwed: number;
+    interestFreeCreditAmount: number;
+    remainingAvoidedDays: number;
+    subscribed: boolean;
+  } | null;
+  error: string | null;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Env helpers — sanitize and require absolute http(s) URLs
+////////////////////////////////////////////////////////////////////////////////
+
+const isBrowser = typeof window !== 'undefined';
+
+function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
+  for (const c of candidates) {
+    const v = (typeof c === 'string' ? c : '').trim();
+    const low = v.toLowerCase();
+    if (!v) continue;
+    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
+    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slash
+  }
+  return undefined;
+}
+
+// Supports Vite, CRA, Node-style env names
+const SERVER_BASE_URL =
+  pickValidApiHost(
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
+    (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
+    (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
+  ) ?? 'http://192.168.1.121:8080';
+
+////////////////////////////////////////////////////////////////////////////////
+// Mapping helpers
+////////////////////////////////////////////////////////////////////////////////
+
+const mapAddress = (a: RawAddress): Address => ({
+  id: a.id,
+  line1: a.line1,
+  city: a.city,
+  state: a.state,
+  zipCode: a.zipCode,
+  country: a.country,
+  type: a.type,
+  version: a.version,
+});
+
+const mapUser = (u: RawUser): UserDetails => ({
+  version: u.version,
+  id: u.id,
+  phoneNumber: u.phoneNumber,
+  countryCode: u.countryCode,
+  email: u.email,
+  identityVerified: u.identityVerified,
+
+  firstName: u.firstName,
+  lastName: u.lastName,
+  middleName: u.middleName ?? "", // normalize null/"" to a single union
+  username: u.username,
+  dateOfBirth: u.dateOfBirth,
+
+  yearlyPower: Number(u.yearlyPower),
+  instantaneousPower: Number(u.instantaneousPower),
+  creditScore: Number(u.creditScore),
+
+  smartPay: !!u.smartPay,
+
+  marqetaCardToken: u.marqetaCardToken,
+  primaryMethod: u.primaryMethod ?? null,
+  primaryPlaidAccountId: u.primaryPlaidAccountId,
+
+  logo: u.logo,
+
+  sendbirdAccessToken: u.sendbirdAccessToken,
+  sendbirdDeskCustomerId: u.sendbirdDeskCustomerId,
+  channelUrl: u.channelUrl,
+
+  createdAt: u.createdAt,
+  updatedAt: u.updatedAt,
+  lastCreditUpdate: u.lastCreditUpdate,
+  lastTwoMonthUpdatedDate: u.lastTwoMonthUpdatedDate,
+  latestThreeMonthUpdatedDate: u.latestThreeMonthUpdatedDate,
+
+  yearlyTerms: u.yearlyTerms,
+  lastYearlyTermsUpdatedDate: u.lastYearlyTermsUpdatedDate,
+
+  billingAddress: mapAddress(u.billingAddress),
+  shippingAddress: mapAddress(u.shippingAddress),
+
+  smartPayPreference: u.smartPayPreference,
+
+  emailVerified: u.emailVerified,
+  phoneVerified: u.phoneVerified,
+});
+
+////////////////////////////////////////////////////////////////////////////////
+// Fetcher — web (sessionStorage token) with normalization
+////////////////////////////////////////////////////////////////////////////////
+
+export async function fetchUserDetails(token: string): Promise<UserDetailsResponse> {
+  try {
+    const res = await fetch(`${SERVER_BASE_URL}/api/user/user-details`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      // If you don't use cookies for this route, remove the next line:
+      // credentials: 'include',
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Error: ${res.status} ${res.statusText}${text ? ` - ${text}` : ''}`);
+    }
+
+    const raw = (await res.json()) as RawUserDetailsEnvelope;
+
+    if (!raw.success || !raw.data) {
+      return {
+        success: false,
+        data: null,
+        error: raw.error ?? 'Failed to fetch user details',
+      };
+    }
+
+    const mapped: UserDetailsResponseData = {
+      user: mapUser(raw.data.user),
+      totalOwed: Number(raw.data.totalOwed ?? 0),
+      interestFreeCreditAmount: Number(raw.data.interestFreeCreditAmount ?? 0),
+      remainingAvoidedDays: Number(raw.data.remainingAvoidedDays ?? 0),
+      subscribed: !!raw.data.subscribed,
+    };
+
+    return { success: true, data: mapped, error: null };
+  } catch (err: any) {
+    return {
+      success: false,
+      data: null,
+      error: err?.message || 'Failed to fetch user details',
+    };
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// React Query Hook — web
+////////////////////////////////////////////////////////////////////////////////
+
 export function useUserDetails() {
-  // Retrieve the access token from sessionStorage
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
+  const token = isBrowser ? window.sessionStorage.getItem('accessToken') : null;
 
   return useQuery<UserDetailsResponse, Error>({
-    queryKey: ['userDetails', token], // Include token in queryKey to refetch on token change
+    queryKey: ['userDetails', token],
     queryFn: () => {
       if (!token) throw new Error('No access token available');
       return fetchUserDetails(token);
     },
-    enabled: !!token, // Only run the query if token is available
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    enabled: !!token && isBrowser,  // avoid SSR access to sessionStorage
+    staleTime: 1000 * 60 * 5,       // 5 minutes
   });
 }

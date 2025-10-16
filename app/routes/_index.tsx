@@ -27,8 +27,8 @@ const Index: React.FC = () => {
       sessionStorage.setItem("productId", productId);
     }
 
-    // Navigate directly to the purchase-options page
-    navigate(`/purchase-options`, {
+    // Navigate directly to the UnifiedOptionsPage page
+    navigate(`/UnifiedOptionsPage`, {
       replace: true,
       state: { source },
     });

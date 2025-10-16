@@ -1,69 +1,109 @@
 // src/components/SessionProvider.tsx
-
-import React, { useEffect, useState } from "react";
-import { useNavigate } from "@remix-run/react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "@remix-run/react";
 import { useRefreshSession } from "../hooks/useRefreshSession";
-import { SessionContextType, RefreshResponseData } from "../types/session";
 import SessionContext from "~/context/SessionContext";
+import type { SessionContextType, RefreshResponseData } from "../types/session";
 
 interface SessionProviderProps {
   children: React.ReactNode;
 }
 
+const SAFE_TIMEOUT_MS = 8000; // cap any hanging network
+
+const PUBLIC_ROUTES = new Set<string>([
+  "/login",
+  "/register",
+  "/forgot-password",
+]);
+
 const SessionProvider: React.FC<SessionProviderProps> = ({ children }) => {
   const navigate = useNavigate();
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [inApp, setInApp] = useState<boolean>(false); // State for inApp
-  const [loading, setLoading] = useState<boolean>(true); // Indicates if authentication is in progress
+  const location = useLocation();
 
-  // Use the custom refresh session hook
-  const { mutate: refreshSession, isPending: isRefreshing } = useRefreshSession();
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [inApp, setInApp] = useState<boolean>(false);
+  const [initialized, setInitialized] = useState<boolean>(false);
+
+  // Use mutateAsync so we can control try/catch/finally ourselves
+  const { mutateAsync: refreshSessionAsync } = useRefreshSession();
+
+  // prevent double-fire in React 18 StrictMode
+  const ranRef = useRef(false);
+  // prevent multiple redirects
+  const redirectedRef = useRef(false);
 
   useEffect(() => {
-    // Trigger the refresh session mutation on component mount
-    refreshSession(undefined, {
-      onSuccess: (data: RefreshResponseData) => {
-        console.log("Refresh response.data:", data);
+    if (ranRef.current) return;
+    ranRef.current = true;
 
-        if (data.success && data.data?.accessToken) {
-          // Save the access token in sessionStorage
-          console.log("Access Token:", data.data.accessToken);
-          sessionStorage.setItem("accessToken", data.data.accessToken);
-          setAccessToken(data.data.accessToken);
+    (async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), SAFE_TIMEOUT_MS);
 
-          // Check if inApp flag is present and true
-          if (data.data.inapp) {
-            console.log("InApp flag is true");
-            sessionStorage.setItem("inApp", "true");
-            setInApp(true);
-          } else {
-            // Ensure inApp is false if not provided or false
-            sessionStorage.setItem("inApp", "false");
-            setInApp(false);
-          }
+      try {
+        // Run refresh; your hook should accept AbortController via internal timeout,
+        // but even if it doesn't, this outer abort prevents "forever pending" in some cases.
+        const res = (await refreshSessionAsync(undefined)) as RefreshResponseData;
 
-          // Redirect to the merchant shopping page if currently on root
-          if (window.location.pathname === "/") {
-            navigate("/");
+        if (res?.success && res?.data?.accessToken) {
+          const token = res.data.accessToken;
+          sessionStorage.setItem("accessToken", token);
+          setAccessToken(token);
+
+          const inapp = !!res?.data?.inapp;
+          sessionStorage.setItem("inApp", inapp ? "true" : "false");
+          setInApp(inapp);
+
+          // If we’re on a public route, bounce to home; otherwise, stay put.
+          if (PUBLIC_ROUTES.has(location.pathname) && !redirectedRef.current) {
+            redirectedRef.current = true;
+            navigate("/", { replace: true });
           }
         } else {
-          // If no valid token, redirect to login
-          navigate("/login");
-        }
-      },
-      onError: (error: Error) => {
-        console.error("Authentication refresh failed:", error.message);
-        // On error (e.g., network issues, invalid token), redirect to login
-        navigate("/login");
-      },
-      onSettled: () => {
-        setLoading(false); // Authentication process is complete
-      },
-    });
-  }, [refreshSession, navigate]);
+          // Not authenticated — clear token and go to /login if not already there.
+          sessionStorage.removeItem("accessToken");
+          setAccessToken(null);
 
-  if (loading || isRefreshing) {
-    // Show a loading spinner while authenticating
+          if (!PUBLIC_ROUTES.has(location.pathname) && !redirectedRef.current) {
+            redirectedRef.current = true;
+            navigate("/login", { replace: true });
+          }
+        }
+      } catch (err) {
+        // Network/403/abort/etc: treat as unauthenticated
+        console.warn("refresh failed:", err);
+        sessionStorage.removeItem("accessToken");
+        setAccessToken(null);
+
+        if (!PUBLIC_ROUTES.has(location.pathname) && !redirectedRef.current) {
+          redirectedRef.current = true;
+          navigate("/login", { replace: true });
+        }
+      } finally {
+        clearTimeout(timeout);
+        // ✅ No matter what, we finish initialization so the app renders
+        setInitialized(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // We do NOT block rendering the app anymore. If you want a spinner for protected
+  // areas, add a small <RequireAuth> gate per route/section.
+  const contextValue: SessionContextType = useMemo(
+    () => ({
+      accessToken,
+      inApp,
+      setAccessToken,
+      setInApp,
+    }),
+    [accessToken, inApp]
+  );
+
+  // Optionally, show a tiny one-time splash only on first load of the whole app.
+  // If you hate any splash, just remove this block entirely.
+  if (!initialized && !PUBLIC_ROUTES.has(location.pathname)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-4 font-sans">
         <h1 className="text-2xl font-bold">Logging in...</h1>
@@ -71,13 +111,6 @@ const SessionProvider: React.FC<SessionProviderProps> = ({ children }) => {
       </div>
     );
   }
-
-  const contextValue: SessionContextType = {
-    accessToken,
-    inApp, // Provide inApp state to context
-    setAccessToken,
-    setInApp, // Provide setter for inApp
-  };
 
   return (
     <SessionContext.Provider value={contextValue}>

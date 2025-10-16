@@ -29,7 +29,7 @@ export interface MonitoredProductResponse {
 
 // Fetch monitored product details by product id
 async function fetchMonitoredProduct(productId: string, token: string): Promise<MonitoredProductResponse> {
-  const response = await fetch(`http://192.168.1.32:8080/api/monitored-products/${productId}`, {
+  const response = await fetch(`http://192.168.1.121:8080/api/monitored-products/${productId}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',

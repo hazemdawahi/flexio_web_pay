@@ -70,7 +70,7 @@ export interface SuperchargeDetail {
 }
 
 export interface SplitPaymentDetail {
-  id?: string | null;
+  // id removed to match backend / cURL
   status?: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | string;
   dueDate: string; // "YYYY-MM-DD"
   amount?: number | string;
@@ -84,8 +84,7 @@ export interface SplitPaymentDetail {
 export interface OtherUserSplit {
   userId: string;
   amount: number | string;
-  /** NEW (matches cURL): when sharing a checkout portion */
-  checkoutId?: string | null;
+  // checkoutId removed per latest DTOs
 }
 
 /** Common planning/auth fields used across operations (top-level in your cURL) */
@@ -103,14 +102,14 @@ export interface CommonPlanFields {
   interestFreeUsed?: number | string;
   interestRate?: number | string;
   apr?: number | string;
-  /** NEW (cURL shows these at top-level) */
+  /** Present in cURL at top-level */
   originalTotalInterest?: number | string | null;
   currentTotalInterest?: number | string | null;
-  schemeTotalAmount?: number | string;
+  schemeAmount?: number | string; // matches cURL
   splitPaymentsList?: SplitPaymentDetail[];
-  /** NEW: top-level discountIds per examples */
+  /** Top-level discountIds per examples */
   discountIds?: string[];
-  /** NEW: top-level co-payers */
+  /** Top-level co-payers */
   otherUsers?: OtherUserSplit[];
 }
 
@@ -121,7 +120,7 @@ export interface CheckoutBlock {
   redirectUrl?: string | null;
   reference?: string | null;
   checkoutDetails?: any | null;
-  totalAmount?: MoneyLike | null; // maps to top-level checkoutTotalAmount
+  // no totalAmount here (cURL does not send any checkout amount field)
   checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
   discountIds?: string[];
   otherUsers?: OtherUserSplit[];
@@ -157,7 +156,7 @@ export interface CheckoutRequest extends CommonPlanFields {
   checkoutRedirectUrl?: string | null;
   checkoutReference?: string | null;
   checkoutDetails?: any | null;
-  checkoutTotalAmount?: MoneyLike | null;
+  // no checkoutTotalAmount (not in cURL)
   checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
 
   /** Backward-compatible nested block (optional) */
@@ -417,7 +416,7 @@ function normalizeToTopLevel(body: UnifiedCommerceRequest): UnifiedCommerceReque
     pruneCardDefaultFlags((clone as any).virtualCard);
   }
 
-  // ---- Back-compat: If a nested `checkout` block exists, lift to top-level fields used in cURL
+  // ---- Back-compat: If a nested `checkout` block exists, lift only allowed fields
   const asCheckout = clone as CheckoutRequest;
   const c = (asCheckout as any).checkout;
   if (c && isPlainObject(c)) {
@@ -426,7 +425,7 @@ function normalizeToTopLevel(body: UnifiedCommerceRequest): UnifiedCommerceReque
     asCheckout.checkoutRedirectUrl = asCheckout.checkoutRedirectUrl ?? c.redirectUrl ?? null;
     asCheckout.checkoutReference = asCheckout.checkoutReference ?? c.reference ?? null;
     asCheckout.checkoutDetails = asCheckout.checkoutDetails ?? c.checkoutDetails ?? null;
-    asCheckout.checkoutTotalAmount = asCheckout.checkoutTotalAmount ?? c.totalAmount ?? null;
+    // do not lift any total amount field (not in cURL)
     asCheckout.checkoutType = asCheckout.checkoutType ?? (c.checkoutType as any);
 
     // Also bring up discountIds/otherUsers if they were nested
@@ -512,7 +511,10 @@ async function callUnifiedCommerce(
 
     // If server complains about splitPaymentsList, retry after stripping all occurrences
     const msg = String(
-      (first.data && (first.data.error || (first.data as any).message)) || first.rawText || ''
+      (first.data && (first.data as any).error) ||
+        (first.data && (first.data as any).message) ||
+        first.rawText ||
+        ''
     ).toLowerCase();
 
     if (
@@ -534,7 +536,11 @@ async function callUnifiedCommerce(
         if (typeof obj.numberOfPayments === 'number' && obj.numberOfPayments <= 0) {
           obj.numberOfPayments = 1;
         }
-        if (obj.virtualCard && typeof obj.virtualCard.numberOfPayments === 'number' && obj.virtualCard.numberOfPayments <= 0) {
+        if (
+          obj.virtualCard &&
+          typeof obj.virtualCard.numberOfPayments === 'number' &&
+          obj.virtualCard.numberOfPayments <= 0
+        ) {
           obj.virtualCard.numberOfPayments = 1;
         }
         Object.values(obj).forEach(bumpNumberOfPayments);
@@ -616,7 +622,7 @@ export function buildCheckoutRequest(
     checkoutRedirectUrl?: string | null;
     checkoutReference?: string | null;
     checkoutDetails?: any | null;
-    checkoutTotalAmount?: MoneyLike | null;
+    // no checkoutTotalAmount here
     checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
   },
   common?: CommonPlanFields

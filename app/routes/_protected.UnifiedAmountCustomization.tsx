@@ -27,7 +27,7 @@ import {
   type SendRecipient,
 } from "~/hooks/useUnifiedCommerce";
 
-/** ---------------- Local Types (match RN) ---------------- */
+/** ---------------- Local Types (match RN & UnifiedPlans expectations) ---------------- */
 type AllowedTransactionType =
   | "CHECKOUT"
   | "PAYMENT"
@@ -40,9 +40,23 @@ type AllowedTransactionType =
 type PowerMode = "INSTANT" | "YEARLY" | "SUPERCHARGE";
 
 interface SuperchargeField {
-  amount: string;
+  amount: string; // dollars, e.g. "10.00"
   selectedPaymentMethod: PaymentMethod | null;
+  /** we keep this id to map -> object after methods load */
+  selectedPaymentMethodId?: string | null;
 }
+
+/** ---------------- In-memory (tab) store — NO session/local storage ---------------- */
+type SavedDraft = {
+  powerMode: PowerMode;
+  instantPowerAmount: string;
+  superchargeFields: { amount: string; selectedPaymentMethodId: string | null }[];
+};
+
+// Per-tab singleton. Cleared on full refresh but survives route remounts.
+const __UAC_MEMORY__: Record<string, SavedDraft> = Object.create(null);
+const memKey = (merchantId?: string, tx?: string) =>
+  `uac:${merchantId || "nomid"}:${(tx || "NA").toUpperCase()}`;
 
 /** ---------------- Env + URL helpers ---------------- */
 const BASE_URL =
@@ -103,7 +117,7 @@ function canonicalizeDiscountList(raw: string): string {
   return "[]";
 }
 
-/** Money helpers (do math in cents for accuracy) */
+/** ---------------- Money helpers (cents-first like RN) ---------------- */
 const toCents = (v: string | number): number => {
   const n = typeof v === "number" ? v : parseFloat(v || "0");
   if (!Number.isFinite(n)) return 0;
@@ -116,15 +130,14 @@ const UnifiedAmountCustomization: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  /** -------- Read & normalize params (parity with RN) -------- */
+  /** -------- Read & normalize params (parity with UnifiedPlansOptions & UnifiedPlans) -------- */
   // core / totals (dollars-as-strings)
   const merchantId = normalizeParam(searchParams.get("merchantId"), "");
   const amountParam = normalizeParam(searchParams.get("amount"), "");
-  const totalAmount = normalizeParam(searchParams.get("totalAmount"), ""); // Money JSON (optional)
-  const orderAmount = normalizeParam(searchParams.get("orderAmount"), "");
+  const totalAmount = normalizeParam(searchParams.get("totalAmount"), ""); // forwarded (optional)
+  const orderAmount = normalizeParam(searchParams.get("orderAmount"), ""); // forwarded (optional)
 
-  // flow context
-  const superchargeDetails = normalizeParam(searchParams.get("superchargeDetails"), "[]"); // not used to pre-seed here
+  // flow context sent by UnifiedPlansOptions
   const discountListRaw = normalizeParam(searchParams.get("discountList"), "[]");
   const powerModeParam = normalizeParam(searchParams.get("powerMode"), "INSTANT");
   const requestId = normalizeParam(searchParams.get("requestId"), "");
@@ -134,21 +147,78 @@ const UnifiedAmountCustomization: React.FC = () => {
   const otherUsersJson = normalizeParam(searchParams.get("otherUsers"), "");
   const recipientJson = normalizeParam(searchParams.get("recipient"), "");
 
-  // branding
+  // branding (param preferred, fallback to merchant)
   const displayLogoParam = normalizeParam(searchParams.get("displayLogo"), "");
   const displayNameParam = normalizeParam(searchParams.get("displayName"), "");
-
-  // extras (match upstream/downstream)
-  const split = normalizeParam(searchParams.get("split"), "");
   const logoUriParam = normalizeParam(searchParams.get("logoUri"), "");
+
+  // extras (Soteria and generic passthrough)
+  const split = normalizeParam(searchParams.get("split"), "");
   const paymentPlanId = normalizeParam(searchParams.get("paymentPlanId"), "");
   const paymentSchemeId = normalizeParam(searchParams.get("paymentSchemeId"), "");
   const splitPaymentId = normalizeParam(searchParams.get("splitPaymentId"), "");
 
+  // ---- LOG: show exactly what we received (removed recipient raw here)
+  useEffect(() => {
+    console.groupCollapsed("[UAC] URL Params (normalized)");
+    console.table([
+      { key: "merchantId", value: merchantId },
+      { key: "amount", value: amountParam },
+      { key: "orderAmount", value: orderAmount },
+      { key: "totalAmount", value: totalAmount },
+      { key: "discountList", value: discountListRaw },
+      { key: "powerMode", value: powerModeParam },
+      { key: "transactionType", value: transactionTypeRaw },
+      { key: "requestId", value: requestId },
+      { key: "displayLogo", value: displayLogoParam },
+      { key: "displayName", value: displayNameParam },
+      { key: "logoUri", value: logoUriParam },
+      { key: "split", value: split },
+      { key: "paymentPlanId", value: paymentPlanId },
+      { key: "paymentSchemeId", value: paymentSchemeId },
+      { key: "splitPaymentId", value: splitPaymentId },
+      { key: "otherUsers(raw)", value: otherUsersJson ? otherUsersJson : "" },
+    ]);
+    // Also log parsed objects so you can see actual values
+    if (otherUsersJson) {
+      try {
+        console.log("[UAC] otherUsers(parsed):", JSON.parse(otherUsersJson));
+      } catch {
+        console.warn("[UAC] otherUsers could not be parsed as JSON.");
+      }
+    }
+    if (recipientJson) {
+      try {
+        console.log("[UAC] recipient(parsed):", JSON.parse(recipientJson));
+      } catch {
+        console.warn("[UAC] recipient could not be parsed as JSON.");
+      }
+    }
+    console.groupEnd();
+  }, [
+    merchantId,
+    amountParam,
+    orderAmount,
+    totalAmount,
+    discountListRaw,
+    powerModeParam,
+    transactionTypeRaw,
+    requestId,
+    displayLogoParam,
+    displayNameParam,
+    logoUriParam,
+    split,
+    paymentPlanId,
+    paymentSchemeId,
+    splitPaymentId,
+    otherUsersJson,
+    recipientJson,
+  ]);
+
   /** -------- Capabilities & mode -------- */
   const txUpper = (transactionTypeRaw || "").toUpperCase() as AllowedTransactionType | "";
   const isSend = txUpper === "SEND";
-  // Restrict only for ACCEPT_REQUEST (like RN). ACCEPT_SPLIT_REQUEST is NOT restricted.
+  // Restrict only for ACCEPT_REQUEST (RN parity). ACCEPT_SPLIT_REQUEST is NOT restricted.
   const isAccept = txUpper === "ACCEPT_REQUEST";
 
   // SEND/ACCEPT_REQUEST force INSTANT; SOTERIA can SUPERCHARGE
@@ -168,12 +238,10 @@ const UnifiedAmountCustomization: React.FC = () => {
   const instantaneousPower = userRes?.data?.user?.instantaneousPower ?? 0;
   const subscribed = userRes?.data?.subscribed ?? false;
 
-  // STRICT web hook requires userId and returns PaymentMethod[]
   const {
     data: methodsArray,
     isLoading: loadingMethods,
     error: methodsError,
-    refetch: refetchMethods,
   } = usePaymentMethods(userId);
 
   const preferParamsBranding = !!(logoUriParam || displayLogoParam);
@@ -181,7 +249,6 @@ const UnifiedAmountCustomization: React.FC = () => {
     data: merchantRes,
     isLoading: loadingMerchant,
     error: merchantError,
-    refetch: refetchMerchant,
   } = useMerchantDetail(preferParamsBranding ? "" : merchantId);
 
   const brandLogoFromMerchant = merchantRes?.data?.brand?.displayLogo ?? null;
@@ -197,10 +264,23 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   const headerName = displayNameParam || brandNameFromMerchant || "";
 
-  /** -------- Compute "myTarget" (payer's share) -------- */
-  const baseAmount = parseFloat(amountParam || "") || 0;
-  const baseCents = toCents(baseAmount);
+  /** -------- helpers to parse recipient early so we can log it nicely -------- */
+  const parseRecipient = useCallback((): SendRecipient | null => {
+    const s = recipientJson;
+    if (!s) return null;
+    try {
+      const o = JSON.parse(s);
+      const rid = String(o?.recipientId || "");
+      const amt = Number(o?.amount || 0);
+      if (!rid || !Number.isFinite(amt) || amt <= 0) return null;
+      return { recipientId: rid, amount: amt };
+    } catch {
+      return null;
+    }
+  }, [recipientJson]);
 
+  /** -------- Compute "myTarget" (payer's share) — CENTS MATH like RN -------- */
+  const baseCents = toCents(parseFloat(amountParam || "0"));
   const parsedOtherUsers = useMemo(() => {
     if (!otherUsersJson) return undefined;
     try {
@@ -213,6 +293,7 @@ const UnifiedAmountCustomization: React.FC = () => {
         }))
         .filter((u: any) => u.userId && Number.isFinite(u.amount) && u.amount >= 0);
       if (!mapped.length) return undefined;
+      // exclude current user if present so "others" are truly others
       return userId ? mapped.filter((u) => u.userId !== userId) : mapped;
     } catch {
       return undefined;
@@ -226,7 +307,29 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   const explicitOrderCents = toCents(parseFloat(orderAmount || "0"));
   const hasExplicitOrder = !!orderAmount && !isNaN(parseFloat(orderAmount));
+
   const myTargetCents = hasExplicitOrder ? Math.max(0, explicitOrderCents - othersSumCents) : baseCents;
+
+  useEffect(() => {
+    console.groupCollapsed("[UAC] Target math (cents)");
+    console.table([
+      { key: "baseCents", value: baseCents },
+      { key: "hasExplicitOrder", value: hasExplicitOrder },
+      { key: "explicitOrderCents", value: explicitOrderCents },
+      { key: "othersSumCents", value: othersSumCents },
+      { key: "myTargetCents", value: myTargetCents },
+    ]);
+    console.groupEnd();
+  }, [baseCents, hasExplicitOrder, explicitOrderCents, othersSumCents, myTargetCents]);
+
+  /** -------- Extra log: actual parsed parties (others + recipient) -------- */
+  const recipientParsed = useMemo(() => parseRecipient(), [parseRecipient]);
+  useEffect(() => {
+    console.groupCollapsed("[UAC] Parsed parties");
+    console.log("parsedOtherUsers:", parsedOtherUsers || []);
+    console.log("recipient:", recipientParsed || null);
+    console.groupEnd();
+  }, [parsedOtherUsers, recipientParsed]);
 
   /** -------- Payment methods (cards only) -------- */
   const cards: PaymentMethod[] = useMemo(
@@ -237,21 +340,58 @@ const UnifiedAmountCustomization: React.FC = () => {
     return cards.find((m) => m.card?.primary) || cards[0] || null;
   }, [cards]);
 
-  /** -------- Local UI & modal state -------- */
-  const [instantPowerAmount, setInstantPowerAmount] = useState<string>("");
+  /** -------- Local UI & modal state (INITIALIZED FROM IN-MEMORY STORE) -------- */
+  const key = memKey(merchantId, txUpper);
+  const draft = __UAC_MEMORY__[key];
+
+  const [instantPowerAmount, setInstantPowerAmount] = useState<string>(draft?.instantPowerAmount ?? "");
   const [superchargeFields, setSuperchargeFields] = useState<SuperchargeField[]>(
-    isSupercharge ? [{ amount: "", selectedPaymentMethod: null }] : []
+    draft?.superchargeFields
+      ? draft.superchargeFields.map((f) => ({
+          amount: f.amount ?? "",
+          selectedPaymentMethod: null,
+          selectedPaymentMethodId: f.selectedPaymentMethodId ?? null,
+        }))
+      : isSupercharge
+      ? [{ amount: "", selectedPaymentMethod: null }]
+      : []
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
 
-  // Seed default card for SUPERCHARGE when cards arrive
+  // After methods load, map stored IDs to actual objects
   useEffect(() => {
-    if (!isSupercharge || cards.length === 0) return;
-    setSuperchargeFields((prev) =>
-      prev.map((f) => (f.selectedPaymentMethod ? f : { ...f, selectedPaymentMethod: pickPrimaryCard() }))
-    );
-  }, [isSupercharge, cards, pickPrimaryCard]);
+    if (loadingMethods) return;
+    setSuperchargeFields((prev) => {
+      if (!prev.length) return prev;
+      const idMap = new Map(cards.map((c) => [c.id, c]));
+      const next = prev.map((f) => {
+        if (f.selectedPaymentMethod) return f;
+        const obj = f.selectedPaymentMethodId ? idMap.get(f.selectedPaymentMethodId) ?? null : null;
+        return { ...f, selectedPaymentMethod: obj ?? f.selectedPaymentMethod ?? null };
+      });
+      if (isSupercharge) {
+        for (let i = 0; i < next.length; i++) {
+          if (!next[i].selectedPaymentMethod) {
+            next[i] = { ...next[i], selectedPaymentMethod: pickPrimaryCard() };
+          }
+        }
+      }
+      return next;
+    });
+  }, [loadingMethods, cards, isSupercharge, pickPrimaryCard]);
+
+  /** -------- Keep in-memory store updated (no storage APIs) -------- */
+  useEffect(() => {
+    __UAC_MEMORY__[key] = {
+      powerMode,
+      instantPowerAmount,
+      superchargeFields: (superchargeFields || []).map((f) => ({
+        amount: f.amount ?? "",
+        selectedPaymentMethodId: f.selectedPaymentMethod?.id ?? f.selectedPaymentMethodId ?? null,
+      })),
+    };
+  }, [key, powerMode, instantPowerAmount, superchargeFields]);
 
   /** -------- SUPERCHARGE field handlers -------- */
   const addField = useCallback(() => {
@@ -282,7 +422,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     [activeFieldIndex]
   );
 
-  /** -------- Validation / disable logic -------- */
+  /** -------- Validation / disable logic (cents) -------- */
   const fieldsWithPositive = superchargeFields.filter((f) => toCents(f.amount) > 0);
   const sumSuperchargeCents = fieldsWithPositive.reduce((acc, f) => acc + toCents(f.amount), 0);
   const enteredInstantCents = isSupercharge ? 0 : toCents(instantPowerAmount);
@@ -296,6 +436,32 @@ const UnifiedAmountCustomization: React.FC = () => {
   const disabled =
     (isSupercharge ? noPositiveSupercharges || hasMissingCard : hasEmptyInstant || hasMissingCard) || !exactMatch;
 
+  useEffect(() => {
+    console.groupCollapsed("[UAC] Entry/Validation (cents)");
+    console.table([
+      { key: "isSupercharge", value: isSupercharge },
+      { key: "instantPowerAmount", value: instantPowerAmount },
+      { key: "fieldsWithPositive", value: fieldsWithPositive.length },
+      { key: "sumSuperchargeCents", value: sumSuperchargeCents },
+      { key: "enteredInstantCents", value: enteredInstantCents },
+      { key: "totalEnteredCents", value: totalEnteredCents },
+      { key: "hasMissingCard", value: hasMissingCard },
+      { key: "exactMatch", value: exactMatch },
+      { key: "disabled", value: disabled },
+    ]);
+    console.groupEnd();
+  }, [
+    isSupercharge,
+    instantPowerAmount,
+    fieldsWithPositive,
+    sumSuperchargeCents,
+    enteredInstantCents,
+    totalEnteredCents,
+    hasMissingCard,
+    exactMatch,
+    disabled,
+  ]);
+
   /** -------- Navigate to UnifiedPlans (non-SUPERCHARGE) -------- */
   const goContinue = () => {
     if (disabled) {
@@ -303,13 +469,15 @@ const UnifiedAmountCustomization: React.FC = () => {
       return;
     }
 
+    // UnifiedPlans expects superchargeDetails with amount as string "10.00"
     const details = superchargeFields
       .filter((f) => toCents(f.amount) > 0)
       .map((f) => ({
         amount: (toCents(f.amount) / 100).toFixed(2),
-        paymentMethodId: f.selectedPaymentMethod?.id!,
+        paymentMethodId: f.selectedPaymentMethod!.id,
       }));
 
+    // ONLY send the INSTANT/YEARLY amount as the "amount" field (string with 2 decimals).
     const forwardAmount = isSupercharge
       ? centsToMajor(myTargetCents).toFixed(2)
       : (toCents(instantPowerAmount) / 100).toFixed(2);
@@ -317,17 +485,17 @@ const UnifiedAmountCustomization: React.FC = () => {
     const baseParams = new URLSearchParams({
       // core
       merchantId,
-      amount: forwardAmount,
+      amount: forwardAmount, // <- what UnifiedPlans reads as amount
       powerMode,
 
       // flow context
-      superchargeDetails: JSON.stringify(details.length ? details : []),
+      superchargeDetails: JSON.stringify(details.length ? details : []), // <- UnifiedPlans reads this JSON
       discountList: discountListCanonical,
       requestId,
       transactionType: transactionTypeRaw,
 
       // split + send
-      otherUsers: otherUsersJson,
+      otherUsers: otherUsersJson, // keep raw JSON; UnifiedPlans tolerates "otherUsers"
       recipient: recipientJson,
 
       // totals / branding
@@ -343,6 +511,21 @@ const UnifiedAmountCustomization: React.FC = () => {
       paymentSchemeId,
       splitPaymentId,
     });
+
+    console.groupCollapsed("[UAC] NAV → /UnifiedPlans");
+    console.log("query (raw):", Object.fromEntries(baseParams.entries()));
+    // Also log parsed for easy verification
+    if (otherUsersJson) {
+      try {
+        console.log("otherUsers(parsed):", JSON.parse(otherUsersJson));
+      } catch {}
+    }
+    if (recipientJson) {
+      try {
+        console.log("recipient(parsed):", JSON.parse(recipientJson));
+      } catch {}
+    }
+    console.groupEnd();
 
     navigate(`/UnifiedPlans?${baseParams.toString()}`);
   };
@@ -360,31 +543,24 @@ const UnifiedAmountCustomization: React.FC = () => {
     }
   };
 
-  const parseRecipient = (): SendRecipient | null => {
-    if (!recipientJson) return null;
-    try {
-      const o = JSON.parse(recipientJson);
-      const rid = String(o?.recipientId || "");
-      const amt = Number(o?.amount || 0);
-      if (!rid || !Number.isFinite(amt) || amt <= 0) return null;
-      return { recipientId: rid, amount: amt };
-    } catch {
-      return null;
-    }
-  };
-
+  // Enhanced sender: logs payload (pretty) before sending
   const sendByType = async (type: AllowedTransactionType, payload: any) => {
     const start = Date.now();
     try {
+      try {
+        console.groupCollapsed(`[UAC → ${type}] OUTGOING payload`);
+        console.log(JSON.parse(JSON.stringify(payload)));
+        console.groupEnd();
+      } catch {
+        console.log(`[UAC → ${type}] OUTGOING payload (stringify failed)`, payload);
+      }
       const res = await runUnified(payload);
       try {
-        // eslint-disable-next-line no-console
         console.log(`[UAC → ${type}] SUCCESS in ${Date.now() - start}ms`, res);
       } catch {}
       return res;
     } catch (err: any) {
       try {
-        // eslint-disable-next-line no-console
         console.log(`[UAC → ${type}] ERROR in ${Date.now() - start}ms`, {
           message: err?.message ?? String(err),
           stack: err?.stack,
@@ -408,8 +584,9 @@ const UnifiedAmountCustomization: React.FC = () => {
       return;
     }
 
+    // supercharge details as NUMBER major units (rounded to 2) for backend — cents-accurate
     const details = fieldsWithPositive.map((f) => ({
-      amount: Number((toCents(f.amount) / 100).toFixed(2)), // dollars major units
+      amount: Number((toCents(f.amount) / 100).toFixed(2)),
       paymentMethodId: f.selectedPaymentMethod!.id,
     }));
 
@@ -417,7 +594,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     const discountIds = parseDiscountIds();
     const hasDiscounts = discountIds.length > 0;
 
-    // Common block: no splitPaymentsList for pure SUPERCHARGE submit
+    // Common block for SUPERCHARGE only: instant/yearly = 0; rest in superchargeDetails
     const common: any = {
       paymentFrequency: "MONTHLY",
       numberOfPayments: 1,
@@ -426,22 +603,30 @@ const UnifiedAmountCustomization: React.FC = () => {
       yearlyAmount: 0,
       superchargeDetails: details,
       selfPayActive: false,
-      totalPlanAmount: centsToMajor(myTargetCents),
+      totalPlanAmount: centsToMajor(myTargetCents), // payer share
       interestFreeUsed: 0,
       interestRate: 0,
       apr: 0,
-      schemeTotalAmount: centsToMajor(myTargetCents),
+      schemeAmount: centsToMajor(myTargetCents), // ✅ renamed to match new interface
       otherUsers: parsedOtherUsers,
       ...(hasDiscounts ? { discountIds } : {}),
     };
 
+    // Snapshot of actual parties we are about to send
+    try {
+      console.groupCollapsed("[UAC] SUPERCHARGE → common parties snapshot");
+      console.log("otherUsers (actual):", common.otherUsers || []);
+      console.log("recipient (actual):", recipientParsed || null);
+      console.groupEnd();
+    } catch {}
+
     try {
       switch (transactionType) {
         case "CHECKOUT": {
+          // ⛔ No checkoutTotalAmount field per new interface/comments
           const req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
-              checkoutTotalAmount: { amount: centsToMajor(myTargetCents), currency: "USD" },
               checkoutType: "ONLINE",
               checkoutRedirectUrl: null,
               checkoutReference: null,
@@ -451,7 +636,9 @@ const UnifiedAmountCustomization: React.FC = () => {
             common
           );
           await sendByType("CHECKOUT", req);
-          navigate(`/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`);
+          navigate(
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+          );
           break;
         }
         case "PAYMENT": {
@@ -460,18 +647,28 @@ const UnifiedAmountCustomization: React.FC = () => {
             common
           );
           await sendByType("PAYMENT", req);
-          navigate(`/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`);
+          navigate(
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+          );
           break;
         }
         case "SEND": {
-          const recipient = parseRecipient();
+          const recipient = recipientParsed;
           if (!recipient) {
             toast.info("Provide a valid single recipient JSON.");
             return;
           }
+          // Log actual recipient values right before building
+          try {
+            console.groupCollapsed("[UAC] SEND flow — recipient detail");
+            console.log("recipient:", recipient);
+            console.groupEnd();
+          } catch {}
           const req = buildSendRequest(recipient, { note: "Transfer" }, common);
           await sendByType("SEND", req);
-          navigate(`/SuccessPayment?amount=${encodeURIComponent(Number(recipient.amount).toFixed(2))}&replace_to_index=1`);
+          navigate(
+            `/SuccessPayment?amount=${encodeURIComponent(Number(recipient.amount).toFixed(2))}&replace_to_index=1`
+          );
           break;
         }
         case "ACCEPT_REQUEST": {
@@ -481,7 +678,9 @@ const UnifiedAmountCustomization: React.FC = () => {
           }
           const req = buildAcceptRequest(requestId, common);
           await sendByType("ACCEPT_REQUEST", req);
-          navigate(`/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`);
+          navigate(
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+          );
           break;
         }
         case "ACCEPT_SPLIT_REQUEST": {
@@ -491,7 +690,9 @@ const UnifiedAmountCustomization: React.FC = () => {
           }
           const req = buildAcceptSplitRequest(requestId, common);
           await sendByType("ACCEPT_SPLIT_REQUEST", req);
-          navigate(`/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`);
+          navigate(
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+          );
           break;
         }
         case "VIRTUAL_CARD": {
@@ -515,7 +716,6 @@ const UnifiedAmountCustomization: React.FC = () => {
           break;
         }
         case "SOTERIA_PAYMENT": {
-          // Back end generally requires all three for Soteria
           if (!paymentPlanId || !paymentSchemeId || !splitPaymentId) {
             toast.info(
               !paymentPlanId
@@ -551,12 +751,13 @@ const UnifiedAmountCustomization: React.FC = () => {
           );
 
           await sendByType("SOTERIA_PAYMENT", req);
-          navigate(`/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`);
+          navigate(
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+          );
           break;
         }
       }
     } catch (e: any) {
-      // eslint-disable-next-line no-console
       console.error("[UAC] runSupercharge ERROR", e?.message || e);
       toast.error(e?.message || "Something went wrong. Please try again.");
     }
@@ -579,7 +780,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     displayNameParam,
     split,
     discountListCanonical,
-    recipientJson,
+    recipientParsed,
   ]);
 
   /** -------- Loading states -------- */
@@ -619,13 +820,16 @@ const UnifiedAmountCustomization: React.FC = () => {
             src={computedLogoUri}
             alt={headerName || "brand"}
             className="w-24 h-24 rounded-full border border-gray-300 object-cover"
+            onError={(e) => {
+              console.warn("[UAC] Logo failed to load:", computedLogoUri);
+              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+            }}
+            onLoad={() => console.log("[UAC] Logo loaded:", computedLogoUri)}
           />
         </div>
       )}
 
-      {errorMsg ? (
-        <div className="text-center text-red-600 mb-3">{errorMsg}</div>
-      ) : null}
+      {errorMsg ? <div className="text-center text-red-600 mb-3">{errorMsg}</div> : null}
 
       <h1 className="text-xl font-bold mb-2">
         {headerName
@@ -633,9 +837,11 @@ const UnifiedAmountCustomization: React.FC = () => {
           : `Customize Your $${centsToMajor(myTargetCents).toFixed(2)}`}
       </h1>
 
-      {/* Instant (or Yearly) input – hidden for SUPERCHARGE */}
+      {/* Instant (or Yearly) input – hidden for SUPERCHARGE.
+          ⬇️ This is the ONLY fielded amount we forward for non-supercharge flows. */}
       {!isSupercharge && (
         <FloatingLabelInputWithInstant
+          key={`instant-${key}`} // ensure controlled input uses current value on remount
           label={powerMode === "YEARLY" ? "Yearly Power Amount" : "Instant Power Amount"}
           value={instantPowerAmount}
           onChangeText={(v: string) => {
@@ -646,9 +852,9 @@ const UnifiedAmountCustomization: React.FC = () => {
         />
       )}
 
-      {/* Supercharge fields */}
+      {/* Supercharge fields (the rest of the amount) */}
       {superchargeFields.map((f, i) => (
-        <div key={i} className="mt-4">
+        <div key={`sc-${key}-${i}`} className="mt-4">
           <FloatingLabelInputOverdraft
             label={`Supercharge #${i + 1}`}
             value={f.amount}
@@ -669,7 +875,7 @@ const UnifiedAmountCustomization: React.FC = () => {
         </div>
       ))}
 
-      {/* If explicitly in SUPERCHARGE mode, the inline Add button is retained but hidden to keep logic intact */}
+      {/* If explicitly in SUPERCHARGE mode, keep inline Add button hidden to avoid duplicate CTA */}
       {isSupercharge && (
         <div className="mt-4 hidden">
           <button
@@ -737,8 +943,8 @@ const UnifiedAmountCustomization: React.FC = () => {
               exit={{ y: "100%", opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <div className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-[75vh] overflow-y-auto p-4">
-                {/* Payment Settings button is intentionally hidden (kept, not removed) */}
+              <div className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max_h_[75vh] max-h-[75vh] overflow-y-auto p-4">
+                {/* Payment Settings button kept but hidden */}
                 <button
                   onClick={() => navigate("/payment-settings")}
                   className="mb-4 bg-black text-white px-4 py-2 rounded-lg hidden"

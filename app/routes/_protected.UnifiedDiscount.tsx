@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useCallback } from "react";
 import { useLocation, useNavigate } from "@remix-run/react";
+import { IoIosArrowBack } from "react-icons/io";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useAvailableDiscounts, Discount } from "~/hooks/useAvailableDiscounts";
 
@@ -10,6 +11,7 @@ import { useAvailableDiscounts, Discount } from "~/hooks/useAvailableDiscounts";
  * - Uses Remix's useLocation/useNavigate for URL params & navigation
  * - Preserves data/flow logic (params normalization, discount math, routing)
  * - Navigates to /UnifiedPlansOptions (solo) or /UnifiedSplitWithContacts (split)
+ * - Visuals tuned to resemble the RN implementation (larger rows, clear separators, fixed CTA)
  */
 
 /* ---------------- Env & URL helpers ---------------- */
@@ -139,9 +141,7 @@ export default function UnifiedDiscount() {
   const {
     data: discounts,
     isLoading: discountsLoading,
-    isFetching,
     error: discountsError,
-    refetch,
   } = useAvailableDiscounts(merchantId, orderAmt);
 
   const [selectedDiscountId, setSelectedDiscountId] = useState<string | null>(null);
@@ -284,8 +284,8 @@ export default function UnifiedDiscount() {
         aria-live="polite"
       >
         <div className="flex flex-col items-center text-slate-600">
-          <div className="h-7 w-7 rounded-full border-2 border-slate-200 border-t-slate-500 animate-spin" />
-          <div className="mt-2">Loading…</div>
+          <div className="h-8 w-8 rounded-full border-2 border-slate-200 border-t-slate-500 animate-spin" />
+          <div className="mt-3 text-sm">Loading…</div>
         </div>
       </div>
     );
@@ -294,9 +294,7 @@ export default function UnifiedDiscount() {
   if (merchantError) {
     return (
       <div className="min-h-screen grid place-items-center bg-white">
-        <div className="text-red-600 text-base">
-          {(merchantError as any).message}
-        </div>
+        <div className="text-red-600 text-base">{(merchantError as any).message}</div>
       </div>
     );
   }
@@ -304,14 +302,13 @@ export default function UnifiedDiscount() {
   if (discountsError) {
     return (
       <div className="min-h-screen grid place-items-center bg-white">
-        <div className="text-red-600 text-base">
-          {(discountsError as any).message}
-        </div>
+        <div className="text-red-600 text-base">{(discountsError as any).message}</div>
       </div>
     );
   }
 
   // Prefer displayLogo from params over derived merchant logo
+  // (keeping in case you use it later or for consistency with the RN screen)
   const derivedLogo = makeFullUrl(
     (merchantResp as any)?.data?.brand?.displayLogo || ""
   );
@@ -324,41 +321,25 @@ export default function UnifiedDiscount() {
   /* -------------- Render -------------- */
   return (
     <div className="min-h-screen bg-white flex flex-col">
-      {/* Header / merchant */}
-      <div className="flex items-center gap-3 px-4 pt-3">
-        {logoUri ? (
-          <img
-            src={logoUri}
-            alt={(displayNameParam || "Merchant") + " logo"}
-            className="h-9 w-9 rounded-full object-cover border border-slate-200"
-            loading="lazy"
-          />
-        ) : (
-          <div className="h-9 w-9 rounded-full bg-slate-200" />
-        )}
-        {displayNameParam ? (
-          <div className="font-semibold text-sm">{displayNameParam}</div>
-        ) : null}
-
-        <div className="ml-auto">
-          <button
-            onClick={() => refetch?.()}
-            disabled={!!isFetching}
-            className="text-sm rounded-md border border-slate-200 px-3 py-2 disabled:opacity-60"
-          >
-            {isFetching ? "Refreshing…" : "Refresh"}
-          </button>
-        </div>
+      {/* Back button only (no header) */}
+      <div className="flex items-center p-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center text-gray-700 hover:text-gray-900 -ml-1 pr-1"
+        >
+          <IoIosArrowBack className="mr-2" size={24} />
+          Back
+        </button>
       </div>
 
-      {/* Discounts list */}
+      {/* Discounts list — FlashList-like spacing & separators */}
       {(discounts ?? []).length === 0 ? (
-        <div className="flex-1 grid place-items-center p-4">
+        <div className="flex-1 grid place-items-center p-6">
           <div className="text-lg text-slate-500">No discounts available.</div>
         </div>
       ) : (
-        <ul className="divide-y divide-slate-100 pt-3 pb-24">
-          {(discounts ?? []).map((item) => {
+        <ul className="pt-2 pb-40"> {/* pb-40 ensures content isn't hidden behind fixed footer */}
+          {(discounts ?? []).map((item, idx) => {
             const checked = item.id === selectedDiscountId;
             const details =
               item.type === "PERCENTAGE_OFF"
@@ -371,84 +352,94 @@ export default function UnifiedDiscount() {
                 : "";
 
             return (
-              <li
-                key={item.id}
-                className="flex items-center gap-3 px-4 py-3 cursor-pointer"
-                onClick={() =>
-                  setSelectedDiscountId((prev) =>
-                    prev === item.id ? null : item.id
-                  )
-                }
-              >
-                {logoUri ? (
-                  <img
-                    src={logoUri}
-                    alt="logo"
-                    className="h-[60px] w-[60px] min-w-[60px] min-h-[60px] rounded-full object-cover border border-slate-300"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="h-[60px] w-[60px] rounded-full bg-slate-200" />
-                )}
-
-                <div className="flex-1 pr-3 min-w-0">
-                  <div className="text-base font-semibold truncate">
-                    {item.discountName}
-                  </div>
-                  <div className="text-sm text-slate-900 truncate">
-                    {details}
-                    {minStr}
-                  </div>
-                </div>
-
-                {/* Radio */}
-                <label
-                  htmlFor={`discount-radio-${item.id}`}
-                  className="flex items-center gap-2 cursor-pointer"
-                  onClick={(e) => e.stopPropagation()}
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className="w-full"
+                  onClick={() =>
+                    setSelectedDiscountId((prev) => (prev === item.id ? null : item.id))
+                  }
+                  aria-pressed={checked}
                 >
-                  <input
-                    id={`discount-radio-${item.id}`}
-                    type="radio"
-                    name="discount-choice"
-                    value={item.id}
-                    checked={checked}
-                    onChange={() =>
-                      setSelectedDiscountId((prev) =>
-                        prev === item.id ? null : item.id
-                      )
-                    }
-                    className="sr-only"
-                  />
-                  <span
-                    className="inline-block relative rounded-full"
-                    style={{
-                      width: 18,
-                      height: 18,
-                      border: `2px solid ${RADIO_BLUE}`,
-                    }}
-                    aria-hidden
-                  >
-                    {checked ? (
-                      <span
-                        className="absolute inset-[3px] rounded-full"
-                        style={{ background: RADIO_BLUE }}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    {logoUri ? (
+                      <img
+                        src={logoUri}
+                        alt="logo"
+                        className="h-[60px] w-[60px] min-w-[60px] min-h-[60px] rounded-full object-cover border border-slate-300"
+                        loading="lazy"
                       />
-                    ) : null}
-                  </span>
-                </label>
+                    ) : (
+                      <div className="h-[60px] w-[60px] rounded-full bg-slate-200" />
+                    )}
+
+                    <div className="flex-1 pr-3 min-w-0 text-left">
+                      <div className="text-[16px] font-semibold truncate">
+                        {item.discountName}
+                      </div>
+                      <div className="text-[14px] text-slate-900 truncate">
+                        {details}
+                        {minStr}
+                      </div>
+                    </div>
+
+                    {/* Radio (mobile-like look) */}
+                    <label
+                      htmlFor={`discount-radio-${item.id}`}
+                      className="flex items-center gap-2 cursor-pointer"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        id={`discount-radio-${item.id}`}
+                        type="radio"
+                        name="discount-choice"
+                        value={item.id}
+                        checked={checked}
+                        onChange={() =>
+                          setSelectedDiscountId((prev) =>
+                            prev === item.id ? null : item.id
+                          )
+                        }
+                        className="sr-only"
+                      />
+                      <span
+                        className="inline-block relative rounded-full"
+                        style={{
+                          width: 20,
+                          height: 20,
+                          border: `2px solid ${RADIO_BLUE}`,
+                        }}
+                        aria-hidden
+                        data-testid={`discount-radio-${item.id}`}
+                      >
+                        {checked ? (
+                          <span
+                            className="absolute inset-[3px] rounded-full"
+                            style={{ background: RADIO_BLUE }}
+                          />
+                        ) : null}
+                      </span>
+                    </label>
+                  </div>
+                </button>
+
+                {/* Separator like FlashList ItemSeparatorComponent */}
+                {idx !== (discounts?.length ?? 1) - 1 ? (
+                  <div className="h-px bg-slate-200 mx-4" />
+                ) : null}
               </li>
             );
           })}
         </ul>
       )}
 
-      {/* Continue button (fixed footer) */}
-      <div className="fixed inset-x-0 bottom-0 border-t border-slate-100 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 p-4">
-        <div className="mx-auto w-full max-w-3xl">
+      {/* Continue button (fixed footer, mobile style) */}
+      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <div className="mx-auto w-full max-w-3xl px-4 py-4">
           <button
             onClick={handleContinue}
-            className="w-full bg-black text-white py-4 rounded-lg text-base font-semibold"
+            className="w-full bg-black text-white py-4 rounded-lg text-[16px] font-semibold active:opacity-90"
+            data-testid="continue-button"
           >
             {selectedDiscountId
               ? "Continue with Discount"

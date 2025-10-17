@@ -1,4 +1,4 @@
-// File: src/routes/_protected.UnifiedSmartPaymentPlans.tsx
+// File: app/routes/UnifiedSmartPaymentPlans.tsx
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
@@ -42,7 +42,6 @@ import {
 } from "~/hooks/useUnifiedCommerce";
 import InterestFreeSheet from "~/compoments/InterestFreeSheet";
 
-
 // ────────────────────────────────────────────────────────────────────────────
 
 type Frequency = "BI_WEEKLY" | "MONTHLY";
@@ -56,12 +55,18 @@ interface SplitEntryProp {
   amount: string; // dollars string
 }
 interface UnifiedSmartPaymentPlansProps {
-  amount?: string;
+  // Core
+  amount?: string;                 // major units
+  powerMode?: "INSTANT" | "YEARLY"; // ← drives instant vs yearly (parity with mobile)
+
+  // (legacy inputs kept for compat; ignored when powerMode is present)
   instantPowerAmount?: string;
   yearlyPowerAmount?: string;
+
   superchargeDetails?: SuperchargeDetailProp[];
   otherUserAmounts?: SplitEntryProp[];
   selectedDiscounts?: string[];
+
   // Unified commerce passthrough (from URL)
   merchantId?: string;
   split?: "true" | "false" | "";
@@ -115,6 +120,20 @@ const parseNumber = (v: string | undefined, def = 0): number => {
   return Number.isFinite(n) ? Number(n.toFixed(2)) : def;
 };
 
+/** Center spinner (shared look with UnifiedPaymentPlan) */
+const CenterSpinner: React.FC = () => (
+  <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
+    <motion.div
+      role="status"
+      aria-label="Loading"
+      className="w-10 h-10 rounded-full border-4 border-gray-300"
+      style={{ borderTopColor: "#000" }}
+      animate={{ rotate: 360 }}
+      transition={{ repeat: Infinity, ease: "linear", duration: 0.9 }}
+    />
+  </div>
+);
+
 const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props) => {
   const navigate = useNavigate();
   const { search } = useLocation();
@@ -124,9 +143,14 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   const getParam = (key: keyof UnifiedSmartPaymentPlansProps, def = "") =>
     normalizeStr((props as any)[key] ?? qs.get(String(key)) ?? def, def);
 
+  // Core
   const amountStr = getParam("amount", "");
+  const powerModeParam = getParam("powerMode", "INSTANT").toUpperCase() as "INSTANT" | "YEARLY";
+
+  // Back-compat (if powerMode missing): fall back to legacy instant/yearlyPowerAmount choice
   const instantPowerAmount = getParam("instantPowerAmount", "");
   const yearlyPowerAmount = getParam("yearlyPowerAmount", "");
+
   const merchantId = getParam("merchantId", "");
   const discountListRaw = getParam("discountList", "[]");
   const requestId = getParam("requestId", "");
@@ -140,14 +164,22 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   const propSupercharge = (props.superchargeDetails ?? []) as SuperchargeDetailProp[];
   const propDiscounts = (props.selectedDiscounts ?? []) as string[];
 
-  // Use RN logic: if yearly provided, that's the one; else instant; else `amount` param
-  const displayedAmount = useMemo(() => {
-    const raw = yearlyPowerAmount || instantPowerAmount || amountStr || "0";
-    return parseNumber(raw, 0);
-  }, [yearlyPowerAmount, instantPowerAmount, amountStr]);
+  // Determine mode + purchase amount (parity with mobile)
+  const isYearlyMode = useMemo(() => {
+    // Prefer explicit powerMode; otherwise infer from presence of yearlyPowerAmount
+    if (powerModeParam === "YEARLY" || powerModeParam === "INSTANT") return powerModeParam === "YEARLY";
+    return !!yearlyPowerAmount && !instantPowerAmount;
+  }, [powerModeParam, yearlyPowerAmount, instantPowerAmount]);
+
+  const purchaseAmount = useMemo(() => {
+    // Mobile uses a single "amount" with powerMode; keep compat fallback
+    const base = parseNumber(amountStr, NaN);
+    if (Number.isFinite(base)) return base;
+    const fallback = isYearlyMode ? yearlyPowerAmount : instantPowerAmount;
+    return parseNumber(fallback || "0", 0);
+  }, [amountStr, isYearlyMode, yearlyPowerAmount, instantPowerAmount]);
 
   // Frequency default: if yearly mode -> MONTHLY, else BI_WEEKLY
-  const isYearlyMode = !!yearlyPowerAmount;
   const [frequency] = useState<Frequency>(isYearlyMode ? "MONTHLY" : "BI_WEEKLY");
 
   // Unified transaction type (strict)
@@ -184,42 +216,45 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     }
   }, [recipientRaw]);
 
-  // Derived total supercharge
-  const totalSupercharge = useMemo(
-    () =>
-      (propSupercharge || []).reduce((sum, s) => {
-        const v = parseFloat(s.amount);
-        return sum + (isNaN(v) ? 0 : Number(v.toFixed(2)));
-      }, 0),
-    [propSupercharge]
-  );
-
-  // Final purchase amount the plan is built on
-  const purchaseAmount = displayedAmount;
-
   // ── User & Smart Pay prerequisites ────────────────────────────────────────
   const { data: userRes, isLoading: userLoading, isError: userError } = useUserDetails();
   const currentUserId: string | undefined = userRes?.data?.user?.id;
-  const smartPayEnabledFlag = userRes?.data?.user.smartPay === true;
-  const availableIF = Number(userRes?.data?.interestFreeCreditAmount ?? 0);
 
   const { data: creditRes, isLoading: creditLoading } = useCreditAccounts();
-  const { data: preferences, isLoading: prefLoading } = useSmartpayPreferencesMe();
-  const { data: incomes, isLoading: incomesLoading } = useSmartpayIncomes();
+  const { data: preferencesRaw, isLoading: prefLoading } = useSmartpayPreferencesMe();
+  const { data: incomesRaw, isLoading: incomesLoading } = useSmartpayIncomes();
 
-  const creditTokens = creditRes?.data?.tokens ?? [];
+  const creditTokens = useMemo(() => {
+    const t = creditRes?.data?.tokens;
+    return Array.isArray(t) ? t : [];
+  }, [creditRes]);
   const hasCredit = creditTokens.length > 0;
-  const hasPreferences = preferences != null;
-  const hasIncomes = Array.isArray(incomes) && incomes.length > 0;
+
+  const preferences = useMemo(() => {
+    return (preferencesRaw as any)?.data ?? preferencesRaw ?? null;
+  }, [preferencesRaw]);
+  const hasPreferences = !!preferences;
+
+  const incomes: any[] = useMemo(() => {
+    if (Array.isArray(incomesRaw)) return incomesRaw;
+    if (Array.isArray((incomesRaw as any)?.data)) return (incomesRaw as any).data;
+    if (Array.isArray((incomesRaw as any)?.items)) return (incomesRaw as any).items;
+    return [];
+  }, [incomesRaw]);
+  const hasIncomes = incomes.length > 0;
+
+  // Smart enabled (align with UnifiedPlans)
   const smartEnabled = hasCredit && hasPreferences && hasIncomes;
 
-  // Detailed Smart Plan (like RN uses) — this includes calendar + plan
+  // Detailed Smart Plan (calendar + plan)
+  // ✅ Pass interestFreeUsed (parity with mobile) and mode flags from powerMode
+  const [interestFreeUsed, setInterestFreeUsed] = useState(0);
   const { data: detailedData, isLoading: detailedLoading } = useSmartpayDetailedPlan(
     purchaseAmount,
-    (isYearlyMode ? "MONTHLY" : "BI_WEEKLY"),
-    !isYearlyMode, // instantaneous pricing when not yearly
-    isYearlyMode, // yearly pricing when yearly
-    0 // we’ll apply interestFreeUsed only in Unified common payload (UI controls below)
+    (isYearlyMode ? "MONTHLY" : frequency),
+    !isYearlyMode,  // instantaneous
+    isYearlyMode,   // yearly
+    interestFreeUsed
   );
 
   // Strict per-user payment methods
@@ -248,7 +283,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   const [isMethodModalOpen, setIsMethodModalOpen] = useState(false);
 
   // Interest-free controls (chip + bottom sheet)
-  const [interestFreeUsed, setInterestFreeUsed] = useState(0);
   const [freeInput, setFreeInput] = useState("");
   const [isIFModalOpen, setIsIFModalOpen] = useState(false);
 
@@ -256,41 +290,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
 
   const [selectedDetails, setSelectedDetails] = useState<DateDetails | null>(null);
 
-  // ── Loading / gates (mirror RN) ───────────────────────────────────────────
-  if (userLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-white">
-        <div className="loader h-16 w-16" />
-        <p className="mt-4">Loading user…</p>
-      </div>
-    );
-  }
-  if (!userRes || userError) {
-    return (
-      <div className="flex items-center justify-center h-screen p-4 bg-white">
-        <p className="text-red-500 text-center">Failed to load user details</p>
-      </div>
-    );
-  }
-  if (creditLoading || prefLoading || incomesLoading || detailedLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-white">
-        <div className="loader h-16 w-16" />
-        <p className="mt-4">Preparing Smart Plan…</p>
-      </div>
-    );
-  }
-  if (!smartEnabled || !smartPayEnabledFlag) {
-    return (
-      <div className="flex items-center justify-center h-screen p-4 bg-white">
-        <p className="text-red-500 text-center">
-          Smart Pay is unavailable. Please add income, preferences, and a credit institution — and enable Smart Pay in settings.
-        </p>
-      </div>
-    );
-  }
-
-  // ── Unwrap Smart Plan like RN ─────────────────────────────────────────────
+  // ── Unwrap Smart Plan & derived values (BEFORE gates so hooks below can depend safely) ──
   const { plan, calendar, explanation } = detailedData ?? ({} as any);
   const {
     splitPayments = [],
@@ -302,47 +302,13 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     planEvents = [],
   } = calendar ?? {};
 
-  // Filter non-zero installments & detect due-today
+  // Non-hook derived data
   const mockPayments = (paymentCycles || []).filter((c: any) => (c?.amount ?? 0) > 0);
   const today = new Date().toISOString().split("T")[0];
   const hasDueToday = mockPayments.some((c: any) => c.dueDate === today);
 
-  // ── Calendar selection handler (flip to details) ──────────────────────────
-  const onDateSelect = (date: Date) => {
-    const iso = date.toISOString().split("T")[0];
+  // ---------- All hooks must be declared before any early return ----------
 
-    setSelectedDetails({
-      date: iso,
-      splitPayments: (splitPayments || [])
-        .filter((p: any) => p.date === iso)
-        .map((p: any) => ({ dueDate: p.date, amount: p.amount })),
-      incomeEvents: (incomeEvents || []).filter((e: any) => e.date === iso),
-      liabilityEvents: (liabilityEvents || []).filter((l: any) => l.date === iso),
-      rentEvents: (rentEvents || []).filter((r: any) => r.date === iso),
-      paymentPlanPayments: (planEvents || [])
-        .filter((evt: any) => evt.plannedPaymentDate === iso)
-        .map((evt: any) => ({ dueDate: evt.plannedPaymentDate, amount: evt.allocatedPayment })),
-      isAvoided: !!(avoidedDates || []).find((r: any) => {
-        const s = new Date(r.startDate),
-          e = new Date(r.endDate);
-        return date >= s && date <= e;
-      })!,
-      avoidedRangeName: (avoidedDates || []).find((r: any) => {
-        const s = new Date(r.startDate),
-          e = new Date(r.endDate);
-        return date >= s && date <= e;
-      })?.name,
-      avoidedRangeId: (avoidedDates || []).find((r: any) => {
-        const s = new Date(r.startDate),
-          e = new Date(r.endDate);
-        return date >= s && date <= e;
-      })?.id,
-    });
-
-    setRotation((r) => (r === 0 ? 180 : 0));
-  };
-
-  // ── Helpers: build Splits & Common block (RN parity) ──────────────────────
   const buildSplitsFromMock = useCallback((): SplitPaymentDetailDTO[] => {
     const count = Math.max(1, (mockPayments || []).length);
     const basePer = count ? purchaseAmount / count : 0;
@@ -369,6 +335,9 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   );
   const isSplitFlow = allSplitUsers.length > 0;
 
+  const digitsOnly = (s: string) => s.replace(/\D+/g, "");
+  const handleIFChange = (v: string) => setFreeInput(digitsOnly(v));
+
   const buildCommonFields = useCallback(() => {
     const splits = buildSplitsFromMock();
 
@@ -381,7 +350,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     const schemeTotalAmount = Number((purchaseAmount + superSum).toFixed(2));
 
     // exclude current user from otherUsers
-    let others: { userId: string; amount: number }[] | undefined = undefined;
+    let others: { userId: string; amount: number }[] | undefined = undefined
     if (isSplitFlow && currentUserId) {
       others = allSplitUsers
         .filter((u) => u.userId !== currentUserId)
@@ -405,7 +374,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
       interestRate: Number(plan?.periodInterestRate ?? 0),
       apr: Number(plan?.apr ?? 0),
-      schemeTotalAmount,
+      schemeAmount: schemeTotalAmount, // ✅ renamed key to match new DTO
 
       splitPaymentsList: splits,
       otherUsers: others,
@@ -494,168 +463,21 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     }
   }, []);
 
-  // ── Confirm handler (RN parity) ───────────────────────────────────────────
-  const handleConfirm = async () => {
-    if (!transactionType) {
-      toast.info("Missing transactionType param.");
-      return;
-    }
-
-    // need a method for most flows (not required for SEND / SOTERIA / accept*)
-    if (
-      !selectedPaymentMethod &&
-      transactionType !== "ACCEPT_REQUEST" &&
-      transactionType !== "ACCEPT_SPLIT_REQUEST" &&
-      transactionType !== "SEND" &&
-      transactionType !== "SOTERIA_PAYMENT"
-    ) {
-      toast.info("Select a payment method.");
-      return;
-    }
-
-    try {
-      switch (transactionType) {
-        case "VIRTUAL_CARD": {
-          if (!merchantId) {
-            toast.info("Missing merchantId for virtual card.");
-            return;
-          }
-          const commonAny: any = buildCommonFields();
-          const virtualCard = buildVirtualCardOptions();
-
-          let req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, commonAny);
-          req = sanitizeForType("VIRTUAL_CARD", req);
-          logUnifiedPayload("VIRTUAL_CARD", req);
-
-          await runUnified(req);
-          navigate("/card-details");
-          break;
-        }
-
-        case "PAYMENT": {
-          const common = buildCommonFields();
-          let req = buildPaymentRequest(
-            {
-              merchantId,
-              paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-            },
-            common
-          );
-          req = sanitizeForType("PAYMENT", req);
-          logUnifiedPayload("PAYMENT", req);
-
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(purchaseAmount.toFixed(2))}&replace_to_index=1`);
-          break;
-        }
-
-        case "CHECKOUT": {
-          const common = buildCommonFields();
-          let req = buildCheckoutRequest(
-            {
-              checkoutMerchantId: merchantId,
-              checkoutTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-              checkoutType: "ONLINE",
-              checkoutRedirectUrl: null,
-              checkoutReference: null,
-              checkoutDetails: null,
-              checkoutToken: null,
-            },
-            common
-          );
-          req = sanitizeForType("CHECKOUT", req);
-          logUnifiedPayload("CHECKOUT", req);
-
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(purchaseAmount.toFixed(2))}&replace_to_index=1`);
-          break;
-        }
-
-        case "SEND": {
-          if (!recipientObj) {
-            toast.info("Provide a valid single recipient JSON.");
-            return;
-          }
-          const common = buildCommonFields();
-          let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
-          req = sanitizeForType("SEND", req);
-          logUnifiedPayload("SEND", req);
-
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent((+recipientObj.amount).toFixed(2))}&replace_to_index=1`);
-          break;
-        }
-
-        case "ACCEPT_REQUEST": {
-          if (!requestId) {
-            toast.info("Missing requestId for ACCEPT_REQUEST.");
-            return;
-          }
-          const common = buildCommonFields();
-          let req = buildAcceptRequest(requestId, common);
-          req = sanitizeForType("ACCEPT_REQUEST", req);
-          logUnifiedPayload("ACCEPT_REQUEST", req);
-
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(purchaseAmount.toFixed(2))}&replace_to_index=1`);
-          break;
-        }
-
-        case "ACCEPT_SPLIT_REQUEST": {
-          if (!requestId) {
-            toast.info("Missing requestId for ACCEPT_SPLIT_REQUEST.");
-            return;
-          }
-          const common = buildCommonFields();
-          let req = buildAcceptSplitRequest(requestId, common);
-          req = sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
-          logUnifiedPayload("ACCEPT_SPLIT_REQUEST", req);
-
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(purchaseAmount.toFixed(2))}&replace_to_index=1`);
-          break;
-        }
-
-        case "SOTERIA_PAYMENT": {
-          const common = buildCommonFields();
-          const soteriaPayload = {
-            ...(paymentPlanId ? { paymentPlanId } : {}),
-            ...(paymentSchemeId ? { paymentSchemeId } : {}),
-            ...(splitPaymentId ? { splitPaymentId } : {}),
-          };
-
-          let req = buildSoteriaPaymentRequest(
-            {
-              merchantId,
-              soteriaPaymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-              paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" }, // compat
-              soteriaPayload,
-              ...(paymentPlanId ? { paymentPlanId } : {}),
-              ...(paymentSchemeId ? { paymentSchemeId } : {}),
-              ...(splitPaymentId ? { splitPaymentId } : {}),
-            },
-            common
-          );
-          req = sanitizeForType("SOTERIA_PAYMENT", req);
-          logUnifiedPayload("SOTERIA_PAYMENT", req);
-
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(purchaseAmount.toFixed(2))}&replace_to_index=1`);
-          break;
-        }
-      }
-    } catch (e: any) {
-      // eslint-disable-next-line no-console
-      console.error("Unified SmartPlans (web) error:", e?.message || e);
-      toast.error("Operation failed. Try again.");
-    }
+  // ⛳ Navigate helper to the SuccessPayment route (passes optional checkoutToken)
+  const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
+    const num = typeof amt === "number" ? amt : Number(amt || 0);
+    const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
+    const params = new URLSearchParams({
+      amount: amountText,
+      replace_to_index: "1",
+    });
+    if (checkoutToken) params.set("checkoutToken", checkoutToken);
+    navigate(`/SuccessPayment?${params.toString()}`);
   };
 
-  // ---------- Build FULL request for Customize (ALL TYPES) ----------
   const buildRequestForCustomize = useCallback((): UnifiedCommerceRequest | null => {
     if (!transactionType) return null;
 
-    // we can still allow customize without planData because SmartPay provides dates via calendar
     const firstSplitDueDate = (mockPayments?.[0]?.dueDate) ?? today;
 
     switch (transactionType) {
@@ -668,10 +490,10 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       }
       case "CHECKOUT": {
         const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
+        // ⛔ removed checkoutTotalAmount per new interface
         let req = buildCheckoutRequest(
           {
             checkoutMerchantId: merchantId,
-            checkoutTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
             checkoutType: "ONLINE",
             checkoutRedirectUrl: null,
             checkoutReference: null,
@@ -747,7 +569,239 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     splitPaymentId,
   ]);
 
-  // Customize → build payload (all types) and go to web customize route
+  // ---------- AFTER all hooks: now it’s safe to early-return ----------
+  if (
+    userLoading ||
+    methodsLoading ||
+    creditLoading ||
+    prefLoading ||
+    incomesLoading ||
+    detailedLoading
+  ) {
+    return <CenterSpinner />;
+  }
+
+  if (!userRes || userError) {
+    return (
+      <div className="flex items-center justify-center h-screen p-4 bg-white">
+        <p className="text-red-500 text-center">Failed to load user details</p>
+      </div>
+    );
+  }
+
+  if (!smartEnabled) {
+    return (
+      <div className="flex items-center justify-center h-screen p-4 bg-white">
+        <p className="text-red-500 text-center">
+          Smart Pay is unavailable. Please add income, preferences, and a linked credit institution.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Handlers not using hooks ───────────────────────────────────────────────
+  const onDateSelect = (date: Date) => {
+    const iso = date.toISOString().split("T")[0];
+
+    setSelectedDetails({
+      date: iso,
+      splitPayments: (splitPayments || [])
+        .filter((p: any) => p.date === iso)
+        .map((p: any) => ({ dueDate: p.date, amount: p.amount })),
+      incomeEvents: (incomeEvents || []).filter((e: any) => e.date === iso),
+      liabilityEvents: (liabilityEvents || []).filter((l: any) => l.date === iso),
+      rentEvents: (rentEvents || []).filter((r: any) => r.date === iso),
+      paymentPlanPayments: (planEvents || [])
+        .filter((evt: any) => evt.plannedPaymentDate === iso)
+        .map((evt: any) => ({ dueDate: evt.plannedPaymentDate, amount: evt.allocatedPayment })),
+      isAvoided: !!(avoidedDates || []).find((r: any) => {
+        const s = new Date(r.startDate),
+          e = new Date(r.endDate);
+        return date >= s && date <= e;
+      })!,
+      avoidedRangeName: (avoidedDates || []).find((r: any) => {
+        const s = new Date(r.startDate),
+          e = new Date(r.endDate);
+        return date >= s && date <= e;
+      })?.name,
+      avoidedRangeId: (avoidedDates || []).find((r: any) => {
+        const s = new Date(r.startDate),
+          e = new Date(r.endDate);
+        return date >= s && date <= e;
+      })?.id,
+    });
+
+    setRotation((r) => (r === 0 ? 180 : 0));
+  };
+
+  // Stats & IF helpers
+  const periodRate = Number(plan?.periodInterestRate ?? 0);
+  const apr = Number(plan?.apr ?? 0);
+  const totalAmount = Number(plan?.totalAmount ?? purchaseAmount);
+
+  const freeAmountNum = Number(freeInput || "0");
+  const applyFree = () => {
+    const availableIF = Number(userRes?.data?.interestFreeCreditAmount ?? 0);
+    const capped = Math.min(freeAmountNum || 0, availableIF, totalAmount);
+    setInterestFreeUsed(capped);
+    setIsIFModalOpen(false);
+  };
+
+  const handleConfirm = async () => {
+    if (!transactionType) {
+      toast.info("Missing transactionType param.");
+      return;
+    }
+
+    if (
+      !selectedPaymentMethod &&
+      transactionType !== "ACCEPT_REQUEST" &&
+      transactionType !== "ACCEPT_SPLIT_REQUEST" &&
+      transactionType !== "SEND" &&
+      transactionType !== "SOTERIA_PAYMENT"
+    ) {
+      toast.info("Select a payment method.");
+      return;
+    }
+
+    try {
+      switch (transactionType) {
+        case "VIRTUAL_CARD": {
+          if (!merchantId) {
+            toast.info("Missing merchantId for virtual card.");
+            return;
+          }
+          const commonAny: any = buildCommonFields();
+          const virtualCard = buildVirtualCardOptions();
+
+          let req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, commonAny);
+          req = sanitizeForType("VIRTUAL_CARD", req);
+          logUnifiedPayload("VIRTUAL_CARD", req);
+
+          await runUnified(req);
+          navigate("/card-details");
+          break;
+        }
+        case "PAYMENT": {
+          const common = buildCommonFields();
+          let req = buildPaymentRequest(
+            {
+              merchantId,
+              paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
+            },
+            common
+          );
+          req = sanitizeForType("PAYMENT", req);
+          logUnifiedPayload("PAYMENT", req);
+
+          await runUnified(req);
+          navigateSuccess(purchaseAmount);
+          break;
+        }
+        case "CHECKOUT": {
+          const common = buildCommonFields();
+          // ⛔ removed checkoutTotalAmount per new interface
+          let req = buildCheckoutRequest(
+            {
+              checkoutMerchantId: merchantId,
+              checkoutType: "ONLINE",
+              checkoutRedirectUrl: null,
+              checkoutReference: null,
+              checkoutDetails: null,
+              checkoutToken: null,
+            },
+            common
+          );
+          req = sanitizeForType("CHECKOUT", req);
+          logUnifiedPayload("CHECKOUT", req);
+
+          const res: any = await runUnified(req);
+          const token =
+            res?.data?.checkoutToken ??
+            res?.data?.checkout?.token ??
+            res?.checkoutToken ??
+            res?.checkout?.token ??
+            undefined;
+          navigateSuccess(purchaseAmount, token);
+          break;
+        }
+        case "SEND": {
+          if (!recipientObj) {
+            toast.info("Provide a valid single recipient JSON.");
+            return;
+          }
+          const common = buildCommonFields();
+          let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
+          req = sanitizeForType("SEND", req);
+          logUnifiedPayload("SEND", req);
+
+          await runUnified(req);
+          navigateSuccess(Number((+recipientObj.amount).toFixed(2)));
+          break;
+        }
+        case "ACCEPT_REQUEST": {
+          if (!requestId) {
+            toast.info("Missing requestId for ACCEPT_REQUEST.");
+            return;
+          }
+          const common = buildCommonFields();
+          let req = buildAcceptRequest(requestId, common);
+          req = sanitizeForType("ACCEPT_REQUEST", req);
+          logUnifiedPayload("ACCEPT_REQUEST", req);
+
+          await runUnified(req);
+          navigateSuccess(purchaseAmount);
+          break;
+        }
+        case "ACCEPT_SPLIT_REQUEST": {
+          if (!requestId) {
+            toast.info("Missing requestId for ACCEPT_SPLIT_REQUEST.");
+            return;
+          }
+          const common = buildCommonFields();
+          let req = buildAcceptSplitRequest(requestId, common);
+          req = sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
+          logUnifiedPayload("ACCEPT_SPLIT_REQUEST", req);
+
+          await runUnified(req);
+          navigateSuccess(purchaseAmount);
+          break;
+        }
+        case "SOTERIA_PAYMENT": {
+          const common = buildCommonFields();
+          const soteriaPayload = {
+            ...(paymentPlanId ? { paymentPlanId } : {}),
+            ...(paymentSchemeId ? { paymentSchemeId } : {}),
+            ...(splitPaymentId ? { splitPaymentId } : {}),
+          };
+
+          let req = buildSoteriaPaymentRequest(
+            {
+              merchantId,
+              soteriaPaymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
+              paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" }, // compat
+              soteriaPayload,
+              ...(paymentPlanId ? { paymentPlanId } : {}),
+              ...(paymentSchemeId ? { paymentSchemeId } : {}),
+              ...(splitPaymentId ? { splitPaymentId } : {}),
+            },
+            common
+          );
+          req = sanitizeForType("SOTERIA_PAYMENT", req);
+          logUnifiedPayload("SOTERIA_PAYMENT", req);
+
+          await runUnified(req);
+          navigateSuccess(purchaseAmount);
+          break;
+        }
+      }
+    } catch (e: any) {
+      // eslint-disable-next-line no-console
+      console.error("Unified SmartPlans (web) error:", e?.message || e);
+      toast.error("Operation failed. Try again.");
+    }
+  };
+
   const handleCustomize = () => {
     if (!transactionType) {
       toast.info("Missing transactionType");
@@ -771,23 +825,14 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       toast.error("Could not build customize request");
       return;
     }
-    sessionStorage.setItem("unified_customize_payload", JSON.stringify(req));
-    navigate("/unified/customize");
-  };
-
-  // Stats
-  const periodRate = Number(plan?.periodInterestRate ?? 0);
-  const apr = Number(plan?.apr ?? 0);
-  const totalAmount = Number(plan?.totalAmount ?? purchaseAmount);
-
-  // Interest-free helpers (sheet)
-  const digitsOnly = (s: string) => s.replace(/\D+/g, "");
-  const handleIFChange = (v: string) => setFreeInput(digitsOnly(v));
-  const freeAmountNum = Number(freeInput || "0");
-  const applyFree = () => {
-    const capped = Math.min(freeAmountNum || 0, availableIF, totalAmount);
-    setInterestFreeUsed(capped);
-    setIsIFModalOpen(false);
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("unified_customize_payload", JSON.stringify(req));
+      }
+    } catch {}
+    const data = encodeURIComponent(JSON.stringify(req));
+    // Match the mobile customize screen route and pass payload
+    navigate(`/UnifiedPayCustomizeScreen?data=${data}`);
   };
 
   return (
@@ -804,15 +849,15 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
           </button>
         </div>
 
-        {/* Stats strip */}
-        <div className="overflow-x-auto whitespace-nowrap py-3 -mx-1 mb-2">
+        {/* Stats strip (scrollbar hidden) */}
+        <div className="overflow-x-auto whitespace-nowrap py-3 -mx-1 mb-2 scrollbar-hide">
           <div className="inline-flex px-1 space-x-3">
             {[
               { label: "Payments", value: String(mockPayments.length) },
               { label: "Purchase", value: `$${purchaseAmount.toFixed(2)}` },
-              { label: "Interest/p", value: `${(periodRate * 100).toFixed(2)}%` },
-              { label: "APR", value: `${(apr * 100).toFixed(2)}%` },
-              { label: "Total", value: `$${totalAmount.toFixed(2)}` },
+              { label: "Interest/p", value: `${(Number(periodRate) * 100).toFixed(2)}%` },
+              { label: "APR", value: `${(Number(apr) * 100).toFixed(2)}%` },
+              { label: "Total", value: `$${Number(totalAmount).toFixed(2)}` },
             ].map((s) => (
               <div
                 key={s.label}
@@ -848,17 +893,19 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
             <p className={`text-sm text-gray-700 ${showFullExplanation ? "" : "line-clamp-3"}`}>
               {explanation}
             </p>
-            <button
-              onClick={() => setShowFullExplanation((p) => !p)}
-              className="mt-1 text-sm font-bold hover:underline"
-            >
-              {showFullExplanation ? "Show Less" : "Show More"}
-            </button>
+            <div className="mt-1 flex justify-end">
+              <button
+                onClick={() => setShowFullExplanation((p) => !p)}
+                className="text-sm font-bold hover:underline"
+              >
+                {showFullExplanation ? "Show Less" : "Show More"}
+              </button>
+            </div>
           </div>
         )}
 
         {/* FlipCard: calendar front / details back */}
-        <div className="w-full max-w-2xl mx-auto mb-6 border border-gray-300 rounded" style={{ height: "85vh" }}>
+        <div className="w-full max-w-2xl mx-auto mb-4" style={{ height: "85vh" }}>
           <FlipCard
             rotation={rotation}
             frontContent={
@@ -878,7 +925,11 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
             }
             backContent={
               <div className="h-full overflow-auto p-4">
-                <FlippedContent details={selectedDetails} onToggle={() => setRotation((r) => (r === 0 ? 180 : 0))} readonly />
+                <FlippedContent
+                  details={selectedDetails}
+                  onToggle={() => setRotation((r) => (r === 0 ? 180 : 0))}
+                  readonly
+                />
               </div>
             }
           />
@@ -887,14 +938,13 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
         {/* Payment method selector */}
         <div className="mb-6">
           <h2 className="text-xl font-semibold mb-3">Payment method</h2>
-          {methodsLoading ? (
-            <div className="flex justify-center">
-              <div className="loader h-16 w-16" />
-            </div>
-          ) : methodsError ? (
+          {methodsError ? (
             <p className="text-red-500">Error fetching methods</p>
           ) : (
-            <SelectedPaymentMethod selectedMethod={selectedPaymentMethod} onPress={() => setIsMethodModalOpen(true)} />
+            <SelectedPaymentMethod
+              selectedMethod={selectedPaymentMethod}
+              onPress={() => setIsMethodModalOpen(true)}
+            />
           )}
         </div>
 
@@ -923,7 +973,11 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
               unifiedPending ? "bg-gray-500" : "bg-black hover:bg-gray-800"
             }`}
           >
-            {transactionType === "VIRTUAL_CARD" ? "Pay & Issue Card" : "Pay & Finish"}
+            {unifiedPending
+              ? "Processing…"
+              : transactionType === "VIRTUAL_CARD"
+              ? "Pay & Issue Card"
+              : "Pay & Finish"}
           </button>
         </div>
       </div>
@@ -951,9 +1005,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
               >
                 <div className="flex justify-between items-center p-4 border-b">
                   <h3 className="font-bold">Select payment method</h3>
-                  <button onClick={() => navigate("/payment-settings")} className="bg-black text-white px-3 py-1 rounded">
-                    Settings
-                  </button>
+                  {/* Settings button removed */}
                 </div>
 
                 <div className="p-4 space-y-4">
@@ -983,8 +1035,8 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       <InterestFreeSheet
         open={isIFModalOpen}
         onClose={() => setIsIFModalOpen(false)}
-        availableIF={availableIF}
-        originalAmount={totalAmount}
+        availableIF={Number(userRes?.data?.interestFreeCreditAmount ?? 0)}
+        originalAmount={Number(plan?.totalAmount ?? purchaseAmount)}
         freeInput={freeInput}
         setFreeInput={handleIFChange}
         applyFree={applyFree}

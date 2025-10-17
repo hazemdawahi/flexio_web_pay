@@ -69,7 +69,7 @@ function titleByType(t?: UnifiedOperationType | string) {
 /* -------------------- MoneyLike helpers -------------------- */
 function toNumberFromMoneyLike(m: any): number {
   if (m == null) return 0;
-  if (typeof m === "number") return m;
+  if (typeof m === "number") return Number.isFinite(m) ? m : 0;
   if (typeof m === "string") {
     const parts = m.trim().split(/\s+/);
     const last = parts[parts.length - 1];
@@ -381,15 +381,30 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
         const t = (updated as any)?.type as UnifiedOperationType | undefined;
 
         let amount = dueAmount || 0;
+
+        // Prefer operation-specific amounts when present
         if (t === "SEND") {
           const s: any = (res as any)?.send ?? (res as any)?.transfer;
-          amount = Number(s?.transferredAmount ?? s?.totalAmount ?? amount) || amount;
+          const fromRes =
+            toNumberFromMoneyLike(s?.amount) ||
+            toNumberFromMoneyLike(s?.transferredAmount) ||
+            toNumberFromMoneyLike(s?.totalAmount);
+          if (fromRes > 0) amount = fromRes;
         } else if (t === "SOTERIA_PAYMENT") {
           const s: any = (res as any)?.soteriaPayment;
           const fromRes =
             toNumberFromMoneyLike(s?.totalAmount) ||
             toNumberFromMoneyLike(s?.soteriaPaymentTotalAmount);
           if (fromRes > 0) amount = fromRes;
+        } else if (t === "CHECKOUT" || t === "PAYMENT" || t === "VIRTUAL_CARD" || t === "ACCEPT_REQUEST" || t === "ACCEPT_SPLIT_REQUEST") {
+          // If backend returned a clear total, prefer it
+          const r: any = (res as any);
+          const guess =
+            toNumberFromMoneyLike(r?.totalAmount) ||
+            toNumberFromMoneyLike(r?.amount) ||
+            toNumberFromMoneyLike(r?.payment?.amount) ||
+            0;
+          if (guess > 0) amount = guess;
         }
 
         const token =
@@ -400,7 +415,9 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
 
         const qAmount = encodeURIComponent(String(amount.toFixed ? amount.toFixed(2) : amount));
         const qToken = token ? `&checkoutToken=${encodeURIComponent(String(token))}` : "";
-        navigate(`/success?amount=${qAmount}${qToken}&replace_to_index=1`);
+
+        // ✅ Navigate to SuccessPayment with the exact params it expects
+        navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
       },
       onError: (e: unknown) => {
         toast.error(String((e as Error)?.message || "Request failed"));
@@ -450,7 +467,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
             <IoIosArrowBack className="mr-2" size={24} /> Back
           </button>
 
-          <button
+        <button
             onClick={handleAdd}
             className="px-3 py-1.5 rounded-lg bg-black text-white font-bold"
           >

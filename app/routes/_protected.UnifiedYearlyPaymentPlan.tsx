@@ -19,7 +19,7 @@ import {
   type SplitPayment as CalcSplitPayment,
 } from "~/hooks/useCalculatePaymentPlan";
 
-// ✅ Unified commerce hook & builders (parity with UnifiedYearlyPaymentPlan RN screen)
+// ✅ Unified commerce hook & builders (parity with RN yearly screen)
 import {
   useUnifiedCommerce,
   buildCheckoutRequest,
@@ -401,7 +401,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
     interestFreeUsed?: number;
     interestRate?: number;
     apr?: number;
-    schemeTotalAmount?: number;
+    schemeAmount?: number; // ← renamed from schemeTotalAmount
     splitPaymentsList?: SplitPaymentDetail[];
     otherUsers?: { userId: string; amount: number }[];
     discountIds?: string[];
@@ -443,7 +443,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
         interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
         interestRate: Number(plan?.periodInterestRate ?? 0),
         apr: Number(plan?.apr ?? 0),
-        schemeTotalAmount,
+        schemeAmount: schemeTotalAmount, // ✅ new key
         splitPaymentsList: splits,
         otherUsers: others,
         ...(hasDiscounts ? { discountIds: parsedDiscountIds } : {}),
@@ -527,6 +527,18 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
     }
   }, []);
 
+  // ⛳ Navigate helper to the SuccessPayment route (passes optional checkoutToken)
+  const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
+    const num = typeof amt === "number" ? amt : Number(amt || 0);
+    const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
+    const params = new URLSearchParams({
+      amount: amountText,
+      replace_to_index: "1",
+    });
+    if (checkoutToken) params.set("checkoutToken", checkoutToken);
+    navigate(`/SuccessPayment?${params.toString()}`);
+  };
+
   // Build FULL request for Customize (all types)
   const buildRequestForCustomize = useCallback((): UnifiedCommerceRequest | null => {
     if (!transactionType) return null;
@@ -543,10 +555,10 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
       }
       case "CHECKOUT": {
         const common: any = { ...buildCommonFields(planData), offsetStartDate: firstSplitDueDate };
+        // ⛔ removed checkoutTotalAmount per new interface
         let req = buildCheckoutRequest(
           {
             checkoutMerchantId: merchantId,
-            checkoutTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
             checkoutType: "ONLINE",
             checkoutRedirectUrl: null,
             checkoutReference: null,
@@ -564,7 +576,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
             merchantId,
             paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
           },
-          common
+          common as any
         );
         return sanitizeForType("PAYMENT", req);
       }
@@ -675,16 +687,16 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           req = sanitizeForType("PAYMENT", req);
           logUnifiedPayload("PAYMENT", req);
           await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(Number(amount).toFixed(2))}&replace_to_index=1`);
+          navigateSuccess(Number(amount));
           break;
         }
 
         case "CHECKOUT": {
           const common: any = buildCommonFields(planData);
+          // ⛔ removed checkoutTotalAmount per new interface
           let req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
-              checkoutTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
               checkoutType: "ONLINE",
               checkoutRedirectUrl: null,
               checkoutReference: null,
@@ -695,8 +707,15 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           );
           req = sanitizeForType("CHECKOUT", req);
           logUnifiedPayload("CHECKOUT", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(Number(amount).toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+          // Capture and forward a token if present (non-breaking)
+          const token =
+            res?.data?.checkoutToken ??
+            res?.data?.checkout?.token ??
+            res?.checkoutToken ??
+            res?.checkout?.token ??
+            undefined;
+          navigateSuccess(Number(amount), token);
           break;
         }
 
@@ -710,8 +729,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           req = sanitizeForType("SEND", req);
           logUnifiedPayload("SEND", req);
           await runUnified(req);
-          const amtStr = Number((recipientObj as any).amount).toFixed(2);
-          navigate(`/success?amount=${encodeURIComponent(amtStr)}&replace_to_index=1`);
+          navigateSuccess(Number((recipientObj as any).amount));
           break;
         }
 
@@ -725,7 +743,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           req = sanitizeForType("ACCEPT_REQUEST", req);
           logUnifiedPayload("ACCEPT_REQUEST", req);
           await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(Number(amount).toFixed(2))}&replace_to_index=1`);
+          navigateSuccess(Number(amount));
           break;
         }
 
@@ -739,7 +757,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           req = sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
           logUnifiedPayload("ACCEPT_SPLIT_REQUEST", req);
           await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(Number(amount).toFixed(2))}&replace_to_index=1`);
+          navigateSuccess(Number(amount));
           break;
         }
 
@@ -769,7 +787,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           req = sanitizeForType("SOTERIA_PAYMENT", req);
           logUnifiedPayload("SOTERIA_PAYMENT", req);
           await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(Number(amount).toFixed(2))}&replace_to_index=1`);
+          navigateSuccess(Number(amount));
           break;
         }
       }
@@ -885,15 +903,6 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
           background: #ccc;
           border-radius: 0 6px 6px 0;
         }
-        input[type="range"]::-ms-thumb {
-          width: var(--thumb-size);
-          height: var(--thumb-size);
-          border-radius: 50%;
-          background: var(--accent);
-          border: 2px solid #fff;
-          box-shadow: 0 0 0 1px #ccc;
-          margin-top: 0; /* not supported like webkit */
-        }
         `}
       </style>
 
@@ -994,7 +1003,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
 
         {/* Buttons */}
         <div className="flex gap-3">
-          {hasDueToday && (
+          {canCustomize && (
             <button
               onClick={() => {
                 if (!transactionType) {
@@ -1026,9 +1035,17 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
                   toast.error("Could not build customize request");
                   return;
                 }
-                sessionStorage.setItem("unified_customize_payload", JSON.stringify(req));
-                // 🔁 Navigate to the Remix route that hosts the customize screen
-                navigate("/UnifiedPayCustomizeScreen");
+                try {
+                  if (typeof window !== "undefined") {
+                    sessionStorage.setItem(
+                      "unified_customize_payload",
+                      JSON.stringify(req)
+                    );
+                  }
+                } catch {}
+                const data = encodeURIComponent(JSON.stringify(req));
+                // 🔁 Navigate to the Remix route that hosts the customize screen (pass payload too)
+                navigate(`/UnifiedPayCustomizeScreen?data=${data}`);
               }}
               className="flex-1 border border-gray-300 rounded-lg py-3 font-bold"
             >
@@ -1079,12 +1096,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
               >
                 <div className="flex justify-between items-center p-4 border-b">
                   <h3 className="font-bold">Select payment method</h3>
-                  <button
-                    onClick={() => navigate("/payment-settings")}
-                    className="bg-black text-white px-3 py-1 rounded"
-                  >
-                    Settings
-                  </button>
+                  {/* Settings button removed */}
                 </div>
 
                 <div className="p-4 space-y-4">

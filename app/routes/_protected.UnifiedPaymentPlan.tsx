@@ -35,7 +35,6 @@ import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
 import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import InterestFreeSheet from "~/compoments/InterestFreeSheet";
 
-
 /* ─────────────────────────────────────────────────────────────
    Types & small utilities
    ───────────────────────────────────────────────────────────── */
@@ -136,6 +135,11 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   const splitFlag = normalizeStr(qs.get("split"), "");
   const modeSplit = splitFlag === "true";
 
+  // 🔹 honor powerMode (INSTANT|YEARLY)
+  const powerModeParam = (normalizeStr(qs.get("powerMode"), "INSTANT").toUpperCase() ||
+    "INSTANT") as "INSTANT" | "YEARLY";
+  const isYearlyMode = powerModeParam === "YEARLY";
+
   const discountListRawQS = normalizeStr(qs.get("discountList"), "");
   const requestId = normalizeStr(qs.get("requestId"), "");
   const transactionTypeParam = normalizeStr(qs.get("transactionType"), "").toUpperCase();
@@ -166,6 +170,26 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     }
   })();
 
+  // ✅ Parse optional totalAmount/orderAmount (JSON or plain string)
+  const parseMoneyLike = (raw: string): number | undefined => {
+    const s = (raw || "").trim();
+    if (!s) return undefined;
+    try {
+      const j = JSON.parse(s);
+      if (j && typeof j === "object") {
+        const a = (j.amount ?? j.value ?? j.total ?? "") as any;
+        const n = Number(a);
+        return Number.isFinite(n) ? n : undefined;
+      }
+    } catch {
+      const n = Number(s);
+      if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+  };
+  const totalAmountParam = parseMoneyLike(normalizeStr(qs.get("totalAmount"), ""));
+  const orderAmountParam = parseMoneyLike(normalizeStr(qs.get("orderAmount"), "")); // parsed (unused)
+
   /* ───── Amount derivation (parity with RN) ───── */
   const displayedInstant = Number(parseFloat(instantPowerAmount).toFixed(2)) || 0;
 
@@ -178,17 +202,31 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     [superchargeDetails]
   );
 
-  // If split intent, include supercharge in header total (RN parity)
-  const amount = modeSplit
-    ? Number((displayedInstant + totalSupercharge).toFixed(2))
-    : Number(displayedInstant.toFixed(2));
+  // Keep `amount` as the base amount the plan is built on (mobile parity).
+  const amount = Number(displayedInstant.toFixed(2));
+
+  useEffect(() => {
+    try {
+      console.groupCollapsed("[UnifiedPaymentPlan/web] Plan Inputs");
+      console.table([
+        { key: "powerMode", value: powerModeParam },
+        { key: "isYearlyMode", value: isYearlyMode },
+        { key: "instantPowerAmount", value: instantPowerAmount },
+        { key: "amount (base)", value: amount },
+        { key: "supercharge count", value: (superchargeDetails ?? []).length },
+        { key: "totalSupercharge", value: totalSupercharge },
+        { key: "totalAmountParam(fallback)", value: totalAmountParam },
+        { key: "orderAmountParam(unused)", value: orderAmountParam },
+      ]);
+      console.groupEnd();
+    } catch {}
+  }, [powerModeParam, isYearlyMode, instantPowerAmount, amount, superchargeDetails, totalSupercharge, totalAmountParam, orderAmountParam]);
 
   /* ───── Data hooks ───── */
   const { data: userDetailsData } = useUserDetails();
   const currentUserId: string | undefined = userDetailsData?.data?.user?.id;
   const availableIF: number = Number(userDetailsData?.data?.interestFreeCreditAmount ?? 0);
 
-  // strict per-user payment methods; returns PaymentMethod[] directly
   const {
     data: methods = [],
     isLoading: methodsLoading,
@@ -210,7 +248,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
   // Interest-free state (web parity with mobile)
   const [interestFreeUsed, setInterestFreeUsed] = useState<number>(0);
-  const [freeInput, setFreeInput] = useState<string>("");
+  const [freeInput, _setFreeInput] = useState<string>(""); // local setter
+  const setFreeInput = useCallback((v: string) => _setFreeInput(v), [_setFreeInput]); // match prop type
   const [isIFOpen, setIsIFOpen] = useState<boolean>(false);
 
   // Section-only spinners
@@ -232,21 +271,19 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     setSelectedPaymentMethod(primaryCard ?? cards[0]);
   }, [methods, selectedPaymentMethod]);
 
-  // Normalize other users & exclude current user (RN parity)
+  // Normalize other users (⚠️ keep current user)
   const otherUsersNormalized = useMemo(() => {
-    const base = (otherUserAmounts ?? [])
+    return (otherUserAmounts ?? [])
       .map(u => ({
         userId: String(u?.userId ?? ""),
         amount: Number(parseFloat(u?.amount ?? "0") || 0),
       }))
       .filter(u => !!u.userId && Number.isFinite(u.amount) && u.amount >= 0);
-    if (!currentUserId) return base;
-    return base.filter(u => u.userId !== currentUserId);
-  }, [otherUserAmounts, currentUserId]);
+  }, [otherUserAmounts]);
 
   const isSplitFlow = otherUsersNormalized.length > 0;
 
-  // Discounts (merge props + qs; normalize like RN)
+  // Discounts (merge props + qs)
   const parsedDiscountIds = useMemo(
     () => {
       const fromProps = extractDiscountIds(selectedDiscounts);
@@ -257,7 +294,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   );
   const hasDiscounts = parsedDiscountIds.length > 0;
 
-  // Fetch dynamic term bounds when amount/frequency changes
+  // Fetch dynamic term bounds
   useEffect(() => {
     if (!amount || amount <= 0) {
       setMinTerm(1);
@@ -269,20 +306,17 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     termsMutation.mutate(
       {
         frequency: paymentFrequency,
-        purchaseAmount: amount, // dollars
-        instantaneous: true,
-        yearly: false,
+        purchaseAmount: amount,
+        instantaneous: !isYearlyMode,
+        yearly: isYearlyMode,
       },
       {
         onSuccess: (res: any) => {
           const newMin = Math.max(1, Number(res?.data?.minTerm ?? 1));
-          const newMax = Number(
-            res?.data?.maxTerm ?? (paymentFrequency === "BI_WEEKLY" ? 26 : 12)
-          );
+          const newMax = Number(res?.data?.maxTerm ?? (paymentFrequency === "BI_WEEKLY" ? 26 : 12));
           setMinTerm(newMin);
           setMaxTerm(newMax);
 
-          // Clamp current selection into new bounds
           const current = parseInt(numberOfPeriods, 10) || newMin;
           const clamped = Math.max(newMin, Math.min(current, newMax));
           if (String(clamped) !== numberOfPeriods) setNumberOfPeriods(String(clamped));
@@ -296,7 +330,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       }
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amount, paymentFrequency]);
+  }, [amount, paymentFrequency, isYearlyMode]);
 
   // Build request for plan calculation
   const planRequest = useMemo(
@@ -306,15 +340,15 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       return {
         frequency: paymentFrequency as PaymentFrequency,
         numberOfPayments: count,
-        purchaseAmount: amount, // dollars
+        purchaseAmount: amount,
         startDate,
         selfPay: false,
-        instantaneous: true,
-        yearly: false,
-        interestFreeAmt: Number(interestFreeUsed.toFixed(2)), // ← apply IF
+        instantaneous: !isYearlyMode,
+        yearly: isYearlyMode,
+        interestFreeAmt: Number(interestFreeUsed.toFixed(2)),
       };
     },
-    [paymentFrequency, numberOfPeriods, minTerm, maxTerm, amount, startDate, interestFreeUsed]
+    [paymentFrequency, numberOfPeriods, minTerm, maxTerm, amount, startDate, interestFreeUsed, isYearlyMode]
   );
 
   // Calculate plan whenever inputs change
@@ -383,7 +417,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     interestFreeUsed?: number;
     interestRate?: number;
     apr?: number;
-    schemeTotalAmount?: number;
+    schemeAmount?: number; // ← renamed from schemeTotalAmount
     splitPaymentsList?: SplitPaymentDetailDTO[];
     otherUsers?: { userId: string; amount: number }[];
     discountIds?: string[];
@@ -418,25 +452,19 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         paymentFrequency,
         numberOfPayments: splits.length || Number(numberOfPeriods) || 1,
         offsetStartDate: startDate,
-
-        instantAmount: Number(amount.toFixed(2)),
-        yearlyAmount: 0,
-
+        instantAmount: !isYearlyMode ? Number(amount.toFixed(2)) : 0,
+        yearlyAmount:  isYearlyMode ? Number(amount.toFixed(2)) : 0,
         selectedPaymentMethod: selectedPaymentMethod?.id,
-
         superchargeDetails: mappedSupercharges,
         splitSuperchargeDetails: [],
-
         selfPayActive: false,
         totalPlanAmount: Number(((calculatedPlan?.data?.totalAmount ?? amount)).toFixed(2)),
         interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
         interestRate: Number(calculatedPlan?.data?.periodInterestRate ?? 0),
         apr: Number(calculatedPlan?.data?.apr ?? 0),
-        schemeTotalAmount,
-
+        schemeAmount: schemeTotalAmount, // ✅ new key
         splitPaymentsList: splits,
         otherUsers: others,
-
         discountIds,
       };
     },
@@ -456,6 +484,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       hasDiscounts,
       parsedDiscountIds,
       interestFreeUsed,
+      isYearlyMode,
     ]
   );
 
@@ -504,7 +533,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     }
     if (out.checkout && Object.keys(out.checkout).length === 0) delete out.checkout;
     if (out.card && Object.keys(out.card).length === 0) delete out.card;
-    if (out.virtualCard && Object.keys(out.virtualCard).length === 0) delete out.virtualCard;
+    if (out.virtualCard && Object.keys(out.virtualCard ?? {}).length === 0) delete out.virtualCard; // ✅ fix
     return out as T;
   }
 
@@ -512,21 +541,28 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     try {
       const clone = JSON.parse(JSON.stringify(req));
       const json = JSON.stringify(clone, null, 2);
-      // eslint-disable-next-line no-console
       console.log(`[UnifiedPaymentPlan/web] Sending ${op} request:\n${json}`);
     } catch {
-      // eslint-disable-next-line no-console
       console.log(`[UnifiedPaymentPlan/web] Sending ${op} request (stringify failed).`, req);
     }
   }, []);
 
-  /* ─────────────────────────────────────────────────────────────
-     Confirm handler — ROUTING UPDATED to /SuccessPayment + amount
-     ───────────────────────────────────────────────────────────── */
-  const navigateSuccess = (amt: number | string) => {
+  // 🔢 Display/limit total (server total → totalAmount param → base amount)
+  const displayTotal: number = Number(
+    (calculatedPlan?.data?.totalAmount ?? totalAmountParam ?? amount).toFixed(2)
+  );
+
+  // ⛳ Navigate to the SuccessPayment route in app/routes/SuccessPayment.tsx
+  //    Supports optional checkoutToken passthrough without altering existing logic.
+  const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
     const num = typeof amt === "number" ? amt : Number(amt || 0);
     const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
-    navigate(`/SuccessPayment?amount=${encodeURIComponent(amountText)}&replace_to_index=1`);
+    const params = new URLSearchParams({
+      amount: amountText,
+      replace_to_index: "1",
+    });
+    if (checkoutToken) params.set("checkoutToken", checkoutToken);
+    navigate(`/SuccessPayment?${params.toString()}`);
   };
 
   const handleConfirm = async () => {
@@ -564,7 +600,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           await runUnified(req);
 
           if (isSplitFlow) {
-            navigateSuccess(amount);
+            navigateSuccess(displayTotal);
             break;
           }
           navigate("/card-details");
@@ -573,10 +609,19 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
         case "CHECKOUT": {
           const common: any = buildCommonFields(calculatedPlan?.data);
+
+          try {
+            console.groupCollapsed("[UnifiedPaymentPlan/web:CHECKOUT] otherUsers snapshot");
+            console.log("isSplitFlow:", isSplitFlow);
+            console.log("otherUsersNormalized:", otherUsersNormalized);
+            console.log("common.otherUsers:", common.otherUsers);
+            console.groupEnd();
+          } catch {}
+
+          // ⛔ removed checkoutTotalAmount per new interface
           let req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
-              checkoutTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
               checkoutType: "ONLINE",
               checkoutRedirectUrl: null,
               checkoutReference: null,
@@ -585,10 +630,22 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             },
             common
           );
+
+          if (common.otherUsers && !("otherUsers" in (req as any))) {
+            (req as any).otherUsers = common.otherUsers;
+          }
+
           req = sanitizeForType("CHECKOUT", req);
           logUnifiedPayload("CHECKOUT", req);
-          await runUnified(req);
-          navigateSuccess(amount);
+          const res: any = await runUnified(req);
+          // Best-effort: pass token if present (does not change core flow)
+          const token =
+            res?.data?.checkoutToken ??
+            res?.data?.checkout?.token ??
+            res?.checkoutToken ??
+            res?.checkout?.token ??
+            undefined;
+          navigateSuccess(displayTotal, token);
           break;
         }
 
@@ -604,7 +661,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           req = sanitizeForType("PAYMENT", req);
           logUnifiedPayload("PAYMENT", req);
           await runUnified(req);
-          navigateSuccess(amount);
+          navigateSuccess(displayTotal);
           break;
         }
 
@@ -632,7 +689,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           req = sanitizeForType("ACCEPT_REQUEST", req);
           logUnifiedPayload("ACCEPT_REQUEST", req);
           await runUnified(req);
-          navigateSuccess(amount);
+          navigateSuccess(displayTotal);
           break;
         }
 
@@ -646,7 +703,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           req = sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
           logUnifiedPayload("ACCEPT_SPLIT_REQUEST", req);
           await runUnified(req);
-          navigateSuccess(amount);
+          navigateSuccess(displayTotal);
           break;
         }
 
@@ -665,7 +722,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             {
               merchantId,
               soteriaPaymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
-              paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" }, // compat alias
+              paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
               ...(paymentPlanId ? { paymentPlanId } : {}),
               ...(paymentSchemeId ? { paymentSchemeId } : {}),
               ...(splitPaymentId ? { splitPaymentId } : {}),
@@ -676,12 +733,11 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           req = sanitizeForType("SOTERIA_PAYMENT", req);
           logUnifiedPayload("SOTERIA_PAYMENT", req);
           await runUnified(req);
-          navigateSuccess(amount);
+          navigateSuccess(displayTotal);
           break;
         }
       }
     } catch (e: any) {
-      // eslint-disable-next-line no-console
       console.error("Unified error:", e?.message || e);
       toast.error("Operation failed. Try again.");
     }
@@ -709,8 +765,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           paymentFrequency,
           numberOfPayments: splits.length || Number(numberOfPeriods) || 1,
           offsetStartDate: firstSplitDueDate,
-          instantAmount: Number(amount.toFixed(2)),
-          yearlyAmount: 0,
+          instantAmount: !isYearlyMode ? Number(amount.toFixed(2)) : 0,
+          yearlyAmount:  isYearlyMode ? Number(amount.toFixed(2)) : 0,
           selectedPaymentMethod: selectedPaymentMethod?.id,
           superchargeDetails: mappedSupercharges,
           splitSuperchargeDetails: [],
@@ -719,7 +775,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
           interestRate: Number(calculatedPlan?.data?.periodInterestRate ?? 0),
           apr: Number(calculatedPlan?.data?.apr ?? 0),
-          schemeTotalAmount,
+          schemeAmount: schemeTotalAmount, // ✅ new key
           splitPaymentsList: splits,
           otherUsers: isSplitFlow
             ? otherUsersNormalized.map(u => ({ userId: u.userId, amount: Number(u.amount) || 0 }))
@@ -733,19 +789,24 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       }
 
       case "CHECKOUT": {
-        const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
+        const baseCommon: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
+        // ⛔ removed checkoutTotalAmount per new interface
         let req = buildCheckoutRequest(
           {
             checkoutMerchantId: merchantId,
-            checkoutTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
             checkoutType: "ONLINE",
             checkoutRedirectUrl: null,
             checkoutReference: null,
             checkoutDetails: null,
             checkoutToken: null,
           },
-          common
+          baseCommon
         );
+
+        if (baseCommon.otherUsers && !("otherUsers" in (req as any))) {
+          (req as any).otherUsers = baseCommon.otherUsers;
+        }
+
         return sanitizeForType("CHECKOUT", req);
       }
 
@@ -763,6 +824,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
       case "SEND": {
         if (!recipientObj) return null;
+
         const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
         let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
         return sanitizeForType("SEND", req);
@@ -827,6 +889,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     paymentFrequency,
     selectedPaymentMethod?.id,
     interestFreeUsed,
+    isYearlyMode,
+    superchargeDetails,
   ]);
 
   // Normalize plan data for UI component
@@ -840,10 +904,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     [calculatedPlan]
   );
 
-  // Page-level loading (methods)
   if (methodsLoading) return <CenterSpinner />;
 
-  // Strict “No plan” state
   const showNoPlan = !planPending && planExplicitlyEmpty && amount > 0;
 
   const canCustomize =
@@ -860,16 +922,9 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       transactionType === "SOTERIA_PAYMENT"
     );
 
-  // Interest-free helpers (mirror mobile)
-  const digitsOnly = (s: string) => s.replace(/\D+/g, "");
-  const handleFreeChange = (v: string) => setFreeInput(digitsOnly(v));
-  const totalAmountResolved = Number(calculatedPlan?.data?.totalAmount ?? amount);
-  const freeAmountNum = Number(freeInput || "0");
-  const ifDisabled =
-    freeAmountNum < 0 || freeAmountNum > availableIF || freeAmountNum > totalAmountResolved;
-
   const applyFree = () => {
-    const val = Math.min(freeAmountNum || 0, availableIF, totalAmountResolved);
+    // Cap against availableIF and the displayed total
+    const val = Math.min(Number(freeInput || "0") || 0, availableIF, displayTotal);
     setInterestFreeUsed(val);
     setIsIFOpen(false);
   };
@@ -880,9 +935,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     <>
       <div className="flex flex-col p-4 bg-white min-h-screen">
         <h1 className="text-2xl font-bold mb-6">
-          {`${displayName ? `${displayName} — ` : ""}Flex $${Number(
-            calculatedPlan?.data?.totalAmount ?? amount
-          ).toFixed(2)}`}
+          {`${displayName ? `${displayName} — ` : ""}Flex $${displayTotal.toFixed(2)}`}
         </h1>
 
         {/* Periods + Frequency */}
@@ -949,7 +1002,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           ) : uiPayments.length > 0 ? (
             <PaymentPlanMocking
               payments={uiPayments}
-              totalAmount={Number(calculatedPlan?.data?.totalAmount ?? amount)}
+              totalAmount={displayTotal}
               showChangeDateButton
               isCollapsed={false}
               initialDate={new Date(startDate)}
@@ -958,7 +1011,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
               interestFreeUsed={Number(interestFreeUsed.toFixed(2))}
               interestRate={Number(calculatedPlan?.data?.periodInterestRate ?? 0)}
               apr={Number(calculatedPlan?.data?.apr ?? 0)}
-              onInterestFreePress={() => setIsIFOpen(true)} // ← opens the sheet
+              onInterestFreePress={() => setIsIFOpen(true)}
             />
           ) : (
             <div />
@@ -980,7 +1033,6 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
         {/* Buttons */}
         <div className="flex gap-3">
-          {/* Customize */}
           {canCustomize && (
             <button
               onClick={() => {
@@ -1006,7 +1058,6 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             </button>
           )}
 
-          {/* Confirm */}
           <button
             disabled={
               !(
@@ -1060,12 +1111,6 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
               >
                 <div className="flex justify-between items-center p-4 border-b">
                   <h3 className="font-bold">Select payment method</h3>
-                  <button
-                    onClick={() => navigate("/payment-settings")}
-                    className="bg-black text-white px-3 py-1 rounded"
-                  >
-                    Settings
-                  </button>
                 </div>
 
                 <div className="p-4 space-y-4">
@@ -1095,7 +1140,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         open={isIFOpen}
         onClose={() => setIsIFOpen(false)}
         availableIF={availableIF}
-        originalAmount={totalAmountResolved}
+        originalAmount={displayTotal}
         freeInput={freeInput}
         setFreeInput={setFreeInput}
         applyFree={applyFree}

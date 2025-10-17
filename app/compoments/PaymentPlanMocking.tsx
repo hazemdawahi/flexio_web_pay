@@ -4,6 +4,7 @@ import React, { useState, useEffect, forwardRef } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { useNavigate } from "react-router-dom";
+import { IoCalendarOutline } from "react-icons/io5";
 
 // ─────────────────────────────────────────────────────────────
 // Types (aligned with RN)
@@ -43,23 +44,23 @@ interface PaymentPlanMockingProps {
 
 const BLUE = "#00BFFF";
 
-// Custom input for react-datepicker with a button look (calendar icon-ish)
-const ExampleCustomInput = forwardRef<
+// Small icon-only button for react-datepicker (matches RN calendar icon affordance)
+const IconInput = forwardRef<
   HTMLButtonElement,
-  { onClick?: () => void; className?: string }
->(({ onClick, className }, ref) => (
+  { onClick?: () => void; className?: string; title?: string }
+>(({ onClick, className, title }, ref) => (
   <button
     type="button"
     onClick={onClick}
     ref={ref}
-    className={`${className ?? ""} flex items-center gap-2 font-bold px-3 py-1 rounded bg-[${BLUE}] text-white`}
-    style={{ backgroundColor: BLUE }}
+    title={title ?? "Change date"}
+    className={`inline-flex items-center justify-center p-2 rounded-md hover:bg-gray-100 transition ${className ?? ""}`}
+    aria-label="Change starting date"
   >
-    <span aria-hidden>📅</span>
-    <span>Change Starting Date</span>
+    <IoCalendarOutline size={22} color={BLUE} />
   </button>
 ));
-ExampleCustomInput.displayName = "ExampleCustomInput";
+IconInput.displayName = "IconInput";
 
 // ─────────────────────────────────────────────────────────────
 
@@ -107,33 +108,32 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
   const maxDate = new Date(today);
   maxDate.setMonth(today.getMonth() + 1);
 
-  // A soft approximation for the vertical line height
-  const lineHeightPx = 10 + Math.max(0, payments.length) * 32;
+  // Match RN’s line height approximation
+  const lineHeightPx = 10 + payments.length * 32;
 
   return (
-    <div className="p-6 border rounded-lg bg-white shadow-md">
-      {/* Header / Controls */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-3">
-          <span className="text-lg font-semibold">{payments.length} payments</span>
+    <div className="pt-0.5 pb-3 px-5 rounded-lg bg-white my-2 shadow-md border">
+      {/* Subheader row (like RN) */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center">
+          <span className="text-[16px] font-semibold leading-[30px]">
+            {payments.length} payments
+          </span>
 
           {/* ⚡ Interest-free chip (only if enabled) */}
           {interestFreeEnabled && (
             <button
               type="button"
               onClick={onInterestFreePress}
-              className="h-8 px-3 rounded-[12px] font-bold"
-              style={{
-                backgroundColor: "rgba(0,191,255,0.12)",
-                color: BLUE,
-              }}
+              className="ml-3 h-[30px] px-3 rounded-[12px] font-bold"
+              style={{ backgroundColor: "rgba(0,191,255,0.12)", color: BLUE }}
             >
-              ⚡ ${Number(interestFreeUsed || 0).toFixed(2)}
+              ⚡ ${Number(interestFreeUsed || 0)}
             </button>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
           {showChangeDateButton && (
             <DatePicker
               selected={selectedDate}
@@ -141,9 +141,7 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
               minDate={today}
               maxDate={maxDate}
               withPortal
-              customInput={
-                <ExampleCustomInput className="transition-colors hover:opacity-90" />
-              }
+              customInput={<IconInput className="mr-3" />}
             />
           )}
           {showEditButton && (
@@ -157,93 +155,66 @@ const PaymentPlanMocking: React.FC<PaymentPlanMockingProps> = ({
         </div>
       </div>
 
-      {/* Vertical timeline */}
+      {/* Schedule / timeline (match RN layout) */}
       <div className="relative mt-4">
+        {/* Vertical line */}
         <div
           className="absolute"
           style={{
             backgroundColor: "rgba(0,191,255,0.35)",
             width: 2,
             top: 10,
-            left: 6,
+            left: 5,
             height: lineHeightPx,
           }}
         />
-        <div className="ml-6">
-          {payments.map((payment, index) => {
-            const isLast = index === payments.length - 1;
-            return (
-              <div key={index} className="flex items-start mb-4 relative">
-                {/* Dot */}
-                <div
-                  className="absolute rounded-full border-2"
-                  style={{
-                    width: 10,
-                    height: 10,
-                    left: -5,
-                    top: 4,
-                    borderColor: BLUE,
-                    backgroundColor: "transparent",
-                  }}
-                />
-                {/* Connector for all but last (the vertical line itself serves as connector) */}
-
-                {/* Content */}
-                <div className="flex-1 ml-2">
-                  <p className="text-[15px] font-medium">
-                    {new Date(payment.dueDate).toLocaleDateString(undefined, {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </p>
-                </div>
-                <div className="ml-auto mr-4">
-                  <p className="text-[15px] font-bold">
-                    ${Number(payment.amount ?? 0).toFixed(2)}
-                  </p>
-                </div>
+        {/* Rows */}
+        <div>
+          {payments.map((payment, index) => (
+            <div key={index} className="flex items-start mb-4 relative">
+              {/* Dot */}
+              <div
+                className="absolute rounded-full border-2"
+                style={{
+                  width: 10,
+                  height: 10,
+                  left: 1,
+                  top: 4,
+                  borderColor: BLUE,
+                  backgroundColor: "transparent",
+                }}
+              />
+              {/* Date */}
+              <div className="ml-5">
+                <p className="text-[16px]">
+                  {new Date(payment.dueDate).toDateString()}
+                </p>
               </div>
-            );
-          })}
-
-          {/* Footer Total (from prop) */}
-          <div className="flex items-start mt-4 relative">
-            <div
-              className="absolute rounded-full border-2"
-              style={{
-                width: 10,
-                height: 10,
-                left: -5,
-                top: 4,
-                borderColor: BLUE,
-                backgroundColor: "transparent",
-              }}
-            />
-            <div className="ml-2">
-              <p className="text-md font-semibold">Total</p>
-              <p className="text-sm text-gray-800">${Number(totalAmount).toFixed(2)}</p>
+              {/* Amount */}
+              <p className="ml-auto mr-5 text-[16px] font-bold">
+                ${Number(payment.amount ?? 0).toFixed(2)}
+              </p>
             </div>
-          </div>
+          ))}
         </div>
       </div>
 
       {/* Stats row (Interest / APR / Total) */}
-      <div className="flex justify-around mt-5">
+      <div className="flex justify-around mt-4">
         <div className="flex flex-col items-center">
-          <span className="text-sm text-gray-600">Interest</span>
+          <span className="text-[14px] text-[#555]">Interest</span>
           <span className="text-[16px] font-bold mt-1">
             {(Number(interestRate || 0) * 100).toFixed(2)}%
           </span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-sm text-gray-600">APR</span>
+          <span className="text-[14px] text-[#555]">APR</span>
           <span className="text-[16px] font-bold mt-1">
             {(Number(apr || 0) * 100).toFixed(2)}%
           </span>
         </div>
         <div className="flex flex-col items-center">
-          <span className="text-sm text-gray-600">Total</span>
+          <span className="text-[14px] text-[#555]">Total</span>
           <span className="text-[16px] font-bold mt-1">
             ${Number(totalAmount).toFixed(2)}
           </span>

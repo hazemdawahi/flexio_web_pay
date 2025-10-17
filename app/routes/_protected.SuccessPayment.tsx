@@ -1,11 +1,13 @@
+// File: app/routes/SuccessPayment.tsx
 import React, { useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "@remix-run/react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 
 /**
  * Web version of SuccessPayment screen
  * - Replaces React Native + Reanimated with HTML/CSS + framer-motion
  * - Uses Remix navigation + URLSearchParams
+ * - Auto-dismisses after a short delay (customizable via ?ms=)
  */
 
 const GREEN = "#22c55e";
@@ -19,16 +21,25 @@ export default function SuccessPayment() {
   const navigate = useNavigate();
   const { search } = useLocation();
   const qs = new URLSearchParams(search);
+  const prefersReducedMotion = useReducedMotion();
 
   // ----- params -----
   const amountParam = qs.get("amount") || "";
   const checkoutToken = qs.get("checkoutToken") || "";
   const replaceToIndexParam = qs.get("replace_to_index");
+  const msParam = qs.get("ms"); // optional: override auto-dismiss (in ms)
 
   const shouldReplaceToIndex = useMemo(() => {
     const val = String(replaceToIndexParam ?? "").trim().toLowerCase();
     return ["1", "true", "yes", "y", "on"].includes(val);
   }, [replaceToIndexParam]);
+
+  const dismissAfterMs = useMemo(() => {
+    const n = parseInt(String(msParam ?? ""), 10);
+    // Default 2000ms; clamp to [800, 10000] for sanity
+    if (Number.isFinite(n)) return Math.min(10000, Math.max(800, n));
+    return 2000;
+  }, [msParam]);
 
   const amountNumber = useMemo(() => {
     const n = parseFloat(amountParam);
@@ -48,11 +59,53 @@ export default function SuccessPayment() {
     }
   }, [navigate, shouldReplaceToIndex]);
 
-  // Auto-dismiss after ~2s
+  // Auto-dismiss after delay
   useEffect(() => {
-    const t = setTimeout(exitScreen, 2000);
+    const t = setTimeout(exitScreen, dismissAfterMs);
     return () => clearTimeout(t);
+  }, [exitScreen, dismissAfterMs]);
+
+  // Update document title for a11y / clarity
+  useEffect(() => {
+    const prev = document.title;
+    document.title = "Payment Successful";
+    return () => {
+      document.title = prev;
+    };
+  }, []);
+
+  // Keyboard shortcuts: Esc or Enter closes
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" || e.key === "Enter") {
+        exitScreen();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [exitScreen]);
+
+  // Animation configs (respect reduced motion)
+  const rippleA = prefersReducedMotion
+    ? {}
+    : { initial: { scale: 0.8, opacity: 0.18 }, animate: { scale: 1.9, opacity: 0 } };
+
+  const rippleB = prefersReducedMotion
+    ? {}
+    : {
+        initial: { scale: 0.8, opacity: 0.14 },
+        animate: { scale: 2.3, opacity: 0 },
+        transition: { duration: 1.0, ease: "easeOut", delay: 0.12 },
+      };
+
+  const burst = (x: number, y: number, delay: number) =>
+    prefersReducedMotion
+      ? {}
+      : {
+          initial: { scale: 0.2, opacity: 0.9, x, y },
+          animate: { scale: 1.2, opacity: 0, x, y },
+          transition: { duration: 0.7, ease: "easeOut", delay },
+        };
 
   return (
     <div
@@ -63,6 +116,8 @@ export default function SuccessPayment() {
         display: "flex",
         flexDirection: "column",
       }}
+      aria-live="polite"
+      role="status"
     >
       {/* Close button */}
       <button
@@ -79,14 +134,13 @@ export default function SuccessPayment() {
           display: "grid",
           placeItems: "center",
           zIndex: 20,
-          boxShadow:
-            "0 3px 6px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06)",
+          boxShadow: "0 3px 6px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.06)",
           border: "none",
           cursor: "pointer",
         }}
       >
         {/* X icon */}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
             d="M6 6l12 12M18 6L6 18"
             stroke="#111827"
@@ -116,8 +170,7 @@ export default function SuccessPayment() {
           >
             {/* Ripples */}
             <motion.div
-              initial={{ scale: 0.8, opacity: 0.18 }}
-              animate={{ scale: 1.9, opacity: 0 }}
+              {...rippleA}
               transition={{ duration: 0.9, ease: "easeOut" }}
               style={{
                 position: "absolute",
@@ -127,9 +180,7 @@ export default function SuccessPayment() {
               }}
             />
             <motion.div
-              initial={{ scale: 0.8, opacity: 0.14 }}
-              animate={{ scale: 2.3, opacity: 0 }}
-              transition={{ duration: 1.0, ease: "easeOut", delay: 0.12 }}
+              {...rippleB}
               style={{
                 position: "absolute",
                 inset: "10px",
@@ -140,9 +191,7 @@ export default function SuccessPayment() {
 
             {/* Bursts */}
             <motion.div
-              initial={{ scale: 0.2, opacity: 0.9, x: 92, y: -10 }}
-              animate={{ scale: 1.2, opacity: 0, x: 92, y: -10 }}
-              transition={{ duration: 0.7, ease: "easeOut", delay: 0.12 }}
+              {...burst(92, -10, 0.12)}
               style={{
                 position: "absolute",
                 width: 12,
@@ -152,9 +201,7 @@ export default function SuccessPayment() {
               }}
             />
             <motion.div
-              initial={{ scale: 0.2, opacity: 0.9, x: -78, y: 6 }}
-              animate={{ scale: 1.2, opacity: 0, x: -78, y: 6 }}
-              transition={{ duration: 0.7, ease: "easeOut", delay: 0.18 }}
+              {...burst(-78, 6, 0.18)}
               style={{
                 position: "absolute",
                 width: 12,
@@ -164,9 +211,7 @@ export default function SuccessPayment() {
               }}
             />
             <motion.div
-              initial={{ scale: 0.2, opacity: 0.9, x: 10, y: -88 }}
-              animate={{ scale: 1.2, opacity: 0, x: 10, y: -88 }}
-              transition={{ duration: 0.7, ease: "easeOut", delay: 0.24 }}
+              {...burst(10, -88, 0.24)}
               style={{
                 position: "absolute",
                 width: 12,
@@ -178,9 +223,9 @@ export default function SuccessPayment() {
 
             {/* Main circle */}
             <motion.div
-              initial={{ scale: 0.7, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: "spring", damping: 10, stiffness: 160 }}
+              initial={prefersReducedMotion ? {} : { scale: 0.7, opacity: 0 }}
+              animate={prefersReducedMotion ? {} : { scale: 1, opacity: 1 }}
+              transition={prefersReducedMotion ? {} : { type: "spring", damping: 10, stiffness: 160 }}
               style={{
                 width: 180,
                 height: 180,
@@ -194,17 +239,14 @@ export default function SuccessPayment() {
             >
               {/* Checkmark */}
               <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{
-                  type: "spring",
-                  damping: 10,
-                  stiffness: 220,
-                  delay: 0.12,
-                }}
+                initial={prefersReducedMotion ? {} : { scale: 0, opacity: 0 }}
+                animate={prefersReducedMotion ? {} : { scale: 1, opacity: 1 }}
+                transition={
+                  prefersReducedMotion ? {} : { type: "spring", damping: 10, stiffness: 220, delay: 0.12 }
+                }
                 style={{ display: "grid", placeItems: "center" }}
               >
-                <svg width="64" height="64" viewBox="0 0 24 24" fill="none">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path
                     d="M20 6L9 17l-5-5"
                     stroke="#fff"
@@ -219,8 +261,8 @@ export default function SuccessPayment() {
 
           {/* Texts */}
           <motion.h1
-            initial={{ y: 14, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
+            initial={prefersReducedMotion ? {} : { y: 14, opacity: 0 }}
+            animate={prefersReducedMotion ? {} : { y: 0, opacity: 1 }}
             transition={{ duration: 0.26, delay: 0.16 }}
             style={{
               fontSize: 28,
@@ -233,8 +275,8 @@ export default function SuccessPayment() {
           </motion.h1>
 
           <motion.p
-            initial={{ y: 14, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
+            initial={prefersReducedMotion ? {} : { y: 14, opacity: 0 }}
+            animate={prefersReducedMotion ? {} : { y: 0, opacity: 1 }}
             transition={{ duration: 0.26, delay: 0.3 }}
             style={{
               fontSize: 16,
@@ -249,8 +291,8 @@ export default function SuccessPayment() {
           {/* Optional token */}
           {checkoutToken ? (
             <motion.div
-              initial={{ y: 14, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
+              initial={prefersReducedMotion ? {} : { y: 14, opacity: 0 }}
+              animate={prefersReducedMotion ? {} : { y: 0, opacity: 1 }}
               transition={{ duration: 0.26, delay: 0.46 }}
               style={{
                 background: "#f8fafc",

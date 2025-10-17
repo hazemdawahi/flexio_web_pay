@@ -152,7 +152,7 @@ const UnifiedOptionsPage: React.FC = () => {
     isLoading: merchantLoading,
     error: merchantError,
   } = useMerchantDetail(merchantBaseId);
-
+console.log("merchantRes",checkoutRes)
   // Mirror your original session effects
   useEffect(() => {
     const inAppValue =

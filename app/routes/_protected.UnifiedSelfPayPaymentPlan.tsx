@@ -35,8 +35,65 @@ import {
 } from "~/hooks/useUnifiedCommerce";
 import InterestFreeSheet from "~/compoments/InterestFreeSheet";
 
-// ------------------------------------------------------------
+/** ---------------- Small helpers ---------------- */
+const ACCENT = "#00BFFF";
+const BASE_URL = "http://192.168.1.121:8080";
+const makeFullUrl = (p?: string | null) =>
+  !p ? undefined : /^https?:\/\//.test(p) ? p : `${BASE_URL}${p.startsWith("/") ? p : `/${p}`}`;
 
+const sanitizeParamString = (raw?: string | null) => {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  const low = s.toLowerCase();
+  if (low === "null" || low === "undefined") return "";
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    return s.slice(1, -1);
+  }
+  return s;
+};
+const normalizeParam = (v: string | null | undefined, fallback = ""): string =>
+  sanitizeParamString(v ?? fallback);
+
+const canonicalizeDiscountList = (raw: string): string => {
+  if (!raw || !raw.trim()) return "[]";
+  const extractId = (x: any): string => {
+    if (x == null) return "";
+    if (typeof x === "string" || typeof x === "number") return String(x).trim();
+    if (typeof x === "object") {
+      const v = x.id ?? x.discountId ?? x.code ?? "";
+      return typeof v === "string" || typeof v === "number" ? String(v).trim() : "";
+    }
+    return "";
+  };
+  const uniq = (a: string[]) => Array.from(new Set(a.filter(Boolean)));
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return JSON.stringify(uniq(parsed.map(extractId)));
+    if (typeof parsed === "string") return JSON.stringify(uniq(parsed.split(",").map((s) => s.trim())));
+  } catch {
+    return JSON.stringify(uniq(raw.split(",").map((s) => s.trim())));
+  }
+  return "[]";
+};
+
+// 🔢 Safe coercion similar to our customize screen
+function toNumberFromMoneyLike(m: any): number {
+  if (m == null) return 0;
+  if (typeof m === "number") return Number.isFinite(m) ? m : 0;
+  if (typeof m === "string") {
+    const parts = m.trim().split(/\s+/);
+    const last = parts[parts.length - 1];
+    const n = Number(last);
+    return Number.isFinite(n) ? n : 0;
+  }
+  if (typeof m === "object" && m.amount != null) {
+    const n = Number(m.amount);
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+/** ---------------- Local unions / types ---------------- */
 type PaymentFrequency = "BI_WEEKLY" | "MONTHLY";
 
 type AnyTier = {
@@ -50,11 +107,6 @@ type AnyTier = {
   minAmount?: string;
   maxAmount?: string;
 };
-
-const ACCENT = "#00BFFF";
-const BASE_URL = "http://192.168.1.121:8080";
-const makeFullUrl = (p?: string | null) =>
-  !p ? undefined : /^https?:\/\//.test(p) ? p : `${BASE_URL}${p.startsWith("/") ? p : `/${p}`}`;
 
 // 🔧 Local wide union that *does* include SOTERIA_PAYMENT
 type AllowedTypeWeb =
@@ -117,73 +169,98 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
   const { search } = useLocation();
   const qs = new URLSearchParams(search);
 
-  // -------------------- PARAMS --------------------
-  const getParam = (k: string, def = "") => qs.get(k) ?? def;
+  // -------------------- PARAMS (normalized) --------------------
+  const getParam = (k: string, def = "") => normalizeParam(qs.get(k), def);
   const getParamOpt = (k: string) => {
     const v = qs.get(k);
-    return typeof v === "string" ? v : undefined;
+    return v == null ? undefined : normalizeParam(v);
   };
 
+  // Core identifiers
   const merchantId = getParam("merchantId", "");
+  const requestId = getParam("requestId", "");
 
-  // Use a raw string for all comparisons to avoid TS2678
-  const txTypeRaw = getParamOpt("transactionType");
-  const txString = (txTypeRaw ?? "").toUpperCase();
+  // Flow context (exact keys sent by UnifiedPlansOptions)
+  const transactionTypeRaw = getParam("transactionType", "");
+  const txString = (transactionTypeRaw || "").toUpperCase();
   const transactionType: AllowedTypeWeb | null = (ALLOWED_TYPES_WEB as readonly string[]).includes(
     txString as AllowedTypeWeb
   )
     ? (txString as AllowedTypeWeb)
     : null;
 
-  // Soteria & split IDs
-  const paymentPlanId = getParamOpt("paymentPlanId");
-  const paymentSchemeId = getParamOpt("paymentSchemeId");
-  const splitPaymentId = getParamOpt("splitPaymentId");
-  const splitFlag = getParamOpt("split");
-
-  // Amounts (major-unit dollars); allow upstream override like RN
+  // Amounts (major-unit dollars)
   const amountParamOverride = getParamOpt("amountParam");
   const amountFromParams = getParam("amount", "0");
+  const orderAmount = getParam("orderAmount", ""); // forwarded passthrough
+  const totalAmount = getParam("totalAmount", ""); // forwarded passthrough
+
+  // Effective chosen amount
   const chosenAmountStr = (amountParamOverride ?? amountFromParams) || "0";
   const effectiveAmount = parseFloat(chosenAmountStr.toString().replace(/[$,\s]/g, "")) || 0;
 
-  // Split users (JSON array: {userId, amount})
+  // Discounts forwarded as JSON array of IDs (canonicalized by source, but we re-canon safely)
+  const discountListRaw = canonicalizeDiscountList(getParam("discountList", "[]"));
+
+  // Split/send extras (not always present for Self-Pay)
   const otherUsersRaw = getParam("otherUsers", "[]");
-  const allSplitUsers = useMemo<{ userId: string; amount: number }[]>(() => {
-    try {
-      const arr = JSON.parse(otherUsersRaw);
-      return Array.isArray(arr)
-        ? arr
-            .map((u: any) => ({ userId: String(u?.userId ?? ""), amount: Number(u?.amount ?? 0) }))
-            .filter((u) => !!u.userId)
-        : [];
-    } catch {
-      return [];
-    }
-  }, [otherUsersRaw]);
-  const isSplitFlow = allSplitUsers.length > 0;
-
-  // SEND single recipient
   const recipientRaw = getParam("recipient", "");
-  const recipientObj: SendRecipient | null = useMemo(() => {
-    if (!recipientRaw) return null;
-    try {
-      const x = JSON.parse(recipientRaw);
-      const rid = String(x?.recipientId || "");
-      const amt = Number(x?.amount || 0);
-      if (!rid || !Number.isFinite(amt) || amt <= 0) return null;
-      return { recipientId: rid, amount: amt };
-    } catch {
-      return null;
-    }
-  }, [recipientRaw]);
 
-  const requestId = getParam("requestId", "");
+  // Branding passthrough (param wins; merchant fallback in data section)
+  const displayLogo = getParam("displayLogo", "");
+  const displayName = getParam("displayName", "");
+  const logoUriHint = getParam("logoUri", "");
+  const splitFlag = getParam("split", "");
 
-  // Branding passthrough
-  const displayLogo = getParamOpt("displayLogo");
-  const displayName = getParamOpt("displayName");
-  const logoUriHint = getParamOpt("logoUri");
+  // Soteria IDs
+  const paymentPlanId = getParam("paymentPlanId", "");
+  const paymentSchemeId = getParam("paymentSchemeId", "");
+  const splitPaymentId = getParam("splitPaymentId", "");
+
+  // ---- LOG: show exactly what we received
+  useEffect(() => {
+    console.groupCollapsed("[UnifiedSelfPayPaymentPlan] URL Params (normalized)");
+    console.table([
+      { key: "merchantId", value: merchantId },
+      { key: "transactionType", value: txString },
+      { key: "amount", value: amountFromParams },
+      { key: "amountParam", value: amountParamOverride ?? "" },
+      { key: "orderAmount", value: orderAmount },
+      { key: "totalAmount", value: totalAmount },
+      { key: "effectiveAmount", value: effectiveAmount },
+      { key: "discountList(raw)", value: discountListRaw },
+      { key: "requestId", value: requestId },
+      { key: "displayLogo", value: displayLogo },
+      { key: "displayName", value: displayName },
+      { key: "logoUri", value: logoUriHint },
+      { key: "split", value: splitFlag },
+      { key: "paymentPlanId", value: paymentPlanId },
+      { key: "paymentSchemeId", value: paymentSchemeId },
+      { key: "splitPaymentId", value: splitPaymentId },
+      { key: "otherUsers", value: otherUsersRaw ? "(json)" : "" },
+      { key: "recipient", value: recipientRaw ? "(json)" : "" },
+    ]);
+    console.groupEnd();
+  }, [
+    merchantId,
+    txString,
+    amountFromParams,
+    amountParamOverride,
+    orderAmount,
+    totalAmount,
+    effectiveAmount,
+    discountListRaw,
+    requestId,
+    displayLogo,
+    displayName,
+    logoUriHint,
+    splitFlag,
+    paymentPlanId,
+    paymentSchemeId,
+    splitPaymentId,
+    otherUsersRaw,
+    recipientRaw,
+  ]);
 
   // -------------------- HOOKS --------------------
   const { data: userDetailsData } = useUserDetails();
@@ -202,15 +279,28 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
   const { mutate: calculatePlan, data: calculatedPlan } = useCalculatePaymentPlan();
   const { mutateAsync: runUnified, isPending: unifiedPending } = useUnifiedCommerce();
 
-  // Discounts (web uses availability hook; list of objects)
+  // Discounts available from API for this merchant + amount
   const {
     data: discounts = [],
     isLoading: discountsLoading,
     error: discountsError,
   } = useAvailableDiscounts(merchantId, effectiveAmount);
 
+  // -------------------- DISCOUNT STATE (seed from param if provided) --------------------
   const [discountList, setDiscountList] = useState<string[]>([]);
   const hasDiscounts = discountList.length > 0;
+
+  useEffect(() => {
+    try {
+      const arr = JSON.parse(discountListRaw);
+      if (Array.isArray(arr)) {
+        const sanitized = arr.map((x: any) => String(x)).filter(Boolean);
+        if (sanitized.length) setDiscountList(sanitized);
+      }
+    } catch {
+      // ignore
+    }
+  }, [discountListRaw]);
 
   // -------------------- MERCHANT CONFIG & TIERS --------------------
   const cfg = merchantDetailData?.data?.configuration;
@@ -268,7 +358,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       const maxs = related.map(getTierMax).filter((n): n is number => typeof n === "number");
 
       let min = mins.length ? Math.max(1, Math.min(...mins)) : 1;
-      let max = maxs.length ? Math.max(min, Math.max(...maxs)) : f === "BI_WEEKLY" ? 26 : 12;
+      let max = maxs.length ? Math.max(min, Math.max(...maxs)) : (f === "BI_WEEKLY" ? 26 : 12);
 
       if (fallbackSelfPayEnabled) {
         min = Math.max(min, 4);
@@ -286,7 +376,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // ✅ Interest-free state (web parity) — trigger only inside PaymentPlanMocking
+  // ✅ Interest-free state (web parity)
   const [interestFreeUsed, setInterestFreeUsed] = useState<number>(0);
   const [freeInput, setFreeInput] = useState<string>("");
   const [isIFOpen, setIsIFOpen] = useState<boolean>(false);
@@ -299,17 +389,25 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     setIsIFOpen(false);
   };
 
-  // Section spinner & empty state tracking (to avoid forever-loading)
+  // Section spinner & empty state tracking
   const [planBusy, setPlanBusy] = useState<boolean>(false);
   const [planExplicitlyEmpty, setPlanExplicitlyEmpty] = useState<boolean>(false);
 
-  // Initialize periods to lower bound once bounds are known
+  // 🎯 If current frequency is NOT allowed by tiers, snap to the first allowed one
+  useEffect(() => {
+    if (!allowedFrequencies.length) return;
+    if (!allowedFrequencies.includes(paymentFrequency)) {
+      setPaymentFrequency(allowedFrequencies[0]);
+    }
+  }, [allowedFrequencies, paymentFrequency]);
+
+  // Initialize periods to lower bound once bounds are known (and keep it in-range)
   useEffect(() => {
     const b = boundsByFreq.get(paymentFrequency);
     if (!b) return;
     const next = String(Math.max(b.min, Math.min(parseInt(numberOfPeriods || "0", 10) || b.min, b.max)));
     if (next !== numberOfPeriods) setNumberOfPeriods(next);
-    // eslint-disable-next-line react-hooks/exLint
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boundsByFreq, paymentFrequency]);
 
   // Preselect payment method (first card; prefer primary if present)
@@ -322,99 +420,136 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     }
   }, [methods, selectedPaymentMethod]);
 
+  // ---------- Normalized values used for FIRST calc
+  const normalizedFrequency = useMemo<PaymentFrequency>(() => {
+    return allowedFrequencies.includes(paymentFrequency)
+      ? paymentFrequency
+      : (allowedFrequencies[0] ?? "BI_WEEKLY");
+  }, [allowedFrequencies, paymentFrequency]);
+
+  const normalizedBounds = useMemo(() => {
+    return boundsByFreq.get(normalizedFrequency) ?? { min: 1, max: 12 };
+  }, [boundsByFreq, normalizedFrequency]);
+
+  const normalizedCount = useMemo(() => {
+    const raw = parseInt(numberOfPeriods || "0", 10) || normalizedBounds.min;
+    return Math.max(normalizedBounds.min, Math.min(raw, normalizedBounds.max));
+  }, [numberOfPeriods, normalizedBounds]);
+
+  // Merchant readiness gate
+  const merchantReady = hasMerchantData || fallbackSelfPayEnabled;
+
+  // Sync pickers once to normalized defaults when merchant is ready
+  const didSyncDefaultsRef = useRef(false);
+  useEffect(() => {
+    if (didSyncDefaultsRef.current) return;
+    if (!merchantReady) return;
+    if (!fallbackSelfPayEnabled && allowedFrequencies.length === 0) return;
+
+    setPaymentFrequency((prev) =>
+      allowedFrequencies.includes(prev) ? prev : normalizedFrequency
+    );
+    setNumberOfPeriods(String(normalizedCount));
+    didSyncDefaultsRef.current = true;
+  }, [
+    merchantReady,
+    allowedFrequencies.length,
+    fallbackSelfPayEnabled,
+    normalizedFrequency,
+    normalizedCount,
+    allowedFrequencies,
+  ]);
+
   // -------------------- PLAN CALC (classic Self-Pay only) --------------------
   const lastCalcSig = useRef<string>("");
 
-  // Run a plan calc with timeout and safe finish flags (prevents forever spinner)
+  // BACKEND expects "BI_WEEKLY" (not "BIWEEKLY")
+  const apiFrequency = (f: PaymentFrequency): "BI_WEEKLY" | "MONTHLY" =>
+    f === "BI_WEEKLY" ? "BI_WEEKLY" : "MONTHLY";
+
+  // Reset dedupe signature when key inputs change
+  useEffect(() => {
+    lastCalcSig.current = "";
+  }, [merchantReady, effectiveAmount, normalizedCount, normalizedFrequency]);
+
   const triggerPlanCalc = useCallback(
-    (count: number) => {
+    (count: number, freq: PaymentFrequency, amount: number, force = false) => {
       if (txString === "SOTERIA_PAYMENT") return;
+      if (!(amount > 0)) return;
+
+      const sig = `${freq}|${count}|${amount.toFixed(2)}`;
+      if (!force && lastCalcSig.current === sig) return; // prevent redundant calls
+      lastCalcSig.current = sig;
+
+      const payload = {
+        frequency: apiFrequency(freq), // <-- server enum
+        numberOfPayments: count,
+        purchaseAmount: amount,
+        startDate,
+        selfPay: true,
+        instantaneous: false,
+        yearly: false,
+        interestFreeAmt: 0,
+      };
+
       setPlanBusy(true);
       setPlanExplicitlyEmpty(false);
 
+      console.log("[useCalculatePaymentPlan] → payload", payload);
+
       const timeout = setTimeout(() => {
-        setPlanBusy(false); // fail open after 10s to avoid infinite spinner
+        setPlanBusy(false);
       }, 10000);
 
-      calculatePlan(
-        {
-          frequency: paymentFrequency,
-          numberOfPayments: count,
-          purchaseAmount: effectiveAmount,
-          startDate,
-          selfPay: true,
-          instantaneous: false,
-          yearly: false,
-          interestFreeAmt: 0, // IF is not baked into classic self-pay calc
+      calculatePlan(payload as any, {
+        onSuccess: (res: any) => {
+          clearTimeout(timeout);
+          console.log("[useCalculatePaymentPlan] ✓ success", res);
+          const empty =
+            !!res?.success &&
+            (!res.data || !Array.isArray(res.data.splitPayments) || res.data.splitPayments.length === 0);
+          setPlanExplicitlyEmpty(empty);
+          setPlanBusy(false);
         },
-        {
-          onSuccess: (res: any) => {
-            clearTimeout(timeout);
-            const empty =
-              !!res?.success &&
-              (!res.data || !Array.isArray(res.data.splitPayments) || res.data.splitPayments.length === 0);
-            setPlanExplicitlyEmpty(empty);
-            setPlanBusy(false);
-          },
-          onError: () => {
-            clearTimeout(timeout);
-            setPlanExplicitlyEmpty(false);
-            setPlanBusy(false);
-            toast.error("Could not calculate plan.");
-          },
-        }
-      );
+        onError: (err: any) => {
+          clearTimeout(timeout);
+          console.warn("[useCalculatePaymentPlan] ✗ error", err);
+          setPlanExplicitlyEmpty(false);
+          setPlanBusy(false);
+          toast.error("Could not calculate plan.");
+        },
+      });
     },
-    [calculatePlan, txString, paymentFrequency, effectiveAmount, startDate]
+    [calculatePlan, txString, startDate]
   );
 
-  // Drive plan calculation whenever effective inputs change
+  // 🎯 Drive plan calculation with *normalized* values (so plan renders on first load)
   useEffect(() => {
     if (txString === "SOTERIA_PAYMENT") return;
-    if (!selfPayEnabled) return;
+    if (!merchantReady) return;
+    if (!fallbackSelfPayEnabled && allowedFrequencies.length === 0) return;
 
     const eligible = fallbackSelfPayEnabled ? effectiveAmount > 0 : withinMin && withinMax && fitsAnyTier;
-    if (!eligible) {
-      // Not eligible → ensure no phantom spinner
+    if (!eligible || !(effectiveAmount > 0)) {
       setPlanBusy(false);
       setPlanExplicitlyEmpty(false);
       return;
     }
 
-    const b = boundsByFreq.get(paymentFrequency);
-    if (!b) {
-      setPlanBusy(false);
-      return;
-    }
-
-    const raw = parseInt(numberOfPeriods, 10) || b.min;
-    const count = Math.max(b.min, Math.min(raw, b.max));
-    if (!(effectiveAmount > 0)) {
-      setPlanBusy(false);
-      return;
-    }
-
-    const sig = `${paymentFrequency}|${count}|${effectiveAmount.toFixed(2)}`;
-    if (lastCalcSig.current === sig) {
-      // We already have this plan (navigation back, etc.) → do not hang spinner
-      setPlanBusy(false);
-      return;
-    }
-    lastCalcSig.current = sig;
-
-    triggerPlanCalc(count);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Force the very first call when ready so we don't “wait for a user change”
+    triggerPlanCalc(normalizedCount, normalizedFrequency, effectiveAmount, true);
   }, [
     txString,
-    selfPayEnabled,
+    merchantReady,
+    allowedFrequencies.length,
     fallbackSelfPayEnabled,
     withinMin,
     withinMax,
     fitsAnyTier,
     effectiveAmount,
-    boundsByFreq,
-    paymentFrequency,
-    numberOfPeriods,
+    normalizedCount,
+    normalizedFrequency,
+    triggerPlanCalc,
   ]);
 
   const planData = calculatedPlan?.data;
@@ -431,7 +566,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     }));
   }, [planData]);
 
-  // -------------------- DISCOUNTS --------------------
+  // -------------------- DISCOUNTS (auto-pick if none was pre-selected) --------------------
   const getDiscountValue = (d: any): number => {
     if (d.type === "PERCENTAGE_OFF" && d.discountPercentage != null) {
       return effectiveAmount * (d.discountPercentage / 100);
@@ -443,6 +578,10 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
   const didAutoPick = useRef(false);
   useEffect(() => {
+    if (discountList.length) {
+      didAutoPick.current = true;
+      return;
+    }
     if (!didAutoPick.current && discounts.length) {
       const valid = discounts.filter((d: any) => effectiveAmount - getDiscountValue(d) >= 0);
       if (valid.length) {
@@ -451,7 +590,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       }
       didAutoPick.current = true;
     }
-  }, [discounts, effectiveAmount]);
+  }, [discounts, effectiveAmount, discountList.length]);
 
   const discountedTotalBeforeIF = useMemo(() => {
     const id = discountList[0];
@@ -467,6 +606,34 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     const sid = String(id);
     setDiscountList((prev) => (prev.includes(sid) ? [] : [sid]));
   };
+
+  // -------------------- SPLIT / RECIPIENT --------------------
+  const allSplitUsers = useMemo<{ userId: string; amount: number }[]>(() => {
+    try {
+      const arr = JSON.parse(otherUsersRaw);
+      return Array.isArray(arr)
+        ? arr
+            .map((u: any) => ({ userId: String(u?.userId ?? ""), amount: Number(u?.amount ?? 0) }))
+            .filter((u) => !!u.userId)
+        : [];
+    } catch {
+      return [];
+    }
+  }, [otherUsersRaw]);
+  const isSplitFlow = allSplitUsers.length > 0;
+
+  const recipientObj: SendRecipient | null = useMemo(() => {
+    if (!recipientRaw) return null;
+    try {
+      const x = JSON.parse(recipientRaw);
+      const rid = String(x?.recipientId || "");
+      const amt = Number(x?.amount || 0);
+      if (!rid || !Number.isFinite(amt) || amt <= 0) return null;
+      return { recipientId: rid, amount: amt };
+    } catch {
+      return null;
+    }
+  }, [recipientRaw]);
 
   // -------------------- BUILD HELPERS --------------------
   const buildSplits = useCallback((): SplitPaymentDetail[] => {
@@ -490,11 +657,11 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
   const buildCommonFields = useCallback(() => {
     const splits = buildSplits();
-    const schemeTotalAmount = Number(discountedTotal.toFixed(2));
+    const schemeAmount = Number(discountedTotal.toFixed(2));
     const others = buildOtherUsersExcludingSelf();
 
     const common: any = {
-      paymentFrequency,
+      paymentFrequency: normalizedFrequency, // keep UI freq semantic here
       numberOfPayments: splits.length || Number(numberOfPeriods) || 1,
       offsetStartDate: mockPayments[0]?.dueDate ?? startDate,
       instantAmount: 0,
@@ -504,10 +671,10 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       splitSuperchargeDetails: [],
       selfPayActive: true,
       totalPlanAmount: Number(((planData?.totalAmount ?? discountedTotal)).toFixed(2)),
-      interestFreeUsed: Number(interestFreeUsed.toFixed(2)), // ← include IF in payload
+      interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
       interestRate: Number(planData?.periodInterestRate ?? 0),
       apr: Number(planData?.apr ?? 0),
-      schemeTotalAmount,
+      schemeAmount, // ← matches CommonPlanFields
       splitPaymentsList: splits,
       ...(others ? { otherUsers: others } : {}),
       ...(discountList.length ? { discountIds: discountList } : {}),
@@ -517,7 +684,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
   }, [
     buildSplits,
     buildOtherUsersExcludingSelf,
-    paymentFrequency,
+    normalizedFrequency,
     numberOfPeriods,
     mockPayments,
     startDate,
@@ -542,7 +709,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       ...(others ? { otherUsers: others } : {}),
       ...(splitPaymentId ? { splitPaymentId } : {}),
       selectedPaymentMethod: selectedPaymentMethod?.id ?? undefined,
-      interestFreeUsed: Number(interestFreeUsed.toFixed(2)), // include IF for soteria as well
+      interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
     };
 
     const soteriaPayload: Record<string, any> = {
@@ -559,11 +726,11 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       {
         merchantId,
         soteriaPaymentTotalAmount: { amount: Number(discountedTotal.toFixed(2)), currency: "USD" },
-        paymentTotalAmount: { amount: Number(discountedTotal.toFixed(2)), currency: "USD" }, // compat alias
+        paymentTotalAmount: { amount: Number(discountedTotal.toFixed(2)), currency: "USD" },
         soteriaPayload,
-        paymentPlanId: paymentPlanId ?? undefined,
-        paymentSchemeId: paymentSchemeId ?? undefined,
-        splitPaymentId: splitPaymentId ?? undefined,
+        paymentPlanId: paymentPlanId || undefined,
+        paymentSchemeId: paymentSchemeId || undefined,
+        splitPaymentId: splitPaymentId || undefined,
       },
       common as any
     );
@@ -617,7 +784,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       delete out.card;
       delete out.virtualCard;
       delete out.paymentId;
-      // keep soteria totals + common
     }
     if (out.checkout && Object.keys(out.checkout).length === 0) delete out.checkout;
     if (out.card && Object.keys(out.card).length === 0) delete out.card;
@@ -654,8 +820,21 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           }
           let req = buildSoteriaUnifiedRequest();
           req = sanitizeForType("SOTERIA_PAYMENT", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(discountedTotal.toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+
+          // Determine amount & token from response when possible
+          let amount = toNumberFromMoneyLike(
+            res?.soteriaPayment?.totalAmount ??
+              res?.soteriaPayment?.soteriaPaymentTotalAmount ??
+              discountedTotal
+          );
+          if (!(amount > 0)) amount = Number(discountedTotal.toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
 
@@ -668,8 +847,19 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const vc: VirtualCardOptions = buildVirtualCardOptions();
           let req = buildVirtualCardRequestWithOptions(merchantId, vc, common);
           req = sanitizeForType("VIRTUAL_CARD", req);
-          await runUnified(req);
-          navigate("/card-details");
+          const res: any = await runUnified(req);
+
+          let amount =
+            toNumberFromMoneyLike(res?.totalAmount) ||
+            toNumberFromMoneyLike(res?.amount) ||
+            Number(discountedTotal.toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          // ✅ Go to success (not /card-details)
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
 
@@ -680,17 +870,28 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
             common
           );
           req = sanitizeForType("PAYMENT", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(discountedTotal.toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+
+          let amount =
+            toNumberFromMoneyLike(res?.totalAmount) ||
+            toNumberFromMoneyLike(res?.amount) ||
+            toNumberFromMoneyLike(res?.payment?.amount) ||
+            Number(discountedTotal.toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
 
         case "CHECKOUT": {
           const common = buildCommonFields();
+          // ⛔️ NO checkoutTotalAmount in new DTO — only pass allowed top-level keys
           let req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
-              checkoutTotalAmount: { amount: Number(discountedTotal.toFixed(2)), currency: "USD" },
               checkoutType: "ONLINE",
               checkoutRedirectUrl: null,
               checkoutReference: null,
@@ -700,8 +901,18 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
             common
           );
           req = sanitizeForType("CHECKOUT", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(discountedTotal.toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+
+          let amount =
+            toNumberFromMoneyLike(res?.totalAmount) ||
+            toNumberFromMoneyLike(res?.amount) ||
+            Number(discountedTotal.toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
 
@@ -713,8 +924,22 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const common = buildCommonFields();
           let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
           req = sanitizeForType("SEND", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent((+recipientObj.amount).toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+
+          let amount =
+            toNumberFromMoneyLike(res?.send?.amount) ||
+            toNumberFromMoneyLike(res?.send?.transferredAmount) ||
+            toNumberFromMoneyLike(res?.send?.totalAmount) ||
+            toNumberFromMoneyLike(res?.transfer?.amount) ||
+            toNumberFromMoneyLike(res?.transfer?.transferredAmount) ||
+            toNumberFromMoneyLike(res?.transfer?.totalAmount) ||
+            Number((+recipientObj.amount).toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
 
@@ -726,8 +951,18 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const common = buildCommonFields();
           let req = buildAcceptRequest(requestId, common);
           req = sanitizeForType("ACCEPT_REQUEST", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(discountedTotal.toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+
+          let amount =
+            toNumberFromMoneyLike(res?.totalAmount) ||
+            toNumberFromMoneyLike(res?.amount) ||
+            Number(discountedTotal.toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
 
@@ -739,13 +974,22 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const common = buildCommonFields();
           let req = buildAcceptSplitRequest(requestId, common);
           req = sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
-          await runUnified(req);
-          navigate(`/success?amount=${encodeURIComponent(discountedTotal.toFixed(2))}&replace_to_index=1`);
+          const res: any = await runUnified(req);
+
+          let amount =
+            toNumberFromMoneyLike(res?.totalAmount) ||
+            toNumberFromMoneyLike(res?.amount) ||
+            Number(discountedTotal.toFixed(2));
+          const token =
+            res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
+
+          const qAmount = encodeURIComponent(amount.toFixed(2));
+          const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
           break;
         }
       }
     } catch (e: any) {
-      // eslint-disable-next-line no-console
       console.error("Unified SelfPay/Soteria (web) error:", e?.message || e);
       toast.error("Operation failed. Try again.");
     }
@@ -774,12 +1018,8 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
   const isSoteria = txString === "SOTERIA_PAYMENT";
 
-  // ✅ Unified page-level loading (no “forever” due to planBusy control)
-  const pageLoading =
-    merchantLoading ||
-    methodsLoading ||
-    discountsLoading ||
-    (!isSoteria && selfPayEnabled && planBusy);
+  // ✅ Unified page-level loading (do NOT include planBusy; let plan section load in-page)
+  const pageLoading = merchantLoading || methodsLoading || discountsLoading;
 
   const bootErrorMsg = (merchantError as any)?.message || (discountsError as any)?.message || "";
 
@@ -840,6 +1080,11 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                   src={logoUri}
                   alt={displayName || merchantBrand?.displayName || "Brand"}
                   className="w-20 h-20 rounded-full object-cover border border-gray-300 mx-auto mb-4"
+                  onError={(e) => {
+                    console.warn("[UnifiedSelfPayPaymentPlan] Logo failed to load:", logoUri);
+                    (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                  }}
+                  onLoad={() => console.log("[UnifiedSelfPayPaymentPlan] Logo loaded:", logoUri)}
                 />
               )}
 
@@ -847,8 +1092,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                 <h1 className="text-2xl font-bold">
                   {isSoteria ? "Soteria" : "Flex"} ${discountedTotal.toFixed(2)}
                 </h1>
-
-                {/* Top-level IF trigger intentionally omitted (kept inside plan widget) */}
                 <span />
               </div>
 
@@ -894,20 +1137,29 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
               )}
 
               {/* Plan Preview (hide when Soteria) */}
-              {!isSoteria && !!mockPayments.length && (
-                <div className="mb-5">
-                  <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
-                  <PaymentPlanMocking
-                    payments={mockPayments}
-                    showChangeDateButton={false}
-                    isCollapsed={false}
-                    totalAmount={planData!.totalAmount}
-                    // Interest-free control ONLY here:
-                    interestFreeEnabled
-                    interestFreeUsed={interestFreeUsed}
-                    onInterestFreePress={() => setIsIFOpen(true)}
-                  />
-                </div>
+              {!isSoteria && (
+                <>
+                  {planBusy && !mockPayments.length ? (
+                    <div className="mb-5">
+                      <CenterSpinner label="Calculating plan…" />
+                    </div>
+                  ) : null}
+
+                  {!!mockPayments.length && (
+                    <div className="mb-5">
+                      <h2 className="text-xl font-semibold mb-3">Payment Plan</h2>
+                      <PaymentPlanMocking
+                        payments={mockPayments}
+                        showChangeDateButton={false}
+                        isCollapsed={false}
+                        totalAmount={planData?.totalAmount ?? discountedTotal}
+                        interestFreeEnabled
+                        interestFreeUsed={interestFreeUsed}
+                        onInterestFreePress={() => setIsIFOpen(true)}
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Discounts */}
@@ -979,8 +1231,8 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                 {renderPaymentMethodSection()}
               </div>
 
-              {/* Buttons */}
-              <div className="flex flex-row gap-3">
+              {/* Buttons (added extra space below with mb-10) */}
+              <div className="flex flex-row gap-3 mb-10">
                 {!isSoteria && (firstDueToday || isAcceptSplit) && (
                   <button
                     onClick={() => {
@@ -1018,10 +1270,10 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                         }
                         case "CHECKOUT": {
                           const common = buildCommonFields();
+                          // ⛔️ Do not pass checkoutTotalAmount (not in the new DTO)
                           fullReq = buildCheckoutRequest(
                             {
                               checkoutMerchantId: merchantId,
-                              checkoutTotalAmount: { amount: Number(discountedTotal.toFixed(2)), currency: "USD" },
                               checkoutType: "ONLINE",
                               checkoutRedirectUrl: null,
                               checkoutReference: null,
@@ -1066,7 +1318,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                         return;
                       }
 
-                      // ✅ Stash payload and navigate to unified customize screen
                       try {
                         sessionStorage.setItem("unified_customize_payload", JSON.stringify(fullReq));
                       } catch {}
@@ -1132,15 +1383,8 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                 className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-3/4 overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex justify-end p-4">
-                  <button
-                    onClick={() => navigate("/payment-settings")}
-                    className="bg-black text-white font-bold py-2 px-4 rounded-lg"
-                  >
-                    Payment Settings
-                  </button>
-                </div>
-                <h2 className="px-4 mb-4 text-xl font-semibold">Select Payment Method</h2>
+                {/* Removed Payment Settings button as requested */}
+                <h2 className="px-4 pt-4 mb-4 text-xl font-semibold">Select Payment Method</h2>
                 <div className="space-y-4 px-4 pb-4">
                   {(methods ?? [])
                     .filter((m: PaymentMethod) => m.type === "card")

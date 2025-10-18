@@ -1,13 +1,14 @@
 // File: app/routes/SuccessPayment.tsx
-import React, { useEffect, useMemo, useCallback } from "react";
+import React, { useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "@remix-run/react";
 import { motion, useReducedMotion } from "framer-motion";
 
 /**
  * Web version of SuccessPayment screen
- * - Replaces React Native + Reanimated with HTML/CSS + framer-motion
- * - Uses Remix navigation + URLSearchParams
- * - Auto-dismisses after a short delay (customizable via ?ms=)
+ * - Shows animation, waits (default 2000ms, override via ?ms=), THEN notifies host via postMessage
+ * - postMessage payload: { status: "COMPLETED", checkoutToken, data }
+ * - After posting, attempts to close popup (if window.opener), else lets parent remove iframe overlay,
+ *   and falls back to navigation for standalone contexts.
  */
 
 const GREEN = "#22c55e";
@@ -48,24 +49,75 @@ export default function SuccessPayment() {
 
   const amountText = `$${amountNumber.toFixed(2)}`;
 
-  // Unified exit behavior
-  const exitScreen = useCallback(() => {
-    if (shouldReplaceToIndex) {
-      // Replace to app root (tabs-equivalent)
-      navigate("/", { replace: true });
-    } else {
-      // Try to go back; if not possible, go home
-      window.history.length > 1 ? navigate(-1) : navigate("/", { replace: true });
-    }
-  }, [navigate, shouldReplaceToIndex]);
+  // --------------------------------------------------------------------------
+  // postMessage + closing flow (deferred until after animation wait)
+  // --------------------------------------------------------------------------
+  const hasPostedRef = useRef(false);
+  const getTargetWindow = () =>
+    (window.opener as Window | null) || window.parent || window;
 
-  // Auto-dismiss after delay
+  const isInPopup = () => !!window.opener;
+  const isInIframe = () => window.parent && window.parent !== window;
+
+  const notifyCompleted = useCallback(() => {
+    if (hasPostedRef.current) return;
+    hasPostedRef.current = true;
+
+    const target = getTargetWindow();
+    try {
+      target.postMessage(
+        {
+          status: "COMPLETED",
+          checkoutToken: checkoutToken || null,
+          data: {
+            amount: amountNumber,
+            page: "SuccessPayment",
+            timestamp: new Date().toISOString(),
+          },
+        },
+        "*" // keep consistent with your other flows; restrict if you have a fixed origin
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn("[SuccessPayment] postMessage failed:", err);
+    }
+  }, [amountNumber, checkoutToken]);
+
+  // Unified exit behavior (called after wait or via close button)
+  const exitScreen = useCallback(() => {
+    // 1) Notify host first
+    notifyCompleted();
+
+    // 2) Give the parent a tick to react (close overlays/popup), then close/navigate ourselves
+    setTimeout(() => {
+      if (isInPopup()) {
+        // If we were opened via window.open, we can close ourselves
+        window.close();
+        return;
+      }
+
+      if (isInIframe()) {
+        // In an iframe (mobile sheet), the parent overlay will be removed by host script on message.
+        // As a fallback, do nothing; the host controls closure.
+        return;
+      }
+
+      // Standalone tab: navigate away
+      if (shouldReplaceToIndex) {
+        navigate("/", { replace: true });
+      } else {
+        window.history.length > 1 ? navigate(-1) : navigate("/", { replace: true });
+      }
+    }, 50);
+  }, [notifyCompleted, navigate, shouldReplaceToIndex]);
+
+  // Auto-dismiss after delay (show animation first, then close & notify)
   useEffect(() => {
     const t = setTimeout(exitScreen, dismissAfterMs);
     return () => clearTimeout(t);
   }, [exitScreen, dismissAfterMs]);
 
-  // Update document title for a11y / clarity
+  // Update document title
   useEffect(() => {
     const prev = document.title;
     document.title = "Payment Successful";
@@ -74,7 +126,7 @@ export default function SuccessPayment() {
     };
   }, []);
 
-  // Keyboard shortcuts: Esc or Enter closes
+  // Keyboard shortcuts: Esc or Enter closes immediately (skips remaining wait)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" || e.key === "Enter") {
@@ -119,7 +171,7 @@ export default function SuccessPayment() {
       aria-live="polite"
       role="status"
     >
-      {/* Close button */}
+      {/* Close button (if pressed, we notify + close immediately) */}
       <button
         aria-label="Close"
         onClick={exitScreen}

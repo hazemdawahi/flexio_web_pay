@@ -58,7 +58,6 @@ const normalizeParam = (v?: string | null, fallback = ''): string => {
   return s;
 };
 
-// Accepts undefined/null directly and returns default on parse failure
 const parseJson = <T,>(raw: string | null | undefined, def: T): T => {
   const s = normalizeParam(raw, '');
   if (!s) return def;
@@ -153,7 +152,6 @@ const UnifiedPlans: React.FC = () => {
   const selectedDiscountsQP  = parseJson<string[]>(selectedDiscountsRaw, []);
 
   // Optional amounts / branding / split flags / ids (parity with mobile)
-  const recipientQP      = normalizeParam(params.get('recipient'), '');
   const totalAmountQP    = normalizeParam(params.get('totalAmount'), '');
   const orderAmountQP    = normalizeParam(params.get('orderAmount'), '');
   const displayLogoQP    = normalizeParam(params.get('displayLogo'), '');
@@ -195,7 +193,6 @@ const UnifiedPlans: React.FC = () => {
         { key: 'superchargeDetails(len)', value: Array.isArray(superchargeDetailsQP) ? superchargeDetailsQP.length : 0 },
         { key: 'otherUserAmounts(len)', value: Array.isArray(otherUserAmountsQP) ? otherUserAmountsQP.length : 0 },
         { key: 'selectedDiscounts(len)', value: Array.isArray(selectedDiscountsQP) ? selectedDiscountsQP.length : 0 },
-        { key: 'recipient(raw len)', value: recipientQP.length },
         { key: 'totalAmount(len)', value: totalAmountQP.length },
         { key: 'orderAmount(len)', value: orderAmountQP.length },
         { key: 'displayLogo(len)', value: displayLogoQP.length },
@@ -218,7 +215,6 @@ const UnifiedPlans: React.FC = () => {
     superchargeDetailsQP,
     otherUserAmountsQP,
     selectedDiscountsQP,
-    recipientQP,
     totalAmountQP,
     orderAmountQP,
     displayLogoQP,
@@ -400,7 +396,7 @@ const UnifiedPlans: React.FC = () => {
     );
   };
 
-  // ✅ Pass enriched props to Smart (parity with mobile)
+  // ✅ Pass enriched props to Smart (aligned with app/routes/UnifiedSmartPaymentPlans.tsx)
   const renderSmart = () => (
     <SmartPaymentPlans
       // core
@@ -415,17 +411,8 @@ const UnifiedPlans: React.FC = () => {
       requestId={normalizeParam(params.get('requestId'), '')}
       transactionType={transactionTypeRaw}
 
-      // split / transfer
-      otherUsers={otherUserAmountsRaw}     // raw JSON string
-      recipient={recipientQP}              // raw JSON string
-
-      // optional amounts + branding + visual hint + intent
-      totalAmount={totalAmountQP}
-      orderAmount={orderAmountQP}
-      displayLogo={displayLogoQP}
-      displayName={displayNameQP}
+      // split flag
       split={splitQP}
-      logoUri={logoUriQP}
 
       // identifiers (Soteria + split)
       paymentPlanId={paymentPlanIdQP}

@@ -1,47 +1,41 @@
-// src/hooks/useRefreshSession.ts
 import { useMutation } from "@tanstack/react-query";
+import { refreshOnce } from "~/lib/auth/refreshOnce";
+import { useSession } from "~/context/SessionContext";
 
-const API_BASE =
-  (typeof process !== "undefined" &&
-    ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://192.168.1.121:8080";
-
-type RefreshResponse = {
+export type RefreshResponse = {
   success: boolean;
   data?: { accessToken?: string; inapp?: boolean };
   error?: string;
 };
 
 export function useRefreshSession() {
+  const { setAccessToken, setInApp } = useSession();
+
   return useMutation<RefreshResponse, Error, void>({
     mutationFn: async () => {
-      const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 7000);
+      const res = await refreshOnce();
 
-      try {
-        const res = await fetch(`${API_BASE}/api/user/refresh-tokens`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-        });
-
-        // Try to parse JSON, but don't let a parse error hang things
-        let json: RefreshResponse = { success: false };
+      if (res?.success && res?.data?.accessToken) {
+        const at = res.data.accessToken!;
         try {
-          json = (await res.json()) as RefreshResponse;
-        } catch {
-          // ignore parse errors; treat like failure
-        }
+          sessionStorage.setItem("accessToken", at);
+        } catch {}
+        setAccessToken(at);
 
-        if (!res.ok) {
-          // Surface a standard Error so mutateAsync rejects and our provider catches
-          throw new Error(json?.error || `Refresh failed: ${res.status}`);
-        }
-        return json;
-      } finally {
-        clearTimeout(id);
+        const inapp = res?.data?.inapp === true;
+        setInApp(inapp);
+        try { sessionStorage.setItem("inApp", inapp ? "true" : "false"); } catch {}
       }
+
+      if (!res?.success) {
+        throw new Error(res?.error || "Refresh failed");
+      }
+
+      return {
+        success: res.success,
+        data: res.data,
+        error: res.error,
+      };
     },
   });
 }

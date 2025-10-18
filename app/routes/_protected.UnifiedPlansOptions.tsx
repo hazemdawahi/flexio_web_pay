@@ -364,7 +364,7 @@ const UnifiedPlansOptions: React.FC = () => {
   }, [merchantBaseId, merchantRes, merchantLoading, merchantError, hasMerchantData, cfg]);
 
   useEffect(() => {
-    console.groupCollapsed("[UnifiedPlansOptions] Derived/Eligibility");
+    console.groupCollapsed("[UnifiedPlansOptions] Derived/Eligibility]");
     console.table([
       { key: "effectiveAmount", value: effectiveAmount },
       { key: "minAmount", value: minAmount ?? "(none)" },
@@ -523,27 +523,37 @@ const UnifiedPlansOptions: React.FC = () => {
   }
 
   // ---------------- Render ----------------
-  // Supercharge visibility (unchanged here; split detection doesn’t auto-hide)
   const hideSupercharge =
     (isSend || isAccept || isSoteria) ||
     (isVirtualCardTx || isCardTx);
 
+  const showInstant = instantaneousPower > 0;
+  const showYearly = !(isSend || isAccept) && subscribed && yearlyPower > 0;
+  const showSupercharge = !hideSupercharge && subscribed;
+  const showSelfPayVisible = showSelfPayCard;
+  const noVisibleOptions = !showInstant && !showYearly && !showSelfPayVisible && !showSupercharge;
+
   return (
     <ProtectedRoute>
-      <div className="min-h-screen flex flex-col bg-white p-4">
-        <header className="w-full max-w-3xl mb-8">
-          <button
-            onClick={() => {
-              console.log("[UnifiedPlansOptions] Back clicked");
-              navigate(-1);
-            }}
-            className="flex items-center text-gray-700 hover:text-gray-900 mb-2"
-            aria-label="Go back"
-          >
-            <IoIosArrowBack className="mr-2" size={24} />
-            Back
-          </button>
-          <h1 className="text-3xl font-bold text-left">
+      {/* Keep overall top padding; adjust Back slightly downward (less negative margin) while preserving title spacing */}
+      <div className="min-h-screen flex flex-col bg-white p-3 sm:p-4 pt-12 sm:pt-16 lg:pt-20">
+        <header className="w-full max-w-3xl mb-6 sm:mb-8">
+          {/* Slightly reduced lift: from -mt-10/-12/-16 to -mt-8/-10/-12 */}
+          <div className="-mt-8 sm:-mt-10 lg:-mt-8">
+            <button
+              onClick={() => {
+                console.log("[UnifiedPlansOptions] Back clicked");
+                navigate(-1);
+              }}
+              className="flex items-center text-gray-700 hover:text-gray-900 mb-8"
+              aria-label="Go back"
+            >
+              <IoIosArrowBack className="mr-2" size={22} />
+              <span className="text-base sm:text-lg">Back</span>
+            </button>
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl font-bold text-left break-words">
             {computedDisplayName ? `Choose a power option for ${computedDisplayName}` : "Choose a power option"}
           </h1>
         </header>
@@ -554,7 +564,7 @@ const UnifiedPlansOptions: React.FC = () => {
             <img
               src={computedLogoUri}
               alt="brand logo"
-              className="w-20 h-20 rounded-full border border-gray-300 object-cover mb-6"
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border border-gray-300 object-cover mb-5 sm:mb-6"
               onError={(e) => {
                 console.warn("[UnifiedPlansOptions] Logo failed to load:", computedLogoUri);
                 (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
@@ -564,60 +574,62 @@ const UnifiedPlansOptions: React.FC = () => {
           </div>
         )}
 
-        {/* Instant Power */}
-        <div
-          onClick={() => goAmountCustomization("INSTANT")}
-          className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
-        >
-          <div className="w-11 h-11 mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
-            <HiOutlineLightningBolt className="text-sky-500 text-2xl" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold mb-2">
-              Instant Power{" "}
-              <span className="text-lg text-gray-600">
-                ${formatNoRound(instantaneousPower)}
-              </span>
-            </h2>
-            <p className="text-gray-600">Get immediate power when you need it.</p>
-          </div>
-        </div>
-
-        {/* Yearly Power (hide for SEND / ACCEPT_REQUEST) */}
-        {!(isSend || isAccept) && subscribed && (
+        {/* Instant Power — original text content preserved */}
+        {showInstant && (
           <div
-            onClick={() => goAmountCustomization("YEARLY")}
-            className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+            onClick={() => goAmountCustomization("INSTANT")}
+            className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
           >
-            <div className="w-11 h-11 mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
-              <HiOutlineCalendar className="text-sky-500 text-2xl" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
+              <HiOutlineLightningBolt className="text-sky-500 text-xl sm:text-2xl" />
             </div>
-            <div>
-              <h2 className="text-2xl font-bold mb-2">
-                Yearly Power{" "}
-                <span className="text-lg text-gray-600">
-                  ${formatNoRound(yearlyPower / 5)} / year
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">
+                Instant Power{" "}
+                <span className="text-base sm:text-lg text-gray-600">
+                  ${formatNoRound(instantaneousPower)}
                 </span>
               </h2>
-              <p className="text-gray-600">Secure your energy needs for the entire year with a convenient plan.</p>
+              <p className="text-gray-600 text-sm sm:text-base">Get immediate power when you need it.</p>
             </div>
           </div>
         )}
 
-        {/* Self-Pay */}
-        {showSelfPayCard && (
+        {/* Yearly Power — original text content preserved */}
+        {showYearly && (
+          <div
+            onClick={() => goAmountCustomization("YEARLY")}
+            className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+          >
+            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
+              <HiOutlineCalendar className="text-sky-500 text-xl sm:text-2xl" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">
+                Yearly Power{" "}
+                <span className="text-base sm:text-lg text-gray-600">
+                  ${formatNoRound(yearlyPower / 5)} / year
+                </span>
+              </h2>
+              <p className="text-gray-600 text-sm sm:text-base">Secure your energy needs for the entire year with a convenient plan.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Self-Pay (dynamic text preserved) */}
+        {showSelfPayVisible && (
           <div
             onClick={selfPayAmountEligible ? handleSelfPayClick : undefined}
-            className={`w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center transition ${
+            className={`w-full max-w-3xl bg-white shadow-md rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center transition ${
               selfPayAmountEligible ? "cursor-pointer hover:shadow-lg" : "cursor-not-allowed opacity-60"
             }`}
           >
-            <div className="w-11 h-11 mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
-              <FaCreditCard className="text-sky-500 text-xl" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
+              <FaCreditCard className="text-sky-500 text-lg sm:text-xl" />
             </div>
-            <div>
-              <h2 className="text-2xl font-bold mb-2">Self-Pay Plan</h2>
-              <p className="text-gray-600">
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Self-Pay Plan</h2>
+              <p className="text-gray-600 text-sm sm:text-base">
                 {(() => {
                   if (!tiers.length) return "Create a custom plan that fits your budget.";
                   const freqs = Array.from(
@@ -646,18 +658,31 @@ const UnifiedPlansOptions: React.FC = () => {
           </div>
         )}
 
-        {/* Supercharge (hidden for SEND / ACCEPT_REQUEST / SOTERIA / VIRTUAL_CARD / CARD) */}
+        {/* Supercharge — original text content preserved */}
         {!hideSupercharge && subscribed && (
           <div
             onClick={() => goAmountCustomization("SUPERCHARGE")}
-            className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-8 mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
+            className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
           >
-            <div className="w-11 h-11 mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
-              <FaCreditCard className="text-sky-500 text-xl" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-sky-400 flex itemscenter justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
+              <FaCreditCard className="text-sky-500 text-lg sm:text-xl" />
             </div>
-            <div>
-              <h2 className="text-2xl font-bold mb-2">Supercharge at once</h2>
-              <p className="text-gray-600">Pay the full amount at once with Supercharge.</p>
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">Supercharge at once</h2>
+              <p className="text-gray-600 text-sm sm:text-base">Pay the full amount at once with Supercharge.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Empty-state — original text content preserved */}
+        {noVisibleOptions && (
+          <div className="w-full max-w-3xl bg-white rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center border border-gray-200">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-gray-300 flex items-center justify-center bg-gray-50">
+              <FaCreditCard className="text-gray-400 text-lg sm:text-xl" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">No payment options available</h2>
+              <p className="text-gray-600 text-sm sm:text-base">There aren’t any payment options for this selection right now.</p>
             </div>
           </div>
         )}
@@ -667,7 +692,7 @@ const UnifiedPlansOptions: React.FC = () => {
         {/* Sign Out Button (conditionally rendered, preserved) */}
         {!inApp && (
           <button
-            className="bg-black text-white font-bold py-4 px-16 rounded-lg mt-8 hover:opacity-80 transition w-full max-w-3xl"
+            className="bg-black text-white font-bold py-3 sm:py-4 px-10 sm:px-16 rounded-lg mt-6 sm:mt-8 hover:opacity-80 transition w-full max-w-3xl"
             onClick={() => console.log("[UnifiedPlansOptions] Sign Out clicked")}
           >
             Sign Out

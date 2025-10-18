@@ -312,7 +312,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
     [fields]
   );
 
-  // Add row (same design logic as RN: add button in header)
+  // Add row (moved button to CTA row; handler unchanged)
   const handleAdd = useCallback(() => {
     const def =
       selectableMethods.find((m) => (m as any).card?.primary === true) ||
@@ -454,9 +454,9 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-white p-4">
-        {/* Header: Back (match UnifiedAmountCustomization) + Add Supercharge on the right */}
-        <div className="flex items-center justify-between mb-4">
+      <div className="min-h-screen bg-white">
+        {/* Header: match UnifiedPlans / UnifiedAmountCustomization */}
+        <header className="flex items-center p-4">
           <button
             onClick={() => navigate(-1)}
             className="flex items-center text-gray-700 hover:text-gray-900"
@@ -466,17 +466,10 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
           >
             <IoIosArrowBack className="mr-2" size={24} /> Back
           </button>
+        </header>
 
-        <button
-            onClick={handleAdd}
-            className="px-3 py-1.5 rounded-lg bg-black text-white font-bold"
-          >
-            Add Supercharge
-          </button>
-        </div>
-
-        {/* All other content lowered below the header */}
-        <div className="mt-8">
+        {/* Body */}
+        <div className="px-6 mt-2">
           <h1 className="text-2xl font-bold mb-4">{headerTitle}</h1>
 
           {/* Guidance */}
@@ -534,16 +527,28 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
             )}
           </div>
 
-          {/* Submit */}
-          <button
-            onClick={onSubmit}
-            disabled={disabled}
-            className={`w-full py-3 rounded-lg font-bold text-white ${
-              disabled ? "bg-gray-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
-            }`}
-          >
-            {isPending ? "Submitting…" : "Complete"}
-          </button>
+          {/* CTA row: Add Supercharge (white/black/bold/#ccc) + Complete on the same line */}
+          <div className="mt-2">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleAdd}
+                className="px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
+                type="button"
+              >
+                Add Supercharge
+              </button>
+
+              <button
+                onClick={onSubmit}
+                disabled={disabled}
+                className={`flex-1 py-3 rounded-lg font-bold text-white ${
+                  disabled ? "bg-gray-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
+                }`}
+              >
+                {isPending ? "Submitting…" : "Complete"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 

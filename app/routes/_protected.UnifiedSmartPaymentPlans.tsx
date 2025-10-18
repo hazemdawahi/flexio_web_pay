@@ -30,14 +30,12 @@ import {
   useUnifiedCommerce,
   buildCheckoutRequest,
   buildPaymentRequest,
-  buildSendRequest,
   buildAcceptRequest,
   buildAcceptSplitRequest,
   buildVirtualCardRequestWithOptions,
   buildSoteriaPaymentRequest,
   type VirtualCardOptions,
   type SplitPaymentDetail as SplitPaymentDetailDTO,
-  type SendRecipient,
   type UnifiedCommerceRequest,
 } from "~/hooks/useUnifiedCommerce";
 import InterestFreeSheet from "~/compoments/InterestFreeSheet";
@@ -56,7 +54,7 @@ interface SplitEntryProp {
 }
 interface UnifiedSmartPaymentPlansProps {
   // Core
-  amount?: string;                 // major units
+  amount?: string; // major units
   powerMode?: "INSTANT" | "YEARLY"; // ← drives instant vs yearly (parity with mobile)
 
   // (legacy inputs kept for compat; ignored when powerMode is present)
@@ -70,10 +68,9 @@ interface UnifiedSmartPaymentPlansProps {
   // Unified commerce passthrough (from URL)
   merchantId?: string;
   split?: "true" | "false" | "";
-  recipient?: string; // JSON: { recipientId, amount }
   discountList?: string; // JSON array of ids/codes
   requestId?: string;
-  transactionType?: string; // CHECKOUT|PAYMENT|SEND|ACCEPT_REQUEST|ACCEPT_SPLIT_REQUEST|VIRTUAL_CARD|SOTERIA_PAYMENT
+  transactionType?: string; // CHECKOUT|PAYMENT|ACCEPT_REQUEST|ACCEPT_SPLIT_REQUEST|VIRTUAL_CARD|SOTERIA_PAYMENT
   paymentPlanId?: string;
   paymentSchemeId?: string;
   splitPaymentId?: string;
@@ -95,11 +92,10 @@ interface DateDetails {
   avoidedRangeId?: string;
 }
 
-// Allowed Unified types
+// Allowed Unified types (recipient/SEND removed)
 const ALLOWED_TYPES = [
   "CHECKOUT",
   "PAYMENT",
-  "SEND",
   "ACCEPT_REQUEST",
   "ACCEPT_SPLIT_REQUEST",
   "VIRTUAL_CARD",
@@ -155,7 +151,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   const discountListRaw = getParam("discountList", "[]");
   const requestId = getParam("requestId", "");
   const transactionTypeParam = getParam("transactionType", "");
-  const recipientRaw = getParam("recipient", "");
 
   const paymentPlanId = getParam("paymentPlanId", "") || undefined;
   const paymentSchemeId = getParam("paymentSchemeId", "") || undefined;
@@ -202,20 +197,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   }, [discountListRaw, propDiscounts]);
   const hasDiscounts = parsedDiscountIds.length > 0;
 
-  // Single SEND recipient
-  const recipientObj: SendRecipient | null = useMemo(() => {
-    if (!recipientRaw) return null;
-    try {
-      const x = JSON.parse(recipientRaw);
-      const rid = String(x?.recipientId || "");
-      const amt = Number(x?.amount || 0);
-      if (!rid || !Number.isFinite(amt) || amt <= 0) return null;
-      return { recipientId: rid, amount: amt };
-    } catch {
-      return null;
-    }
-  }, [recipientRaw]);
-
   // ── User & Smart Pay prerequisites ────────────────────────────────────────
   const { data: userRes, isLoading: userLoading, isError: userError } = useUserDetails();
   const currentUserId: string | undefined = userRes?.data?.user?.id;
@@ -252,8 +233,8 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   const { data: detailedData, isLoading: detailedLoading } = useSmartpayDetailedPlan(
     purchaseAmount,
     (isYearlyMode ? "MONTHLY" : frequency),
-    !isYearlyMode,  // instantaneous
-    isYearlyMode,   // yearly
+    !isYearlyMode, // instantaneous
+    isYearlyMode, // yearly
     interestFreeUsed
   );
 
@@ -350,7 +331,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     const schemeTotalAmount = Number((purchaseAmount + superSum).toFixed(2));
 
     // exclude current user from otherUsers
-    let others: { userId: string; amount: number }[] | undefined = undefined
+    let others: { userId: string; amount: number }[] | undefined = undefined;
     if (isSplitFlow && currentUserId) {
       others = allSplitUsers
         .filter((u) => u.userId !== currentUserId)
@@ -422,7 +403,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       delete out.soteriaPayload;
       delete out.soteriaPaymentTotalAmount;
     }
-    if (type === "SEND" || type === "ACCEPT_REQUEST" || type === "ACCEPT_SPLIT_REQUEST") {
+    if (type === "ACCEPT_REQUEST" || type === "ACCEPT_SPLIT_REQUEST") {
       delete out.checkout;
       delete out.card;
       delete out.virtualCard;
@@ -515,12 +496,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
         );
         return sanitizeForType("PAYMENT", req);
       }
-      case "SEND": {
-        if (!recipientObj) return null;
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-        let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
-        return sanitizeForType("SEND", req);
-      }
       case "ACCEPT_REQUEST": {
         if (!requestId) return null;
         const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
@@ -562,7 +537,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     buildCommonFields,
     buildVirtualCardOptions,
     mockPayments,
-    recipientObj,
     requestId,
     paymentPlanId,
     paymentSchemeId,
@@ -657,7 +631,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       !selectedPaymentMethod &&
       transactionType !== "ACCEPT_REQUEST" &&
       transactionType !== "ACCEPT_SPLIT_REQUEST" &&
-      transactionType !== "SEND" &&
       transactionType !== "SOTERIA_PAYMENT"
     ) {
       toast.info("Select a payment method.");
@@ -723,20 +696,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
             res?.checkout?.token ??
             undefined;
           navigateSuccess(purchaseAmount, token);
-          break;
-        }
-        case "SEND": {
-          if (!recipientObj) {
-            toast.info("Provide a valid single recipient JSON.");
-            return;
-          }
-          const common = buildCommonFields();
-          let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
-          req = sanitizeForType("SEND", req);
-          logUnifiedPayload("SEND", req);
-
-          await runUnified(req);
-          navigateSuccess(Number((+recipientObj.amount).toFixed(2)));
           break;
         }
         case "ACCEPT_REQUEST": {
@@ -809,10 +768,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     }
     if (transactionType === "VIRTUAL_CARD" && !selectedPaymentMethod) {
       toast.info("Select payment method before customizing.");
-      return;
-    }
-    if (transactionType === "SEND" && !recipientObj) {
-      toast.info("Recipient required.");
       return;
     }
     if ((transactionType === "ACCEPT_REQUEST" || transactionType === "ACCEPT_SPLIT_REQUEST") && !requestId) {
@@ -966,7 +921,6 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
               (!selectedPaymentMethod &&
                 transactionType !== "ACCEPT_REQUEST" &&
                 transactionType !== "ACCEPT_SPLIT_REQUEST" &&
-                transactionType !== "SEND" &&
                 transactionType !== "SOTERIA_PAYMENT")
             }
             className={`flex-1 rounded-lg py-3 font-bold text-white ${

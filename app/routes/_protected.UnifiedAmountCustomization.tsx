@@ -179,20 +179,11 @@ const UnifiedAmountCustomization: React.FC = () => {
       { key: "splitPaymentId", value: splitPaymentId },
       { key: "otherUsers(raw)", value: otherUsersJson ? otherUsersJson : "" },
     ]);
-    // Also log parsed objects so you can see actual values
     if (otherUsersJson) {
-      try {
-        console.log("[UAC] otherUsers(parsed):", JSON.parse(otherUsersJson));
-      } catch {
-        console.warn("[UAC] otherUsers could not be parsed as JSON.");
-      }
+      try { console.log("[UAC] otherUsers(parsed):", JSON.parse(otherUsersJson)); } catch {}
     }
     if (recipientJson) {
-      try {
-        console.log("[UAC] recipient(parsed):", JSON.parse(recipientJson));
-      } catch {
-        console.warn("[UAC] recipient could not be parsed as JSON.");
-      }
+      try { console.log("[UAC] recipient(parsed):", JSON.parse(recipientJson)); } catch {}
     }
     console.groupEnd();
   }, [
@@ -433,8 +424,17 @@ const UnifiedAmountCustomization: React.FC = () => {
   const hasMissingCard = fieldsWithPositive.some((f) => !f.selectedPaymentMethod?.id);
   const exactMatch = totalEnteredCents === myTargetCents;
 
+  // ===== NEW: 10% minimum rule =====
+  const MIN_PERCENT = 0.10;
+  const minRequiredCents = Math.ceil(myTargetCents * MIN_PERCENT);
+  const meetsMinContribution = isSupercharge
+    ? sumSuperchargeCents >= minRequiredCents
+    : enteredInstantCents >= minRequiredCents;
+
   const disabled =
-    (isSupercharge ? noPositiveSupercharges || hasMissingCard : hasEmptyInstant || hasMissingCard) || !exactMatch;
+    (isSupercharge ? noPositiveSupercharges || hasMissingCard : hasEmptyInstant || hasMissingCard) ||
+    !exactMatch ||
+    !meetsMinContribution;
 
   useEffect(() => {
     console.groupCollapsed("[UAC] Entry/Validation (cents)");
@@ -447,6 +447,8 @@ const UnifiedAmountCustomization: React.FC = () => {
       { key: "totalEnteredCents", value: totalEnteredCents },
       { key: "hasMissingCard", value: hasMissingCard },
       { key: "exactMatch", value: exactMatch },
+      { key: "minRequiredCents", value: minRequiredCents },
+      { key: "meetsMinContribution", value: meetsMinContribution },
       { key: "disabled", value: disabled },
     ]);
     console.groupEnd();
@@ -460,10 +462,20 @@ const UnifiedAmountCustomization: React.FC = () => {
     hasMissingCard,
     exactMatch,
     disabled,
+    minRequiredCents,
+    meetsMinContribution,
   ]);
 
   /** -------- Navigate to UnifiedPlans (non-SUPERCHARGE) -------- */
   const goContinue = () => {
+    if (!meetsMinContribution) {
+      toast.info(
+        `Please enter at least ${(MIN_PERCENT * 100).toFixed(0)}% ($${centsToMajor(minRequiredCents).toFixed(
+          2
+        )}) of the total.`
+      );
+      return;
+    }
     if (disabled) {
       toast.info("Please complete the amounts and card selections first.");
       return;
@@ -514,17 +526,8 @@ const UnifiedAmountCustomization: React.FC = () => {
 
     console.groupCollapsed("[UAC] NAV → /UnifiedPlans");
     console.log("query (raw):", Object.fromEntries(baseParams.entries()));
-    // Also log parsed for easy verification
-    if (otherUsersJson) {
-      try {
-        console.log("otherUsers(parsed):", JSON.parse(otherUsersJson));
-      } catch {}
-    }
-    if (recipientJson) {
-      try {
-        console.log("recipient(parsed):", JSON.parse(recipientJson));
-      } catch {}
-    }
+    if (otherUsersJson) { try { console.log("otherUsers(parsed):", JSON.parse(otherUsersJson)); } catch {} }
+    if (recipientJson) { try { console.log("recipient(parsed):", JSON.parse(recipientJson)); } catch {} }
     console.groupEnd();
 
     navigate(`/UnifiedPlans?${baseParams.toString()}`);
@@ -577,6 +580,14 @@ const UnifiedAmountCustomization: React.FC = () => {
       toast.info("Missing transactionType param.");
       return;
     }
+    if (!meetsMinContribution) {
+      toast.info(
+        `Please allocate at least ${(MIN_PERCENT * 100).toFixed(0)}% ($${centsToMajor(minRequiredCents).toFixed(
+          2
+        )}) of the total.`
+      );
+      return;
+    }
     if (disabled) {
       toast.info(
         "Please fill supercharge amounts (for those you use), select a card for each positive amount, and ensure totals equal the amount."
@@ -612,7 +623,6 @@ const UnifiedAmountCustomization: React.FC = () => {
       ...(hasDiscounts ? { discountIds } : {}),
     };
 
-    // Snapshot of actual parties we are about to send
     try {
       console.groupCollapsed("[UAC] SUPERCHARGE → common parties snapshot");
       console.log("otherUsers (actual):", common.otherUsers || []);
@@ -658,12 +668,6 @@ const UnifiedAmountCustomization: React.FC = () => {
             toast.info("Provide a valid single recipient JSON.");
             return;
           }
-          // Log actual recipient values right before building
-          try {
-            console.groupCollapsed("[UAC] SEND flow — recipient detail");
-            console.log("recipient:", recipient);
-            console.groupEnd();
-          } catch {}
           const req = buildSendRequest(recipient, { note: "Transfer" }, common);
           await sendByType("SEND", req);
           navigate(
@@ -781,6 +785,8 @@ const UnifiedAmountCustomization: React.FC = () => {
     split,
     discountListCanonical,
     recipientParsed,
+    meetsMinContribution,
+    minRequiredCents,
   ]);
 
   /** -------- Loading states -------- */
@@ -796,132 +802,137 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   /** -------- Render -------- */
   return (
-    <div className="min-h-screen bg-white p-6">
-      {/* Top bar with Back and the ONLY visible Add Supercharge button */}
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={() => navigate(-1)} className="flex items-center text-gray-700 hover:text-gray-900">
-          <IoIosArrowBack size={20} className="mr-2" /> Back
+    <div className="min-h-screen bg-white">
+      {/* Header matches UnifiedPlans: flex + items-center + p-4 */}
+      <header className="flex items-center p-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center text-gray-700 hover:text-gray-900"
+        >
+          <IoIosArrowBack className="mr-2" size={24} />
+          Back
         </button>
+      </header>
 
-        {/* Header “Add Supercharge” button: visible when user is subscribed and flow isn't restricted */}
-        {subscribed && !isRestrictedToInstant && (
-          <button
-            onClick={addField}
-            className="px-3 py-2 rounded-md bg-black text-white font-semibold hover:bg-gray-900"
-          >
-            Add Supercharge
-          </button>
-        )}
-      </div>
-
-      {computedLogoUri && (
-        <div className="flex items-center justify-center mb-4">
-          <img
-            src={computedLogoUri}
-            alt={headerName || "brand"}
-            className="w-24 h-24 rounded-full border border-gray-300 object-cover"
-            onError={(e) => {
-              console.warn("[UAC] Logo failed to load:", computedLogoUri);
-              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-            }}
-            onLoad={() => console.log("[UAC] Logo loaded:", computedLogoUri)}
-          />
-        </div>
-      )}
-
-      {errorMsg ? <div className="text-center text-red-600 mb-3">{errorMsg}</div> : null}
-
-      <h1 className="text-xl font-bold mb-2">
-        {headerName
-          ? `Customize Your $${centsToMajor(myTargetCents).toFixed(2)} for ${headerName}`
-          : `Customize Your $${centsToMajor(myTargetCents).toFixed(2)}`}
-      </h1>
-
-      {/* Instant (or Yearly) input – hidden for SUPERCHARGE.
-          ⬇️ This is the ONLY fielded amount we forward for non-supercharge flows. */}
-      {!isSupercharge && (
-        <FloatingLabelInputWithInstant
-          key={`instant-${key}`} // ensure controlled input uses current value on remount
-          label={powerMode === "YEARLY" ? "Yearly Power Amount" : "Instant Power Amount"}
-          value={instantPowerAmount}
-          onChangeText={(v: string) => {
-            if (/^\d*(\.\d{0,2})?$/.test(v) || v === "") setInstantPowerAmount(v);
-          }}
-          instantPower={instantaneousPower}
-          powerType={powerMode === "YEARLY" ? "yearly" : "instantaneous"}
-        />
-      )}
-
-      {/* Supercharge fields (the rest of the amount) */}
-      {superchargeFields.map((f, i) => (
-        <div key={`sc-${key}-${i}`} className="mt-4">
-          <FloatingLabelInputOverdraft
-            label={`Supercharge #${i + 1}`}
-            value={f.amount}
-            onChangeText={(v) => updateFieldAmount(i, v)}
-            selectedMethod={f.selectedPaymentMethod}
-            onPaymentMethodPress={() => {
-              if (!f.selectedPaymentMethod) {
-                setSuperchargeFields((prev) => {
-                  const next = [...prev];
-                  next[i] = { ...next[i], selectedPaymentMethod: pickPrimaryCard() };
-                  return next;
-                });
-              }
-              setActiveFieldIndex(i);
-              setIsModalOpen(true);
-            }}
-          />
-        </div>
-      ))}
-
-      {/* If explicitly in SUPERCHARGE mode, keep inline Add button hidden to avoid duplicate CTA */}
-      {isSupercharge && (
-        <div className="mt-4 hidden">
-          <button
-            onClick={addField}
-            className="w-full border border-gray-300 py-2 font-bold rounded-lg hover:bg-gray-50"
-          >
-            Add Supercharge
-          </button>
-        </div>
-      )}
-
-      {/* CTA */}
-      <div className="mt-6">
-        {!isSupercharge ? (
-          <button
-            disabled={disabled}
-            onClick={goContinue}
-            className={`w-full py-3 font-semibold rounded-lg ${
-              disabled ? "bg-gray-300 text-gray-600 cursor-not-allowed" : "bg-black text-white hover:bg-gray-900"
-            }`}
-          >
-            Continue
-          </button>
-        ) : (
-          <button
-            disabled={disabled || unifiedPending}
-            onClick={runSupercharge}
-            className={`w-full py-3 font-semibold rounded-lg ${
-              disabled || unifiedPending ? "bg-gray-300 text-gray-600 cursor-not-allowed" : "bg-black text-white hover:bg-gray-900"
-            }`}
-          >
-            {unifiedPending
-              ? "Processing…"
-              : txUpper === "VIRTUAL_CARD"
-              ? "Pay & Issue Card"
-              : "Pay & Finish"}
-          </button>
+      <div className="px-6">
+        {computedLogoUri && (
+          <div className="flex items-center justify-center mb-4">
+            <img
+              src={computedLogoUri}
+              alt={headerName || "brand"}
+              className="w-24 h-24 rounded-full border border-gray-300 object-cover"
+              onError={(e) => {
+                console.warn("[UAC] Logo failed to load:", computedLogoUri);
+                (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+              }}
+              onLoad={() => console.log("[UAC] Logo loaded:", computedLogoUri)}
+            />
+          </div>
         )}
 
-        {/* Totals helper */}
-        {!exactMatch && (
-          <p className="text-xs text-gray-500 mt-2">
-            Entered total (${centsToMajor(totalEnteredCents).toFixed(2)}) must equal your target ($
-            {centsToMajor(myTargetCents).toFixed(2)}).
+        {errorMsg ? <div className="text-center text-red-600 mb-3">{errorMsg}</div> : null}
+
+        <h1 className="text-xl font-bold mb-1">
+          {headerName
+            ? `Customize Your $${centsToMajor(myTargetCents).toFixed(2)} for ${headerName}`
+            : `Customize Your $${centsToMajor(myTargetCents).toFixed(2)}`}
+        </h1>
+
+        {/* Helper line for 10% minimum */}
+        {!meetsMinContribution && (
+          <p className="text-sm text-gray-600 mb-3">
+            Minimum required: ${centsToMajor(minRequiredCents).toFixed(2)} (10% of total)
           </p>
         )}
+
+        {/* Instant (or Yearly) input – hidden for SUPERCHARGE. */}
+        {!isSupercharge && (
+          <FloatingLabelInputWithInstant
+            key={`instant-${key}`}
+            label={powerMode === "YEARLY" ? "Yearly Power Amount" : "Instant Power Amount"}
+            value={instantPowerAmount}
+            onChangeText={(v: string) => {
+              if (/^\d*(\.\d{0,2})?$/.test(v) || v === "") setInstantPowerAmount(v);
+            }}
+            instantPower={instantaneousPower}
+            powerType={powerMode === "YEARLY" ? "yearly" : "instantaneous"}
+          />
+        )}
+
+        {/* Supercharge fields */}
+        {superchargeFields.map((f, i) => (
+          <div key={`sc-${key}-${i}`} className="mt-4">
+            <FloatingLabelInputOverdraft
+              label={`Supercharge #${i + 1}`}
+              value={f.amount}
+              onChangeText={(v) => updateFieldAmount(i, v)}
+              selectedMethod={f.selectedPaymentMethod}
+              onPaymentMethodPress={() => {
+                if (!f.selectedPaymentMethod) {
+                  setSuperchargeFields((prev) => {
+                    const next = [...prev];
+                    next[i] = { ...next[i], selectedPaymentMethod: pickPrimaryCard() };
+                    return next;
+                  });
+                }
+                setActiveFieldIndex(i);
+                setIsModalOpen(true);
+              }}
+            />
+          </div>
+        ))}
+
+        {/* CTA row: Add Supercharge (white/black/bold/#ccc) + main action on the same line */}
+        <div className="mt-6">
+          <div className="flex items-center gap-3">
+            {subscribed && !isRestrictedToInstant && (
+              <button
+                onClick={addField}
+                type="button"
+                className="px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
+              >
+                Add Supercharge
+              </button>
+            )}
+
+            {/* Main action grows to fill the remaining space */}
+            {!isSupercharge ? (
+              <button
+                disabled={disabled}
+                onClick={goContinue}
+                className={`flex-1 py-3 font-semibold rounded-lg ${
+                  disabled ? "bg-gray-300 text-gray-600 cursor-not-allowed" : "bg-black text-white hover:bg-gray-900"
+                }`}
+              >
+                Continue
+              </button>
+            ) : (
+              <button
+                disabled={disabled || unifiedPending}
+                onClick={runSupercharge}
+                className={`flex-1 py-3 font-semibold rounded-lg ${
+                  disabled || unifiedPending
+                    ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                    : "bg-black text-white hover:bg-gray-900"
+                }`}
+              >
+                {unifiedPending
+                  ? "Processing…"
+                  : txUpper === "VIRTUAL_CARD"
+                  ? "Pay & Issue Card"
+                  : "Pay & Finish"}
+              </button>
+            )}
+          </div>
+
+          {/* Totals helper */}
+          {!exactMatch && (
+            <p className="text-xs text-gray-500 mt-2">
+              Entered total (${centsToMajor(totalEnteredCents).toFixed(2)}) must equal your target ($
+              {centsToMajor(myTargetCents).toFixed(2)}).
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Card Picker Modal (framer-motion) */}

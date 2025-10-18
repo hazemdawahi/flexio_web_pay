@@ -8,6 +8,8 @@ import { useNavigate, useSearchParams } from "@remix-run/react";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useLogoutWeb } from "~/hooks/useLogout";
+// ✅ NEW: use discount availability (web version)
+import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 
 /** ---------------- Types ---------------- */
 export type UnifiedOperationType = "CHECKOUT";
@@ -139,56 +141,13 @@ const UnifiedOptionsPage: React.FC = () => {
     typeof window !== "undefined"
       ? sessionStorage.getItem("checkoutToken") || ""
       : "";
-
+  console.log("checkoutToken", checkoutToken);
   const { data: checkoutRes, isLoading, error } = useCheckoutDetail(checkoutToken);
+  console.log("checkoutRes", checkoutRes);
 
   // ✅ Merchant *Base* id now comes from the UPDATED response top-level `merchantBaseId`
   // Keep a legacy fallback to `merchantId` if some envs still send it.
   const merchantBaseId = checkoutRes?.merchantBaseId ?? checkoutRes?.merchantId ?? "";
-
-  // Merchant details (configuration, discounts, brand, etc.)
-  const {
-    data: merchantRes,
-    isLoading: merchantLoading,
-    error: merchantError,
-  } = useMerchantDetail(merchantBaseId);
-console.log("merchantRes",checkoutRes)
-  // Mirror your original session effects
-  useEffect(() => {
-    const inAppValue =
-      typeof window !== "undefined" ? sessionStorage.getItem("inApp") : null;
-    setInApp(inAppValue === "true");
-
-    const token =
-      typeof window !== "undefined"
-        ? sessionStorage.getItem("checkoutToken")
-        : null;
-    setHasToken(!!token && token.trim() !== "");
-  }, []);
-
-  // ---------- Merchant/Brand details ----------
-  const brandFromMerchant = merchantRes?.data?.brand ?? null;
-  const configurationFromMerchant = merchantRes?.data?.configuration;
-
-  // Split toggle & discounts strictly from merchant hook
-  const splitEnabledByMerchant = !!configurationFromMerchant?.enableSplitPay;
-  const merchantDiscounts = Array.isArray(merchantRes?.data?.discounts)
-    ? merchantRes!.data!.discounts
-    : [];
-  const hasDiscounts = merchantDiscounts.length > 0;
-
-  // branding resolution (param wins; fallback to merchant brand or checkout brand)
-  const fallbackBrand = brandFromMerchant ?? checkoutRes?.brand ?? null;
-  const paramLogo = displayLogoRaw ? resolveLogoUrl(displayLogoRaw) : undefined;
-  const brandLogo = resolveLogoUrl(fallbackBrand?.displayLogo);
-  const computedLogoUri = paramLogo ?? brandLogo;
-  const computedDisplayName = displayNameRaw || fallbackBrand?.displayName || "";
-
-  // ---- Canonicalize incoming discountList (from URL) once
-  const discountListClean = useMemo(
-    () => canonicalizeDiscountList(discountListParam),
-    [discountListParam]
-  );
 
   // ---- Amount presence: from URL (amount or totalAmount Money JSON) or checkout.totalAmount
   const amountFromCheckout = checkoutRes?.checkout?.totalAmount?.amount
@@ -206,6 +165,55 @@ console.log("merchantRes",checkoutRes)
     Boolean(amountParam) ||
     Boolean(totalAmountRaw) ||
     Boolean(checkoutRes?.checkout?.totalAmount?.amount);
+
+  // Merchant details (configuration, discounts, brand, etc.)
+  const {
+    data: merchantRes,
+    isLoading: merchantLoading,
+    error: merchantError,
+  } = useMerchantDetail(merchantBaseId);
+
+  // ✅ Discount availability (web): prefer hook result like mobile version
+  const { data: availableDiscountsRaw } = useAvailableDiscounts(merchantBaseId, orderAmount);
+  const availableDiscounts = Array.isArray(availableDiscountsRaw) ? availableDiscountsRaw : [];
+  const discountsList = merchantBaseId ? availableDiscounts : [];
+  const hasDiscounts = discountsList.length > 0;
+
+  console.log("availableDiscounts size (web)", discountsList.length);
+
+  console.log("merchantRes", checkoutRes);
+  // Mirror your original session effects
+  useEffect(() => {
+    const inAppValue =
+      typeof window !== "undefined" ? sessionStorage.getItem("inApp") : null;
+    setInApp(inAppValue === "true");
+
+    const token =
+      typeof window !== "undefined"
+        ? sessionStorage.getItem("checkoutToken")
+        : null;
+    setHasToken(!!token && token.trim() !== "");
+  }, []);
+
+  // ---------- Merchant/Brand details ----------
+  const brandFromMerchant = merchantRes?.data?.brand ?? null;
+  const configurationFromMerchant = merchantRes?.data?.configuration;
+
+  // Split toggle strictly from merchant config (discounts come from hook)
+  const splitEnabledByMerchant = !!configurationFromMerchant?.enableSplitPay;
+
+  // branding resolution (param wins; fallback to merchant brand or checkout brand)
+  const fallbackBrand = brandFromMerchant ?? checkoutRes?.brand ?? null;
+  const paramLogo = displayLogoRaw ? resolveLogoUrl(displayLogoRaw) : undefined;
+  const brandLogo = resolveLogoUrl(fallbackBrand?.displayLogo);
+  const computedLogoUri = paramLogo ?? brandLogo;
+  const computedDisplayName = displayNameRaw || fallbackBrand?.displayName || "";
+
+  // ---- Canonicalize incoming discountList (from URL) once
+  const discountListClean = useMemo(
+    () => canonicalizeDiscountList(discountListParam),
+    [discountListParam]
+  );
 
   // ---- Operation guards (since type is fixed to CHECKOUT, these are constant)
   const isTransfer = false;
@@ -256,8 +264,8 @@ console.log("merchantRes",checkoutRes)
     ).toString();
 
   /**
-   * When the merchant has discounts, we send the user to /UnifiedDiscount first.
-   * Otherwise we proceed to /UnifiedPlansOptions directly.
+   * When discounts are available (from hook), route to /UnifiedDiscount first.
+   * Otherwise proceed to /UnifiedPlansOptions directly.
    */
   const goComplete = () => {
     const baseParams = {

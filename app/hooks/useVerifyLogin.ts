@@ -1,72 +1,60 @@
-// src/hooks/useVerifyLogin.ts
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
+import { useSession } from '~/context/SessionContext';
 
-// Define the request interface
 export interface VerifyLoginRequest {
   identifier: string;
   otp: string;
 }
-
-// Define the response interface
 export interface VerifyLoginResponse {
   success: boolean;
-  data?: {
-    accessToken: string;
-  };
+  data?: { accessToken: string; inapp?: boolean };
   error?: string;
 }
 
-// Function to send the verify login request with fetch
 async function verifyLoginData(verifyRequest: VerifyLoginRequest): Promise<VerifyLoginResponse> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5-second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const response = await fetch('http://192.168.1.121:8080/api/user/verify/login', { // Adjust the endpoint as needed
+    const response = await fetch('http://192.168.1.121:8080/api/user/verify/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(verifyRequest),
       signal: controller.signal,
       cache: 'no-store',
-      credentials: 'include', // Ensure cookies are included in the request
+      credentials: 'include', // server sets HttpOnly refresh cookie
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(`Verification failed: ${errorData.error}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Verification failed: ${errorData?.error || response.status}`);
     }
-
     return await response.json();
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new Error('Verification request timed out');
-    } else {
-      throw error;
-    }
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-// Create the custom hook using React Query's useMutation
 export function useVerifyLogin() {
+  const { setAccessToken, setInApp } = useSession();
+
   return useMutation<VerifyLoginResponse, Error, VerifyLoginRequest>({
     mutationFn: verifyLoginData,
     onSuccess: (data) => {
-      console.log('Verification successful:', data);
+      if (data?.success && data?.data?.accessToken) {
+        const at = data.data.accessToken;
+        try {
+          sessionStorage.setItem('accessToken', at);
+          console.log("accessToken", at);
+        } catch {}
+        setAccessToken(at);
 
-      // Since HttpOnly cookies are not accessible via JavaScript,
-      // you cannot log them directly. However, you can confirm their presence
-      // by checking the network response in your browser's developer tools.
-
-      // Example: Log a message indicating that the server should have set the HttpOnly cookie
-      console.log('HttpOnly cookie should be set by the server.');
-    },
-    onError: (error) => {
-      console.error('Verification failed:', error.message);
-      // Optionally, handle the error by displaying a notification or redirecting the user
+        // 🔒 Do NOT force true. Only accept explicit boolean from server if provided.
+        const explicitInApp = data?.data?.inapp === true;
+        setInApp(explicitInApp);
+        try { sessionStorage.setItem("inApp", explicitInApp ? "true" : "false"); } catch {}
+      }
+      // HttpOnly refresh cookie (if any) is set by server; refresh flow will reflect it.
     },
   });
 }

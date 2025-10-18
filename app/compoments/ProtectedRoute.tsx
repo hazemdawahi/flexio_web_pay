@@ -9,25 +9,29 @@ const PUBLIC_ROUTES = new Set<string>(["/login", "/register", "/forgot-password"
 
 /**
  * Guardrails:
+ * - Wait for provider initialization before deciding
  * - If there's no accessToken, silently redirect to /login (once) and render nothing.
- * - Never block forever with a spinner.
  * - Never redirect when you're already on a public route.
  */
 export default function ProtectedRoute({ children }: Props) {
-  const { accessToken } = useSession();
+  const { accessToken, initialized } = useSession();
   const navigate = useNavigate();
   const location = useLocation();
   const redirectedRef = React.useRef(false);
 
+  const isPublic = PUBLIC_ROUTES.has(location.pathname);
+
   React.useEffect(() => {
-    if (!accessToken && !PUBLIC_ROUTES.has(location.pathname) && !redirectedRef.current) {
+    if (!initialized) return; // wait for SessionProvider to finish
+    if (!accessToken && !isPublic && !redirectedRef.current) {
       redirectedRef.current = true;
       navigate("/login", { replace: true });
     }
-  }, [accessToken, location.pathname, navigate]);
+  }, [initialized, accessToken, isPublic, navigate]);
 
-  // If not authenticated, render nothing while the redirect occurs.
-  if (!accessToken) return null;
+  // While initializing, or while redirecting, render nothing to avoid flicker
+  if (!initialized) return null;
+  if (!accessToken && !isPublic) return null;
 
   return <>{children}</>;
 }

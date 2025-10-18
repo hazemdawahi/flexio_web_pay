@@ -1,4 +1,3 @@
-// File: app/hooks/useLogoutWeb.ts
 import { useCallback, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -12,28 +11,11 @@ declare global {
   }
 }
 
-function getBaseDomain(hostname: string): string | null {
-  if (hostname === 'localhost' || /^[\d.]+$/.test(hostname) || hostname.includes(':')) return null;
-  const parts = hostname.split('.');
-  if (parts.length <= 2) return hostname;
-  return parts.slice(-2).join('.');
-}
-
-function deleteCookie(name: string) {
+function broadcastLogout() {
   try {
-    const hn = location.hostname;
-    const base = getBaseDomain(hn);
-
-    document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
-    document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict`;
-    if (hn && hn !== 'localhost') {
-      document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax; domain=${hn}`;
-      document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict; domain=${hn}`;
-    }
-    if (base && base !== hn) {
-      document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax; domain=${base}`;
-      document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Strict; domain=${base}`;
-    }
+    const bc = new BroadcastChannel('auth');
+    bc.postMessage({ type: 'LOGOUT' });
+    bc.close();
   } catch {}
 }
 
@@ -57,50 +39,67 @@ export function useLogoutWeb(options?: { disconnect?: () => Promise<void> | void
     guardRef.current = true;
     setIsLoggingOut(true);
 
-    const accessToken =
-      localStorage.getItem('accessToken') ?? sessionStorage.getItem('accessToken') ?? undefined;
-    const refreshHeader =
-      localStorage.getItem('refreshToken') ?? sessionStorage.getItem('refreshToken') ?? undefined;
+    // 1) Read access token BEFORE cleanup so we can send it to the server (session only)
+    const accessToken = sessionStorage.getItem('accessToken') ?? undefined;
 
+    // 2) Call server revoke and WAIT for it (no keepalive).
+    //    Refresh cookie is HttpOnly and will be included via credentials=include.
     try {
-      // Local cleanup first
-      try { localStorage.removeItem('accessToken'); } catch {}
-      try { localStorage.removeItem('refreshToken'); } catch {}
-      try { sessionStorage.removeItem('accessToken'); } catch {}
-      try { sessionStorage.removeItem('refreshToken'); } catch {}
-      deleteCookie('refreshToken');
-      await oneSignalWebLogout();
-      try {
-        if (typeof injectedDisconnect === 'function') await injectedDisconnect();
-        else if (window.sb?.disconnect) await window.sb.disconnect();
-      } catch {}
-      try {
-        await queryClient.cancelQueries();
-        queryClient.clear();
-      } catch {}
-    } finally {
-      setIsLoggingOut(false);
-    }
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-    // Tell server to revoke + clear cookie and THEN hard-redirect
-    try {
       await fetch(LOGOUT_ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-          ...(refreshHeader ? { 'Refresh-Token': refreshHeader } : {}),
-        },
+        headers,
         credentials: 'include',
+        body: JSON.stringify({}), // body not required
       });
     } catch (e) {
-      console.warn('Background logout failed:', e);
-    } finally {
-      guardRef.current = false;
-      const to = options?.redirectTo ?? '/login';
-      window.location.replace(to); // hard navigation; no in-memory state survives
+      console.warn('Logout fetch failed:', e);
     }
+
+    // 3) Local cleanup AFTER server call (session only)
+    try { sessionStorage.removeItem('accessToken'); } catch {}
+
+    await oneSignalWebLogout();
+
+    try {
+      if (typeof injectedDisconnect === 'function') await injectedDisconnect();
+      else if (window.sb?.disconnect) await window.sb.disconnect();
+    } catch {}
+
+    try {
+      await queryClient.cancelQueries();
+      queryClient.clear();
+    } catch {}
+
+    // 4) Tell other tabs to purge their in-memory state immediately
+    broadcastLogout();
+
+    setIsLoggingOut(false);
+    guardRef.current = false;
+
+    // 5) Hard navigation (no SPA state survives)
+    const to = options?.redirectTo ?? '/login';
+    window.location.replace(to);
   }, [injectedDisconnect, queryClient, options?.redirectTo]);
 
   return { logout, isLoggingOut };
+}
+
+// Optional: somewhere central in your app bootstrap, listen and react in every tab:
+export function registerAuthBroadcastListener(purge: () => void) {
+  try {
+    const bc = new BroadcastChannel('auth');
+    bc.onmessage = (e) => {
+      if (e?.data?.type === 'LOGOUT') {
+        try { purge(); } catch {}
+        try { sessionStorage.removeItem('accessToken'); } catch {}
+        window.location.replace('/login');
+      }
+    };
+    return () => bc.close();
+  } catch {
+    return () => {};
+  }
 }

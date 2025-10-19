@@ -125,6 +125,16 @@ const toCents = (v: string | number): number => {
 };
 const centsToMajor = (c: number) => c / 100;
 
+/** ---------------- Safe sessionStorage getter (where setSession saved the token) -------- */
+const getSession = (key: string): string | null => {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+
 /** ======================== Component ======================== */
 const UnifiedAmountCustomization: React.FC = () => {
   const navigate = useNavigate();
@@ -173,7 +183,7 @@ const UnifiedAmountCustomization: React.FC = () => {
       { key: "displayLogo", value: displayLogoParam },
       { key: "displayName", value: displayNameParam },
       { key: "logoUri", value: logoUriParam },
-      { key: "split", value: split },
+      { key: "split(param)", value: split },
       { key: "paymentPlanId", value: paymentPlanId },
       { key: "paymentSchemeId", value: paymentSchemeId },
       { key: "splitPaymentId", value: splitPaymentId },
@@ -321,6 +331,10 @@ const UnifiedAmountCustomization: React.FC = () => {
     console.log("recipient:", recipientParsed || null);
     console.groupEnd();
   }, [parsedOtherUsers, recipientParsed]);
+
+  // ✅ Compute split flag based on otherUsers (excluding self)
+  const isSplitFlow = (parsedOtherUsers?.length ?? 0) > 0;
+  const splitComputed = isSplitFlow ? "true" : "false";
 
   /** -------- Payment methods (cards only) -------- */
   const cards: PaymentMethod[] = useMemo(
@@ -517,7 +531,8 @@ const UnifiedAmountCustomization: React.FC = () => {
       displayName: displayNameParam,
 
       // extras
-      split,
+      // ⚠️ Use computed split flag (ignore incoming split param)
+      split: splitComputed,
       logoUri: logoUriParam,
       paymentPlanId,
       paymentSchemeId,
@@ -526,6 +541,7 @@ const UnifiedAmountCustomization: React.FC = () => {
 
     console.groupCollapsed("[UAC] NAV → /UnifiedPlans");
     console.log("query (raw):", Object.fromEntries(baseParams.entries()));
+    console.log("split(computed):", splitComputed);
     if (otherUsersJson) { try { console.log("otherUsers(parsed):", JSON.parse(otherUsersJson)); } catch {} }
     if (recipientJson) { try { console.log("recipient(parsed):", JSON.parse(recipientJson)); } catch {} }
     console.groupEnd();
@@ -627,12 +643,17 @@ const UnifiedAmountCustomization: React.FC = () => {
       console.groupCollapsed("[UAC] SUPERCHARGE → common parties snapshot");
       console.log("otherUsers (actual):", common.otherUsers || []);
       console.log("recipient (actual):", recipientParsed || null);
+      console.log("split(computed):", splitComputed);
       console.groupEnd();
     } catch {}
 
     try {
       switch (transactionType) {
         case "CHECKOUT": {
+          // ✅ Pull the checkout token from sessionStorage
+          const sessionCheckoutToken = getSession("checkoutToken");
+          console.log("[UAC] Using checkoutToken from session:", sessionCheckoutToken);
+
           // ⛔ No checkoutTotalAmount field per new interface/comments
           const req = buildCheckoutRequest(
             {
@@ -641,13 +662,14 @@ const UnifiedAmountCustomization: React.FC = () => {
               checkoutRedirectUrl: null,
               checkoutReference: null,
               checkoutDetails: null,
-              checkoutToken: null,
+              // ✅ pass the saved token here
+              checkoutToken: sessionCheckoutToken,
             },
             common
           );
           await sendByType("CHECKOUT", req);
           navigate(
-            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&split=${splitComputed}&replace_to_index=1`
           );
           break;
         }
@@ -658,7 +680,7 @@ const UnifiedAmountCustomization: React.FC = () => {
           );
           await sendByType("PAYMENT", req);
           navigate(
-            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&split=${splitComputed}&replace_to_index=1`
           );
           break;
         }
@@ -671,7 +693,7 @@ const UnifiedAmountCustomization: React.FC = () => {
           const req = buildSendRequest(recipient, { note: "Transfer" }, common);
           await sendByType("SEND", req);
           navigate(
-            `/SuccessPayment?amount=${encodeURIComponent(Number(recipient.amount).toFixed(2))}&replace_to_index=1`
+            `/SuccessPayment?amount=${encodeURIComponent(Number(recipient.amount).toFixed(2))}&split=${splitComputed}&replace_to_index=1`
           );
           break;
         }
@@ -683,7 +705,7 @@ const UnifiedAmountCustomization: React.FC = () => {
           const req = buildAcceptRequest(requestId, common);
           await sendByType("ACCEPT_REQUEST", req);
           navigate(
-            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&split=${splitComputed}&replace_to_index=1`
           );
           break;
         }
@@ -695,7 +717,7 @@ const UnifiedAmountCustomization: React.FC = () => {
           const req = buildAcceptSplitRequest(requestId, common);
           await sendByType("ACCEPT_SPLIT_REQUEST", req);
           navigate(
-            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&split=${splitComputed}&replace_to_index=1`
           );
           break;
         }
@@ -737,7 +759,8 @@ const UnifiedAmountCustomization: React.FC = () => {
             splitPaymentId,
             displayLogo: displayLogoParam || undefined,
             displayName: displayNameParam || undefined,
-            split,
+            // ⚠️ Stamp computed split flag here
+            split: splitComputed,
             logoUri: logoUriParam || undefined,
           };
 
@@ -756,7 +779,7 @@ const UnifiedAmountCustomization: React.FC = () => {
 
           await sendByType("SOTERIA_PAYMENT", req);
           navigate(
-            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&replace_to_index=1`
+            `/SuccessPayment?amount=${encodeURIComponent(centsToMajor(myTargetCents).toFixed(2))}&split=${splitComputed}&replace_to_index=1`
           );
           break;
         }
@@ -782,11 +805,11 @@ const UnifiedAmountCustomization: React.FC = () => {
     splitPaymentId,
     displayLogoParam,
     displayNameParam,
-    split,
     discountListCanonical,
     recipientParsed,
     meetsMinContribution,
     minRequiredCents,
+    splitComputed,
   ]);
 
   /** -------- Loading states -------- */
@@ -796,7 +819,7 @@ const UnifiedAmountCustomization: React.FC = () => {
         <span>Loading…</span>
       </div>
     );
-  }
+    }
 
   const errorMsg = (merchantError as any)?.message || (methodsError as any)?.message || "";
 

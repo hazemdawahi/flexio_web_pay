@@ -73,6 +73,25 @@ const extractDiscountIds = (raw: string): string[] => {
 
 const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
 
+/* ───────────── Session helpers for checkout token ───────────── */
+const getSession = (key: string): string | null => {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const setSession = (key: string, value: string) => {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage?.setItem(key, value);
+  } catch {
+    // ignore storage errors
+  }
+};
+
 /* ───────────── Types ───────────── */
 interface YearlyPaymentPlanProps {
   merchantId?: string;
@@ -528,12 +547,14 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
   }, []);
 
   // ⛳ Navigate helper to the SuccessPayment route (passes optional checkoutToken)
+  //    ⬇️ UPDATED: always pass split=true if split users exist (excluding self), else false.
   const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
     const num = typeof amt === "number" ? amt : Number(amt || 0);
     const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
     const params = new URLSearchParams({
       amount: amountText,
       replace_to_index: "1",
+      split: isSplitFlow ? "true" : "false",
     });
     if (checkoutToken) params.set("checkoutToken", checkoutToken);
     navigate(`/SuccessPayment?${params.toString()}`);
@@ -555,6 +576,11 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
       }
       case "CHECKOUT": {
         const common: any = { ...buildCommonFields(planData), offsetStartDate: firstSplitDueDate };
+
+        // ✅ include session checkout token (if any) when customizing
+        const sessionCheckoutToken = getSession("checkoutToken");
+        console.log("[UnifiedYearlyPaymentPlan/Customize] Using checkoutToken from session:", sessionCheckoutToken);
+
         // ⛔ removed checkoutTotalAmount per new interface
         let req = buildCheckoutRequest(
           {
@@ -563,7 +589,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
             checkoutRedirectUrl: null,
             checkoutReference: null,
             checkoutDetails: null,
-            checkoutToken: null,
+            checkoutToken: sessionCheckoutToken ?? null,
           },
           common
         );
@@ -693,6 +719,11 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
 
         case "CHECKOUT": {
           const common: any = buildCommonFields(planData);
+
+          // ✅ include existing token from session to maintain continuity/idempotency
+          const sessionCheckoutToken = getSession("checkoutToken");
+          console.log("[UnifiedYearlyPaymentPlan] Using checkoutToken from session:", sessionCheckoutToken);
+
           // ⛔ removed checkoutTotalAmount per new interface
           let req = buildCheckoutRequest(
             {
@@ -701,20 +732,29 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
               checkoutRedirectUrl: null,
               checkoutReference: null,
               checkoutDetails: null,
-              checkoutToken: null,
+              checkoutToken: sessionCheckoutToken ?? null,
             },
             common as any
           );
           req = sanitizeForType("CHECKOUT", req);
           logUnifiedPayload("CHECKOUT", req);
           const res: any = await runUnified(req);
-          // Capture and forward a token if present (non-breaking)
+
+          // ✅ capture & persist token returned by backend
           const token =
             res?.data?.checkoutToken ??
             res?.data?.checkout?.token ??
             res?.checkoutToken ??
             res?.checkout?.token ??
             undefined;
+
+          if (token) {
+            try {
+              setSession("checkoutToken", String(token));
+              console.log("[UnifiedYearlyPaymentPlan] Saved checkoutToken to session:", token);
+            } catch {}
+          }
+
           navigateSuccess(Number(amount), token);
           break;
         }
@@ -921,7 +961,7 @@ const UnifiedYearlyPaymentPlan: React.FC<Partial<YearlyPaymentPlanProps>> = (pro
             </span>
           </div>
 
-          <input
+        <input
             type="range"
             min={serverMin ?? 12}
             max={serverMax ?? 12}

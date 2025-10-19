@@ -116,6 +116,28 @@ const ALLOWED_TYPES = [
 ] as const;
 type AllowedType = (typeof ALLOWED_TYPES)[number];
 
+/* ─────────────────────────────────────────────────────────────
+   Session helpers for checkout token
+   ───────────────────────────────────────────────────────────── */
+
+const getSession = (key: string): string | null => {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const setSession = (key: string, value: string) => {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage?.setItem(key, value);
+  } catch {
+    // ignore
+  }
+};
+
 /* ───────────────────────────────────────────────────────────── */
 
 const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
@@ -417,6 +439,9 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     interestFreeUsed?: number;
     interestRate?: number;
     apr?: number;
+    /** Optional—only include when available */
+    originalTotalInterest?: number;
+    currentTotalInterest?: number;
     schemeAmount?: number; // ← renamed from schemeTotalAmount
     splitPaymentsList?: SplitPaymentDetailDTO[];
     otherUsers?: { userId: string; amount: number }[];
@@ -448,7 +473,13 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
       const discountIds = hasDiscounts ? parsedDiscountIds : undefined;
 
-      return {
+      // Optionally include TI metrics only if present in calculated plan
+      const origTI = Number(plan?.originalTotalInterest);
+      const currTI = Number(plan?.currentTotalInterest);
+      const haveOrigTI = Number.isFinite(origTI);
+      const haveCurrTI = Number.isFinite(currTI);
+
+      const common: CommonWithDiscounts = {
         paymentFrequency,
         numberOfPayments: splits.length || Number(numberOfPeriods) || 1,
         offsetStartDate: startDate,
@@ -467,6 +498,11 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         otherUsers: others,
         discountIds,
       };
+
+      if (haveOrigTI) common.originalTotalInterest = origTI;
+      if (haveCurrTI) common.currentTotalInterest = currTI;
+
+      return common;
     },
     [
       buildSplits,
@@ -485,6 +521,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       parsedDiscountIds,
       interestFreeUsed,
       isYearlyMode,
+      calculatedPlan?.data,
     ]
   );
 
@@ -554,12 +591,14 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
   // ⛳ Navigate to the SuccessPayment route in app/routes/SuccessPayment.tsx
   //    Supports optional checkoutToken passthrough without altering existing logic.
+  //    ⬇️ UPDATED: always send split=true when otherUsersNormalized is non-empty, else false.
   const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
     const num = typeof amt === "number" ? amt : Number(amt || 0);
     const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
     const params = new URLSearchParams({
       amount: amountText,
       replace_to_index: "1",
+      split: isSplitFlow ? "true" : "false",
     });
     if (checkoutToken) params.set("checkoutToken", checkoutToken);
     navigate(`/SuccessPayment?${params.toString()}`);
@@ -618,7 +657,10 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             console.groupEnd();
           } catch {}
 
-          // ⛔ removed checkoutTotalAmount per new interface
+          // ✅ Pull any existing checkout token from session and include it
+          const sessionCheckoutToken = getSession("checkoutToken");
+          console.log("[UnifiedPaymentPlan] Using checkoutToken from session:", sessionCheckoutToken);
+
           let req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
@@ -626,7 +668,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
               checkoutRedirectUrl: null,
               checkoutReference: null,
               checkoutDetails: null,
-              checkoutToken: null,
+              checkoutToken: sessionCheckoutToken ?? null,
             },
             common
           );
@@ -637,14 +679,24 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
           req = sanitizeForType("CHECKOUT", req);
           logUnifiedPayload("CHECKOUT", req);
-          const res: any = await runUnified(req);
-          // Best-effort: pass token if present (does not change core flow)
+          const res = await runUnified(req); // UnifiedCommerceResponse
+
+          // ✅ Persist any returned checkout token for subsequent steps / flows
           const token =
-            res?.data?.checkoutToken ??
-            res?.data?.checkout?.token ??
-            res?.checkoutToken ??
+            res?.checkout?.checkoutToken ??
             res?.checkout?.token ??
+            (res as any)?.checkoutToken ??
+            (res as any)?.token ??
             undefined;
+
+          if (token) {
+            try {
+              setSession("checkoutToken", String(token)); // ← store for reuse
+              console.log("[UnifiedPaymentPlan] Saved checkoutToken to session:", token);
+            } catch {}
+          }
+
+          // Best-effort pass token to success page too
           navigateSuccess(displayTotal, token);
           break;
         }
@@ -775,6 +827,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
           interestRate: Number(calculatedPlan?.data?.periodInterestRate ?? 0),
           apr: Number(calculatedPlan?.data?.apr ?? 0),
+          ...(Number.isFinite(Number(calculatedPlan?.data?.originalTotalInterest)) ? { originalTotalInterest: Number(calculatedPlan?.data?.originalTotalInterest) } : {}),
+          ...(Number.isFinite(Number(calculatedPlan?.data?.currentTotalInterest)) ? { currentTotalInterest: Number(calculatedPlan?.data?.currentTotalInterest) } : {}),
           schemeAmount: schemeTotalAmount, // ✅ new key
           splitPaymentsList: splits,
           otherUsers: isSplitFlow
@@ -789,8 +843,15 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       }
 
       case "CHECKOUT": {
-        const baseCommon: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
-        // ⛔ removed checkoutTotalAmount per new interface
+        const baseCommon: any = {
+          ...buildCommonFields(calculatedPlan?.data),
+          offsetStartDate: firstSplitDueDate
+        };
+
+        // ✅ Include any existing session checkout token here as well
+        const sessionCheckoutToken = getSession("checkoutToken");
+        console.log("[UnifiedPaymentPlan/Customize] Using checkoutToken from session:", sessionCheckoutToken);
+
         let req = buildCheckoutRequest(
           {
             checkoutMerchantId: merchantId,
@@ -798,7 +859,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             checkoutRedirectUrl: null,
             checkoutReference: null,
             checkoutDetails: null,
-            checkoutToken: null,
+            checkoutToken: sessionCheckoutToken ?? null,
           },
           baseCommon
         );
@@ -824,7 +885,6 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
       case "SEND": {
         if (!recipientObj) return null;
-
         const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
         let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
         return sanitizeForType("SEND", req);

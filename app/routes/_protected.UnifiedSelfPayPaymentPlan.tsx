@@ -41,6 +41,24 @@ const BASE_URL = "http://192.168.1.121:8080";
 const makeFullUrl = (p?: string | null) =>
   !p ? undefined : /^https?:\/\//.test(p) ? p : `${BASE_URL}${p.startsWith("/") ? p : `/${p}`}`;
 
+/* ✅ Session helpers for checkout token persistence */
+const getSession = (key: string): string | null => {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+const setSession = (key: string, value: string) => {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage?.setItem(key, value);
+  } catch {
+    // ignore storage errors
+  }
+};
+
 const sanitizeParamString = (raw?: string | null) => {
   const s = (raw ?? "").trim();
   if (!s) return "";
@@ -620,7 +638,14 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       return [];
     }
   }, [otherUsersRaw]);
-  const isSplitFlow = allSplitUsers.length > 0;
+
+  // EXCLUDE the current user when determining split and when building otherUsers payload
+  const splitUsersExcludingSelf = useMemo(() => {
+    if (!currentUserId) return allSplitUsers;
+    return allSplitUsers.filter((u) => u.userId !== currentUserId);
+  }, [allSplitUsers, currentUserId]);
+
+  const isSplitFlow = splitUsersExcludingSelf.length > 0;
 
   const recipientObj: SendRecipient | null = useMemo(() => {
     if (!recipientRaw) return null;
@@ -649,11 +674,9 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
   }, [mockPayments]);
 
   const buildOtherUsersExcludingSelf = useCallback(() => {
-    if (!isSplitFlow || !currentUserId) return undefined;
-    return allSplitUsers
-      .filter((u) => u.userId !== currentUserId)
-      .map((u) => ({ userId: u.userId, amount: Number(u.amount) || 0 }));
-  }, [isSplitFlow, allSplitUsers, currentUserId]);
+    if (!splitUsersExcludingSelf.length) return undefined;
+    return splitUsersExcludingSelf.map((u) => ({ userId: u.userId, amount: Number(u.amount) || 0 }));
+  }, [splitUsersExcludingSelf]);
 
   const buildCommonFields = useCallback(() => {
     const splits = buildSplits();
@@ -718,7 +741,8 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       ...(splitPaymentId ? { splitPaymentId } : {}),
       ...(displayLogo ? { displayLogo } : {}),
       ...(displayName ? { displayName } : {}),
-      ...(splitFlag ? { split: splitFlag } : {}),
+      // ⬇️ pass split flag computed from other users (exclude self)
+      split: isSplitFlow ? "true" : "false",
       ...(logoUriHint ? { logoUri: logoUriHint } : {}),
     };
 
@@ -745,11 +769,11 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     paymentSchemeId,
     displayLogo,
     displayName,
-    splitFlag,
     logoUriHint,
     merchantId,
     discountedTotal,
     interestFreeUsed,
+    isSplitFlow,
   ]);
 
   // Defensive sanitizer using string literal for `type`
@@ -832,9 +856,13 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          // ✅ persist returned token for future requests
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
 
@@ -856,10 +884,13 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
           // ✅ Go to success (not /card-details)
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
 
@@ -880,14 +911,22 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
 
         case "CHECKOUT": {
           const common = buildCommonFields();
+
+          // ✅ include existing token from session to continue checkout session
+          const sessionCheckoutToken = getSession("checkoutToken");
+          console.log("[UnifiedSelfPayPaymentPlan] Using checkoutToken from session:", sessionCheckoutToken);
+
           // ⛔️ NO checkoutTotalAmount in new DTO — only pass allowed top-level keys
           let req = buildCheckoutRequest(
             {
@@ -896,7 +935,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
               checkoutRedirectUrl: null,
               checkoutReference: null,
               checkoutDetails: null,
-              checkoutToken: null,
+              checkoutToken: sessionCheckoutToken ?? null,
             },
             common
           );
@@ -910,9 +949,13 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          // ✅ persist returned token
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
 
@@ -937,9 +980,12 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
 
@@ -960,9 +1006,12 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
 
@@ -983,9 +1032,12 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
           const token =
             res?.checkout?.checkoutToken || res?.checkout?.token || res?.token || "";
 
+          if (token) setSession("checkoutToken", String(token));
+
           const qAmount = encodeURIComponent(amount.toFixed(2));
           const qToken = token ? `&checkoutToken=${encodeURIComponent(token)}` : "";
-          navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+          const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
+          navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
           break;
         }
       }
@@ -1270,6 +1322,11 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                         }
                         case "CHECKOUT": {
                           const common = buildCommonFields();
+
+                          // ✅ include session checkout token when building customize request
+                          const sessionCheckoutToken = getSession("checkoutToken");
+                          console.log("[UnifiedSelfPayPaymentPlan/Customize] Using checkoutToken from session:", sessionCheckoutToken);
+
                           // ⛔️ Do not pass checkoutTotalAmount (not in the new DTO)
                           fullReq = buildCheckoutRequest(
                             {
@@ -1278,7 +1335,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                               checkoutRedirectUrl: null,
                               checkoutReference: null,
                               checkoutDetails: null,
-                              checkoutToken: null,
+                              checkoutToken: sessionCheckoutToken ?? null,
                             },
                             common
                           );

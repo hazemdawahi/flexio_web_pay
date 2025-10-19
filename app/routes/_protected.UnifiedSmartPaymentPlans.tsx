@@ -116,6 +116,25 @@ const parseNumber = (v: string | undefined, def = 0): number => {
   return Number.isFinite(n) ? Number(n.toFixed(2)) : def;
 };
 
+/* ───────────── Session helpers for checkout token ───────────── */
+const getSession = (key: string): string | null => {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const setSession = (key: string, value: string) => {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage?.setItem(key, value);
+  } catch {
+    // ignore storage errors
+  }
+};
+
 /** Center spinner (shared look with UnifiedPaymentPlan) */
 const CenterSpinner: React.FC = () => (
   <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
@@ -284,7 +303,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   } = calendar ?? {};
 
   // Non-hook derived data
-  const mockPayments = (paymentCycles || []).filter((c: any) => (c?.amount ?? 0) > 0);
+   const mockPayments = (paymentCycles || []).filter((c: any) => (c?.amount ?? 0) > 0);
   const today = new Date().toISOString().split("T")[0];
   const hasDueToday = mockPayments.some((c: any) => c.dueDate === today);
 
@@ -314,7 +333,14 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
         .filter((u) => !!u.userId && Number.isFinite(u.amount) && u.amount >= 0),
     [props.otherUserAmounts]
   );
-  const isSplitFlow = allSplitUsers.length > 0;
+
+  // EXCLUDE the current user for split detection and otherUsers payload
+  const splitUsersExcludingSelf = useMemo(() => {
+    if (!currentUserId) return allSplitUsers;
+    return allSplitUsers.filter((u) => u.userId !== currentUserId);
+  }, [allSplitUsers, currentUserId]);
+
+  const isSplitFlow = splitUsersExcludingSelf.length > 0;
 
   const digitsOnly = (s: string) => s.replace(/\D+/g, "");
   const handleIFChange = (v: string) => setFreeInput(digitsOnly(v));
@@ -330,13 +356,11 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     const superSum = mappedSupers.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
     const schemeTotalAmount = Number((purchaseAmount + superSum).toFixed(2));
 
-    // exclude current user from otherUsers
-    let others: { userId: string; amount: number }[] | undefined = undefined;
-    if (isSplitFlow && currentUserId) {
-      others = allSplitUsers
-        .filter((u) => u.userId !== currentUserId)
-        .map((u) => ({ userId: u.userId, amount: Number(u.amount) || 0 }));
-    }
+    // use the exclusion-filtered list directly
+    const others =
+      isSplitFlow && splitUsersExcludingSelf.length > 0
+        ? splitUsersExcludingSelf.map((u) => ({ userId: u.userId, amount: Number(u.amount) || 0 }))
+        : undefined;
 
     return {
       paymentFrequency: (isYearlyMode ? "MONTHLY" : frequency) as Frequency,
@@ -375,8 +399,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     plan?.periodInterestRate,
     plan?.apr,
     isSplitFlow,
-    allSplitUsers,
-    currentUserId,
+    splitUsersExcludingSelf,
     hasDiscounts,
     parsedDiscountIds,
   ]);
@@ -445,12 +468,14 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
   }, []);
 
   // ⛳ Navigate helper to the SuccessPayment route (passes optional checkoutToken)
+  //    ⬇️ UPDATED: add split=true if there are other split users (excluding self), else false.
   const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
     const num = typeof amt === "number" ? amt : Number(amt || 0);
     const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
     const params = new URLSearchParams({
       amount: amountText,
       replace_to_index: "1",
+      split: isSplitFlow ? "true" : "false",
     });
     if (checkoutToken) params.set("checkoutToken", checkoutToken);
     navigate(`/SuccessPayment?${params.toString()}`);
@@ -471,6 +496,11 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       }
       case "CHECKOUT": {
         const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
+
+        // ✅ include session checkout token (if present) when customizing
+        const sessionCheckoutToken = getSession("checkoutToken");
+        console.log("[UnifiedSmartPaymentPlans/Customize] Using checkoutToken from session:", sessionCheckoutToken);
+
         // ⛔ removed checkoutTotalAmount per new interface
         let req = buildCheckoutRequest(
           {
@@ -479,7 +509,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
             checkoutRedirectUrl: null,
             checkoutReference: null,
             checkoutDetails: null,
-            checkoutToken: null,
+            checkoutToken: sessionCheckoutToken ?? null,
           },
           common
         );
@@ -673,6 +703,11 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
         }
         case "CHECKOUT": {
           const common = buildCommonFields();
+
+          // ✅ include existing token from session (if any) to maintain continuity
+          const sessionCheckoutToken = getSession("checkoutToken");
+          console.log("[UnifiedSmartPaymentPlans] Using checkoutToken from session:", sessionCheckoutToken);
+
           // ⛔ removed checkoutTotalAmount per new interface
           let req = buildCheckoutRequest(
             {
@@ -681,7 +716,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
               checkoutRedirectUrl: null,
               checkoutReference: null,
               checkoutDetails: null,
-              checkoutToken: null,
+              checkoutToken: sessionCheckoutToken ?? null,
             },
             common
           );
@@ -695,6 +730,15 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
             res?.checkoutToken ??
             res?.checkout?.token ??
             undefined;
+
+          // ✅ persist returned token for future requests
+          if (token) {
+            try {
+              setSession("checkoutToken", String(token));
+              console.log("[UnifiedSmartPaymentPlans] Saved checkoutToken to session:", token);
+            } catch {}
+          }
+
           navigateSuccess(purchaseAmount, token);
           break;
         }

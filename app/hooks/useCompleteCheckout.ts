@@ -44,7 +44,7 @@ async function completeCheckout(
 
     // Call the API with the updated endpoint URL.
     const response = await axios.post<CompleteCheckoutResponse>(
-      'http://localhost:8080/api/checkout/complete',
+      'http://192.168.1.121:8080/api/checkout/complete',
       payload,
       {
         headers: {

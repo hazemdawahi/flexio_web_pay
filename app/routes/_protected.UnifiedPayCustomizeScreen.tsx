@@ -165,6 +165,29 @@ function withDiscountIdsForwarded(req: UnifiedCommerceRequest): UnifiedCommerceR
   return { ...anyReq, discountIds } as UnifiedCommerceRequest;
 }
 
+/* -------------------- SPLIT helpers -------------------- */
+
+// Get otherUsers from canonical locations (prefer plan → root; legacy card tolerated)
+function getOtherUsers(req: UnifiedCommerceRequest | null): { userId: string; amount: number }[] {
+  if (!req) return [];
+  const anyReq: any = req;
+  const fromPlan = anyReq?.plan?.otherUsers;
+  if (Array.isArray(fromPlan)) return fromPlan;
+  const fromRoot = anyReq?.otherUsers;
+  if (Array.isArray(fromRoot)) return fromRoot;
+  const fromCard = anyReq?.card?.otherUsers;
+  if (Array.isArray(fromCard)) return fromCard;
+  return [];
+}
+
+// If Soteria, mirror the computed split flag into soteriaPayload.split as "true"/"false"
+function withSoteriaSplitFlag(req: UnifiedCommerceRequest, isSplitFlow: boolean): UnifiedCommerceRequest {
+  const anyReq: any = req;
+  if (anyReq?.type !== "SOTERIA_PAYMENT") return anyReq;
+  const payload = { ...(anyReq.soteriaPayload ?? {}), split: isSplitFlow ? "true" : "false" };
+  return { ...anyReq, soteriaPayload: payload } as UnifiedCommerceRequest;
+}
+
 /* -------------------- Patch SPLIT supercharges only -------------------- */
 // Canonical write: root (and mirror under `plan` if present). Never under `card`.
 function withSplitSupersOnly(
@@ -312,6 +335,14 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
     [fields]
   );
 
+  // Compute split by examining otherUsers in payload, excluding the current user (if known)
+  const otherUsersAll = useMemo(() => getOtherUsers(payload), [payload]);
+  const otherUsersExcludingSelf = useMemo(() => {
+    if (!userId) return otherUsersAll;
+    return otherUsersAll.filter((u) => String(u.userId) !== String(userId));
+  }, [otherUsersAll, userId]);
+  const isSplitFlow = otherUsersExcludingSelf.length > 0;
+
   // Add row (moved button to CTA row; handler unchanged)
   const handleAdd = useCallback(() => {
     const def =
@@ -375,6 +406,8 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
 
     let updated = withSplitSupersOnly(payload, splitSuperchargeDetails);
     updated = withDiscountIdsForwarded(updated);
+    // If it's a Soteria op, stamp the split flag computed from otherUsers (excluding self)
+    updated = withSoteriaSplitFlag(updated, isSplitFlow);
 
     runUnified(updated, {
       onSuccess: (res: UnifiedCommerceResponse) => {
@@ -415,15 +448,16 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
 
         const qAmount = encodeURIComponent(String(amount.toFixed ? amount.toFixed(2) : amount));
         const qToken = token ? `&checkoutToken=${encodeURIComponent(String(token))}` : "";
+        const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
 
-        // ✅ Navigate to SuccessPayment with the exact params it expects
-        navigate(`/SuccessPayment?amount=${qAmount}${qToken}&replace_to_index=1`);
+        // ✅ Navigate to SuccessPayment with the exact params it expects + split flag
+        navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
       },
       onError: (e: unknown) => {
         toast.error(String((e as Error)?.message || "Request failed"));
       },
     });
-  }, [payload, fields, mustMatchDue, sumFields, dueAmount, runUnified, navigate]);
+  }, [payload, fields, mustMatchDue, sumFields, dueAmount, runUnified, navigate, isSplitFlow]);
 
   // UI state
   const headerTitle = titleByType(payload?.type);

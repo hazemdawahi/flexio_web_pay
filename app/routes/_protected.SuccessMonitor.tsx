@@ -1,4 +1,3 @@
-// File: app/routes/SuccessMonitor.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "@remix-run/react";
 import { motion, useReducedMotion } from "framer-motion";
@@ -11,7 +10,7 @@ import { motion, useReducedMotion } from "framer-motion";
  *
  * Query params:
  *   - ms: number            Auto-dismiss delay after terminal status (default 1200ms, clamp [300..10000])
- *   - ready: 1|true         Post a MONITORING_READY handshake on mount
+ *   - ready: 1|true         Post a MONITORING_READY handshake on mount (NO __PAYMENT_EVENT flag)
  *   - origin: string        Target origin for postMessage (default "*")
  *   - replace_to_index: 1|true   Standalone tab fallback goes to "/"
  *   - status: COMPLETED|FAILED   (optional) drive terminal state via URL
@@ -89,6 +88,7 @@ export default function SuccessMonitor() {
     if (t === "PAYMENT_FAILED") return "FAILED";
 
     return null;
+    // NOTE: We intentionally ignore SPLIT_REQUEST here; monitoring’s terminal is success/fail only.
   };
 
   // Broadcast to host (opener/parent)
@@ -98,9 +98,12 @@ export default function SuccessMonitor() {
       hasBroadcastRef.current = true;
 
       const payload = {
+        __PAYMENT_EVENT: true, // mark as a payment/monitoring event for the bridge
         status,
         source: "SuccessMonitor",
         timestamp: new Date().toISOString(),
+        // Monitoring emits terminal state only; split is not meaningful here, default false
+        split: false,
       };
 
       for (const target of getTargets()) {
@@ -177,7 +180,7 @@ export default function SuccessMonitor() {
     }
   }, [statusParam, handleTerminal]);
 
-  // Optional handshake: announce that we're listening
+  // Optional handshake: announce that we're listening (NO __PAYMENT_EVENT flag)
   useEffect(() => {
     if (!postReady) return;
     const readyPayload = { status: "MONITORING_READY", source: "SuccessMonitor" };

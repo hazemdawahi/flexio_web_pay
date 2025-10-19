@@ -1,4 +1,3 @@
-// File: app/routes/SuccessPayment.tsx
 import React, { useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation, useNavigate } from "@remix-run/react";
 import { motion, useReducedMotion } from "framer-motion";
@@ -6,7 +5,7 @@ import { motion, useReducedMotion } from "framer-motion";
 /**
  * Web version of SuccessPayment screen
  * - Shows animation, waits (default 2000ms, override via ?ms=), THEN notifies host via postMessage
- * - postMessage payload: { status: "COMPLETED", checkoutToken, data }
+ * - postMessage payload: { __PAYMENT_EVENT: true, status: "COMPLETED", checkoutToken, data, split }
  * - After posting, attempts to close popup (if window.opener), else lets parent remove iframe overlay,
  *   and falls back to navigation for standalone contexts.
  */
@@ -29,6 +28,14 @@ export default function SuccessPayment() {
   const checkoutToken = qs.get("checkoutToken") || "";
   const replaceToIndexParam = qs.get("replace_to_index");
   const msParam = qs.get("ms"); // optional: override auto-dismiss (in ms)
+
+  // split flag (optional via URL; default false)
+  const splitParam = qs.get("split");
+  const split = useMemo(() => {
+    const v = String(splitParam ?? "").trim().toLowerCase();
+    if (!v) return false;
+    return ["1", "true", "yes", "y", "on"].includes(v);
+  }, [splitParam]);
 
   const shouldReplaceToIndex = useMemo(() => {
     const val = String(replaceToIndexParam ?? "").trim().toLowerCase();
@@ -67,8 +74,10 @@ export default function SuccessPayment() {
     try {
       target.postMessage(
         {
+          __PAYMENT_EVENT: true,
           status: "COMPLETED",
           checkoutToken: checkoutToken || null,
+          split, // explicit split marker for the bridge
           data: {
             amount: amountNumber,
             page: "SuccessPayment",
@@ -81,7 +90,7 @@ export default function SuccessPayment() {
       // eslint-disable-next-line no-console
       console.warn("[SuccessPayment] postMessage failed:", err);
     }
-  }, [amountNumber, checkoutToken]);
+  }, [amountNumber, checkoutToken, split]);
 
   // Unified exit behavior (called after wait or via close button)
   const exitScreen = useCallback(() => {

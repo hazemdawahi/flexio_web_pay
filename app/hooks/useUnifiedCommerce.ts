@@ -65,18 +65,18 @@ export type MoneyLike =
     };
 
 export interface SuperchargeDetail {
-  amount: number | string; // BigDecimal on backend (accept string or number)
+  amount: number | string; // BigDecimal on backend
   paymentMethodId: string;
 }
 
 export interface SplitPaymentDetail {
-  // id removed to match backend / cURL
+  // No id in the cURL request bodies
   status?: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | string;
   dueDate: string; // "YYYY-MM-DD"
   amount?: number | string;
   originalAmount?: number | string;
   interestFreeSlice?: number | string;
-  interestRate?: number | string; // e.g. 0.00625
+  interestRate?: number | string; // e.g. 0.0125
   interestAmount?: number | string;
   originalInterestAmount?: number | string;
 }
@@ -84,32 +84,38 @@ export interface SplitPaymentDetail {
 export interface OtherUserSplit {
   userId: string;
   amount: number | string;
-  // checkoutId removed per latest DTOs
 }
 
 /** Common planning/auth fields used across operations (top-level in your cURL) */
 export interface CommonPlanFields {
   paymentFrequency?: FrequencyEnum;
   numberOfPayments?: number;
-  offsetStartDate?: string; // "YYYY-MM-DD"
+  offsetStartDate?: string | null; // "YYYY-MM-DD" or null (per SEND example)
   instantAmount?: number | string;
   yearlyAmount?: number | string;
-  selectedPaymentMethod?: string;
+  selectedPaymentMethod?: string | null;
   superchargeDetails?: SuperchargeDetail[];
   splitSuperchargeDetails?: SuperchargeDetail[];
+
   selfPayActive?: boolean;
-  totalPlanAmount?: number | string;
+
+  totalPlanAmount?: number | string; // present in CHECKOUT & PAYMENT examples
   interestFreeUsed?: number | string;
   interestRate?: number | string;
   apr?: number | string;
-  /** Present in cURL at top-level */
+
+  /** These are explicitly present in your cURL requests */
   originalTotalInterest?: number | string | null;
   currentTotalInterest?: number | string | null;
-  schemeAmount?: number | string; // matches cURL
+
+  /** Matches top-level schemeAmount in all examples */
+  schemeAmount?: number | string;
+
+  /** Explicit per-slice details (optional, may be empty) */
   splitPaymentsList?: SplitPaymentDetail[];
-  /** Top-level discountIds per examples */
+
+  /** Top-level arrays */
   discountIds?: string[];
-  /** Top-level co-payers */
   otherUsers?: OtherUserSplit[];
 }
 
@@ -120,7 +126,6 @@ export interface CheckoutBlock {
   redirectUrl?: string | null;
   reference?: string | null;
   checkoutDetails?: any | null;
-  // no totalAmount here (cURL does not send any checkout amount field)
   checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
   discountIds?: string[];
   otherUsers?: OtherUserSplit[];
@@ -137,7 +142,7 @@ export interface VirtualCardOptions {
   expirationHours?: number;           // default 24
   showPan?: boolean;                  // default false
   showCvv?: boolean;                  // default false
-  prefundAmount?: MoneyLike | null;   // Money
+  prefundAmount?: MoneyLike | null;   // optional Money
   singleUse?: boolean | null;
   spendControlProfileId?: string | null;
   memo?: string | null;
@@ -156,7 +161,6 @@ export interface CheckoutRequest extends CommonPlanFields {
   checkoutRedirectUrl?: string | null;
   checkoutReference?: string | null;
   checkoutDetails?: any | null;
-  // no checkoutTotalAmount (not in cURL)
   checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
 
   /** Backward-compatible nested block (optional) */
@@ -167,7 +171,7 @@ export interface PaymentRequest extends CommonPlanFields {
   type: 'PAYMENT';
 
   /** Top-level (as per cURL) */
-  paymentTotalAmount?: MoneyLike | null;
+  paymentTotalAmount?: MoneyLike | null; // alias allowed
   merchantId?: string | null;
 
   /** Back-compat extras */
@@ -194,12 +198,12 @@ export interface AcceptRequest extends CommonPlanFields {
 
 export interface AcceptSplitRequest extends CommonPlanFields {
   type: 'ACCEPT_SPLIT_REQUEST';
-  requestId: string; // SplitRequest id (API shares the same key)
+  requestId: string; // SplitRequest id
 }
 
 export interface VirtualCardRequest extends CommonPlanFields {
   type: 'VIRTUAL_CARD';
-  /** Top-level merchant id is REQUIRED in your cURL examples */
+  /** Top-level merchant id is REQUIRED per your cURL */
   merchantId: string;
 
   /** Options object named exactly "virtualCard" (matches cURL) */
@@ -220,10 +224,10 @@ export interface SoteriaPaymentRequest extends CommonPlanFields {
   /** Alias accepted by some servers */
   paymentTotalAmount?: MoneyLike | null;
 
-  /** Explicit identifiers */
-  paymentPlanId?: string | undefined;
-  paymentSchemeId?: string | undefined;
-  splitPaymentId?: string | undefined;
+  /** Explicit identifiers (single-slice payment target) */
+  paymentPlanId?: string;
+  paymentSchemeId?: string;
+  splitPaymentId?: string;
 
   /** Pass-through */
   [k: string]: any;
@@ -242,34 +246,79 @@ export type UnifiedCommerceRequest =
  * Response types (align with UnifiedCommerceResponse)
  * ========================= */
 
+export interface MoneyOut {
+  id?: string;
+  amount?: number | string;
+  currency?: string;
+}
+
+export interface CheckoutDetailsOut {
+  version?: number;
+  id?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  consumer?: Record<string, any> | null;
+  billing?: Record<string, any> | null;
+  shipping?: Record<string, any> | null;
+  items?: Array<Record<string, any>>;
+  courier?: Record<string, any> | null;
+  taxAmount?: MoneyOut | null;
+  shippingAmount?: MoneyOut | null;
+  discounts?: Array<Record<string, any>>;
+  description?: string | null;
+  checkout?: any;
+}
+
 export interface UnifiedCheckoutResponse {
+  version?: number;
   id?: string;
   redirectCheckoutUrl?: string | null;
   token?: string | null;
   checkoutToken?: string | null;
   reference?: string | null;
   sandbox?: boolean;
-  state?: string;
-  checkoutType?: string;
-  totalAmount?: { id?: string; amount?: number | string; currency?: string };
+  checkoutDetails?: CheckoutDetailsOut | null;
+
+  state?: string; // e.g. "CREATED"
+  checkoutType?: string; // "ONLINE" | "IN_STORE"
+  completionStatus?: string; // e.g. "STARTED"
+  paymentSchemes?: Array<Record<string, any>>; // your JPA model list
+
+  originalAmount?: MoneyOut | null;
+  totalAmount?: MoneyOut | null;
+
+  expires?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  completedAt?: string | null;
+  postCompletionCaptureProcessedAt?: string | null;
+
+  discount?: Record<string, any> | null;
 }
 
 export interface UnifiedPaymentResponse {
+  version?: number;
   id?: string;
   sandbox?: boolean;
-  state?: string;
+  amount?: MoneyOut | null;
+  originalAmount?: MoneyOut | null;
+
+  state?: string; // "COMPLETED" etc
+  completionStatus?: string | null; // "PROCESSING" etc
+
   completedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
 
 export interface UnifiedSend {
+  version?: number;
   id?: string;
-  sender?: { id?: string };
-  recipient?: { id?: string };
+  sender?: { id?: string } | null;
+  recipients?: Array<{ id?: string; user?: { id?: string } | null; amount?: number | string; status?: string }>;
+  recipient?: { id?: string } | null; // some variants
   amount?: number | string;
+  paymentSchemes?: Array<Record<string, any>>;
   type?: 'INSTANTANEOUS' | 'YEARLY' | string;
   note?: string | null;
   createdAt?: string;
@@ -277,10 +326,15 @@ export interface UnifiedSend {
 }
 
 export interface UnifiedRequestResponse {
+  version?: number;
   id?: string;
+  sender?: { id?: string } | null;
+  recipients?: Array<{ id?: string; user?: { id?: string } | null; amount?: number | string; status?: string }>;
+  memo?: string | null;
   state?: string;
   createdAt?: string;
   updatedAt?: string;
+  canceledBySender?: boolean;
   [k: string]: any;
 }
 
@@ -316,6 +370,7 @@ function isPlainObject(x: any): x is Record<string, any> {
 /**
  * Recursively remove properties that backend may reject when empty.
  * Specifically handle `splitPaymentsList` and empty array of `splitSuperchargeDetails`.
+ * We DO NOT remove numeric/scalar fields that are zero (those are meaningful in your cURL).
  */
 function pruneEmptyLists(obj: any) {
   if (Array.isArray(obj)) {
@@ -345,7 +400,7 @@ function pruneEmptyLists(obj: any) {
   }
 }
 
-/** Strip the VirtualCard control flags when they equal backend defaults */
+/** Strip the VirtualCard control flags when they equal backend defaults. */
 const CARD_DEFAULTS: Record<string, any> = {
   cardOnly: false,
   disableControls: false,
@@ -383,7 +438,7 @@ function pruneCardDefaultFlags(obj: any) {
   }
 }
 
-/** Force remove ALL splitPaymentsList keys anywhere in the object */
+/** Force remove ALL splitPaymentsList keys anywhere in the object (retry path) */
 function stripAllSplitPayments(obj: any) {
   if (Array.isArray(obj)) {
     obj.forEach(stripAllSplitPayments);
@@ -401,7 +456,7 @@ function stripAllSplitPayments(obj: any) {
   }
 }
 
-/** Normalize to the exact top-level keys your backend expects */
+/** Normalize to the exact top-level keys your backend expects (matches your cURL) */
 function normalizeToTopLevel(body: UnifiedCommerceRequest): UnifiedCommerceRequest {
   const clone = JSON.parse(JSON.stringify(body)) as UnifiedCommerceRequest;
 
@@ -425,10 +480,8 @@ function normalizeToTopLevel(body: UnifiedCommerceRequest): UnifiedCommerceReque
     asCheckout.checkoutRedirectUrl = asCheckout.checkoutRedirectUrl ?? c.redirectUrl ?? null;
     asCheckout.checkoutReference = asCheckout.checkoutReference ?? c.reference ?? null;
     asCheckout.checkoutDetails = asCheckout.checkoutDetails ?? c.checkoutDetails ?? null;
-    // do not lift any total amount field (not in cURL)
     asCheckout.checkoutType = asCheckout.checkoutType ?? (c.checkoutType as any);
 
-    // Also bring up discountIds/otherUsers if they were nested
     if (c.discountIds && Array.isArray(c.discountIds)) {
       (asCheckout as any).discountIds = (asCheckout as any).discountIds ?? c.discountIds;
     }
@@ -458,18 +511,19 @@ async function getWebToken(): Promise<string> {
 }
 
 /** =========================
- * Low-level caller (with retry if server complains about splitPaymentsList)
+ * Low-level callers (unified + health)
  * ========================= */
 
 async function callUnifiedCommerce(
-  body: UnifiedCommerceRequest
+  body: UnifiedCommerceRequest,
+  opts?: { tokenOverride?: string; baseUrlOverride?: string }
 ): Promise<UnifiedCommerceResponse> {
-  const token = await getWebToken();
+  const token = opts?.tokenOverride ?? (await getWebToken());
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-  const url = `${getApiBase()}/api/user/unified`;
+  const url = `${opts?.baseUrlOverride ?? getApiBase()}/api/user/unified`;
 
   async function sendOnce(payload: UnifiedCommerceRequest) {
     const res = await fetch(url, {
@@ -481,7 +535,6 @@ async function callUnifiedCommerce(
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
-      // credentials: 'include', // enable only if API needs cookies
     });
 
     const contentType = res.headers.get('content-type') || '';
@@ -574,6 +627,34 @@ async function callUnifiedCommerce(
   }
 }
 
+export async function callUnifiedHealth(
+  opts?: { tokenOverride?: string; baseUrlOverride?: string }
+): Promise<'ok' | string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const url = `${opts?.baseUrlOverride ?? getApiBase()}/api/user/unified/health`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        // No auth required in your example, but harmless if present:
+        ...(opts?.tokenOverride ? { Authorization: `Bearer ${opts.tokenOverride}` } : {}),
+        Accept: 'text/plain, application/json',
+      },
+      signal: controller.signal,
+    });
+
+    const text = (await res.text()).trim();
+    return (text as any) || (res.ok ? 'ok' : 'error');
+  } catch (e: any) {
+    if (e?.name === 'AbortError') return 'timeout';
+    return String(e?.message || 'error');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /** =========================
  * React Query hook (single entry point)
  * ========================= */
@@ -582,7 +663,7 @@ export function useUnifiedCommerce() {
   const queryClient = useQueryClient();
 
   return useMutation<UnifiedCommerceResponse, Error, UnifiedCommerceRequest>({
-    mutationFn: callUnifiedCommerce,
+    mutationFn: (body) => callUnifiedCommerce(body),
     onSuccess: (_data, variables) => {
       // Invalidate likely-affected caches (tweak to your app’s query keys)
       queryClient.invalidateQueries({ queryKey: ['virtualCards'] });
@@ -612,17 +693,17 @@ export function useUnifiedCommerce() {
 
 /** =========================
  * Helper builders (optional sugar)
+ * These mirror your cURL payloads 1:1 at the top level.
  * ========================= */
 
 // 1) CHECKOUT (top-level fields as per cURL)
 export function buildCheckoutRequest(
   topLevel: {
     checkoutToken?: string | null;
-    checkoutMerchantId?: string | null;
-    checkoutRedirectUrl?: string | null;
-    checkoutReference?: string | null;
-    checkoutDetails?: any | null;
-    // no checkoutTotalAmount here
+    checkoutMerchantId?: string | null;   // "MID_ABC123"
+    checkoutRedirectUrl?: string | null;  // return URL
+    checkoutReference?: string | null;    // "ORDER-100045"
+    checkoutDetails?: any | null;         // your full details object
     checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
   },
   common?: CommonPlanFields
@@ -638,7 +719,7 @@ export function buildCheckoutRequest(
 export function buildPaymentRequest(
   opts: {
     merchantId?: string | null;
-    paymentTotalAmount?: MoneyLike | null;
+    paymentTotalAmount?: MoneyLike | null; // optional alias – not in cURL but supported
   },
   common?: CommonPlanFields
 ): PaymentRequest {

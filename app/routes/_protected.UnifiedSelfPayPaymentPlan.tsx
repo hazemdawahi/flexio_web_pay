@@ -1205,7 +1205,8 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                         showChangeDateButton={false}
                         isCollapsed={false}
                         totalAmount={planData?.totalAmount ?? discountedTotal}
-                        interestFreeEnabled
+                        /** 🔒 Disable interest-free interactions & chip within the plan preview */
+                        interestFreeEnabled={false}
                         interestFreeUsed={interestFreeUsed}
                         onInterestFreePress={() => setIsIFOpen(true)}
                       />

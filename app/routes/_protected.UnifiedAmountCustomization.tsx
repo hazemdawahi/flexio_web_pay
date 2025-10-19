@@ -170,7 +170,7 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   // ---- LOG: show exactly what we received (removed recipient raw here)
   useEffect(() => {
-    console.groupCollapsed("[UAC] URL Params (normalized)");
+    console.groupCollapsed("[UAC] URL Params (normalized]");
     console.table([
       { key: "merchantId", value: merchantId },
       { key: "amount", value: amountParam },
@@ -351,7 +351,7 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   const [instantPowerAmount, setInstantPowerAmount] = useState<string>(draft?.instantPowerAmount ?? "");
   const [superchargeFields, setSuperchargeFields] = useState<SuperchargeField[]>(
-    draft?.superchargeFields
+    (draft?.superchargeFields && draft.superchargeFields.length > 0
       ? draft.superchargeFields.map((f) => ({
           amount: f.amount ?? "",
           selectedPaymentMethod: null,
@@ -359,7 +359,7 @@ const UnifiedAmountCustomization: React.FC = () => {
         }))
       : isSupercharge
       ? [{ amount: "", selectedPaymentMethod: null }]
-      : []
+      : []) as SuperchargeField[]
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
@@ -368,13 +368,21 @@ const UnifiedAmountCustomization: React.FC = () => {
   useEffect(() => {
     if (loadingMethods) return;
     setSuperchargeFields((prev) => {
-      if (!prev.length) return prev;
+      let next = [...prev];
+
+      // ✅ Ensure at least one field exists whenever SUPERCHARGE is active
+      if (isSupercharge && next.length === 0) {
+        next = [{ amount: "", selectedPaymentMethod: pickPrimaryCard() ?? null }];
+      }
+
       const idMap = new Map(cards.map((c) => [c.id, c]));
-      const next = prev.map((f) => {
+      next = next.map((f) => {
         if (f.selectedPaymentMethod) return f;
         const obj = f.selectedPaymentMethodId ? idMap.get(f.selectedPaymentMethodId) ?? null : null;
         return { ...f, selectedPaymentMethod: obj ?? f.selectedPaymentMethod ?? null };
       });
+
+      // Fill any missing methods with primary/first card
       if (isSupercharge) {
         for (let i = 0; i < next.length; i++) {
           if (!next[i].selectedPaymentMethod) {
@@ -819,7 +827,7 @@ const UnifiedAmountCustomization: React.FC = () => {
         <span>Loading…</span>
       </div>
     );
-    }
+  }
 
   const errorMsg = (merchantError as any)?.message || (methodsError as any)?.message || "";
 
@@ -855,18 +863,12 @@ const UnifiedAmountCustomization: React.FC = () => {
 
         {errorMsg ? <div className="text-center text-red-600 mb-3">{errorMsg}</div> : null}
 
-        <h1 className="text-xl font-bold mb-1">
+        {/* ⬇️ Increased bottom margin from mb-1 → mb-4 for a bit more space */}
+        <h1 className="text-xl font-bold mb-4">
           {headerName
             ? `Customize Your $${centsToMajor(myTargetCents).toFixed(2)} for ${headerName}`
             : `Customize Your $${centsToMajor(myTargetCents).toFixed(2)}`}
         </h1>
-
-        {/* Helper line for 10% minimum */}
-        {!meetsMinContribution && (
-          <p className="text-sm text-gray-600 mb-3">
-            Minimum required: ${centsToMajor(minRequiredCents).toFixed(2)} (10% of total)
-          </p>
-        )}
 
         {/* Instant (or Yearly) input – hidden for SUPERCHARGE. */}
         {!isSupercharge && (
@@ -905,20 +907,19 @@ const UnifiedAmountCustomization: React.FC = () => {
           </div>
         ))}
 
-        {/* CTA row: Add Supercharge (white/black/bold/#ccc) + main action on the same line */}
+        {/* CTA row — two buttons same width (when both present) */}
         <div className="mt-6">
           <div className="flex items-center gap-3">
             {subscribed && !isRestrictedToInstant && (
               <button
                 onClick={addField}
                 type="button"
-                className="px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
+                className="flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
               >
                 Add Supercharge
               </button>
             )}
 
-            {/* Main action grows to fill the remaining space */}
             {!isSupercharge ? (
               <button
                 disabled={disabled}
@@ -948,11 +949,10 @@ const UnifiedAmountCustomization: React.FC = () => {
             )}
           </div>
 
-          {/* Totals helper */}
-          {!exactMatch && (
+          {/* Hint placed under the buttons */}
+          {!meetsMinContribution && (
             <p className="text-xs text-gray-500 mt-2">
-              Entered total (${centsToMajor(totalEnteredCents).toFixed(2)}) must equal your target ($
-              {centsToMajor(myTargetCents).toFixed(2)}).
+              Minimum required: ${centsToMajor(minRequiredCents).toFixed(2)} (10% of total)
             </p>
           )}
         </div>

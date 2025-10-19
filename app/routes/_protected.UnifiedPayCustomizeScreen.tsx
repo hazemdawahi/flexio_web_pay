@@ -561,12 +561,12 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
             )}
           </div>
 
-          {/* CTA row: Add Supercharge (white/black/bold/#ccc) + Complete on the same line */}
+          {/* CTA row: Add Supercharge + Complete on the same line with SAME WIDTH */}
           <div className="mt-2">
             <div className="flex items-center gap-3">
               <button
                 onClick={handleAdd}
-                className="px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
+                className="flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
                 type="button"
               >
                 Add Supercharge

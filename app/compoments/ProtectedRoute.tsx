@@ -1,29 +1,48 @@
+// ~/compoments/ProtectedRoute.tsx
+
 import React from "react";
-import { useLocation, useNavigate } from "@remix-run/react";
+import { Navigate, useLocation } from "@remix-run/react";
 import { useSession } from "~/context/SessionContext";
 
-type Props = { children: React.ReactNode };
+const PUBLIC_ROUTES = new Set([
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/",
+]);
 
-const PUBLIC_ROUTES = new Set<string>(["/login", "/register", "/forgot-password", "/"]);
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+}
 
-export default function ProtectedRoute({ children }: Props) {
-  const { accessToken, initialized } = useSession();
-  const navigate = useNavigate();
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const { isAuthenticated, initialized } = useSession();
   const location = useLocation();
-  const redirectedRef = React.useRef(false);
 
-  const isPublic = PUBLIC_ROUTES.has(location.pathname);
+  // Show loading while session is initializing
+  if (!initialized) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-xl">Loading...</p>
+      </div>
+    );
+  }
 
-  React.useEffect(() => {
-    if (!initialized) return;
-    if (!accessToken && !isPublic && !redirectedRef.current) {
-      redirectedRef.current = true;
-      navigate("/login", { replace: true });
+  const isPublicRoute = PUBLIC_ROUTES.has(location.pathname);
+
+  // If not authenticated and not on a public route, redirect to login
+  if (!isAuthenticated && !isPublicRoute) {
+    // Double-check sessionStorage in case context is stale
+    const storedToken = typeof window !== "undefined" 
+      ? sessionStorage.getItem("accessToken") 
+      : null;
+    
+    if (!storedToken) {
+      return <Navigate to="/login" replace state={{ from: location.pathname }} />;
     }
-  }, [initialized, accessToken, isPublic, navigate]);
-
-  if (!initialized) return null;
-  if (!accessToken && !isPublic) return null;
+  }
 
   return <>{children}</>;
-}
+};
+
+export default ProtectedRoute;

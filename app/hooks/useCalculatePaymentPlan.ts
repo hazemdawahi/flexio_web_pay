@@ -1,38 +1,8 @@
 // File: src/hooks/useCalculatePaymentPlan.ts
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-
-/* ---------------- Env helpers (web) ---------------- */
-const isBrowser = typeof window !== 'undefined';
-
-function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
-  for (const c of candidates) {
-    const v = (typeof c === 'string' ? c : '').trim();
-    const low = v.toLowerCase();
-    if (!v) continue;
-    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slash(es)
-  }
-  return undefined;
-}
-
-function getBaseUrl(): string {
-  return (
-    pickValidApiHost(
-      (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-      (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-      (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
-    ) || 'http://localhost:8080'
-  );
-}
-
-/* ---------------- Token helper (web) ---------------- */
-async function getWebToken(): Promise<string> {
-  if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-  const token = window.sessionStorage.getItem('accessToken');
-  if (!token) throw new Error('No access token found');
-  return token;
-}
+import { useNavigate } from '@remix-run/react';
+import { authFetch, AuthError } from '~/lib/auth/apiClient';
 
 /* ---------------- Request Interfaces ---------------- */
 
@@ -88,12 +58,10 @@ export interface CalculatePaymentPlanResponse {
   error: string | null;
 }
 
-/* ---------------- API Call + adapter to parse string-numbers (web) ---------------- */
+/* ---------------- API Call + adapter to parse string-numbers ---------------- */
 export async function calculatePaymentPlan(
   planRequest: CalculatePaymentPlanRequest
 ): Promise<CalculatePaymentPlanResponse> {
-  const token = await getWebToken();
-
   // Build request payload exactly as your example
   const payload: Record<string, any> = {
     frequency: planRequest.frequency,                         // e.g. "MONTHLY"
@@ -104,32 +72,21 @@ export async function calculatePaymentPlan(
     yearly: planRequest.yearly ?? false,
     interestFreeAmt: Number(planRequest.interestFreeAmt ?? 0).toFixed(2),
   };
+
   if (planRequest.startDate) {
     payload.startDate = planRequest.startDate;                // "YYYY-MM-DD"
   }
 
-  const response = await fetch(`${getBaseUrl()}/api/payment-plans/calculate`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-      Expires: '0',
-    },
-    body: JSON.stringify(payload),
-    // credentials: 'include', // enable only if your API requires cookies
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(
-      `Payment plan calculation failed: ${response.status} ${response.statusText}${text ? ` – ${text}` : ''}`
-    );
-  }
+  // Use centralized authFetch (adds token, base URL, handles 401, etc.)
+  const raw = await authFetch<CalculatePaymentPlanResponse>(
+    '/api/payment-plans/calculate',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
 
   // Parse and convert string-numbers to actual numbers
-  const raw = (await response.json()) as CalculatePaymentPlanResponse;
   if (raw.success && raw.data) {
     const d = raw.data as any;
     const parsedData: CalculatePaymentPlanData = {
@@ -163,9 +120,10 @@ export async function calculatePaymentPlan(
   return raw;
 }
 
-/* ---------------- React Query Hook ---------------- */
+/* ---------------- React Query Hook (Auth Mutation with redirect on 401) ---------------- */
 export function useCalculatePaymentPlan() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   return useMutation<CalculatePaymentPlanResponse, Error, CalculatePaymentPlanRequest>({
     mutationFn: calculatePaymentPlan,
@@ -174,6 +132,10 @@ export function useCalculatePaymentPlan() {
       queryClient.invalidateQueries({ queryKey: ['paymentPlans'] });
     },
     onError: (error) => {
+      if (error instanceof AuthError) {
+        navigate('/login', { replace: true });
+        return;
+      }
       console.error('Payment plan calculation failed:', error.message);
     },
   });

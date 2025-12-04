@@ -1,6 +1,14 @@
 // src/hooks/usePlaidTokens.ts
 
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import {
+  authFetch,
+  isBrowser,
+  getAccessToken,
+  AuthError,
+} from "~/lib/auth/apiClient";
 
 // Interfaces for Plaid Tokens Response
 export interface PlaidTokensData {
@@ -11,57 +19,54 @@ export interface PlaidTokensData {
 
 export interface PlaidTokensResponse {
   success: boolean;
-  data: PlaidTokensData | null;  // now an object of flags, or null on error
+  data: PlaidTokensData | null; // now an object of flags, or null on error
   error: string | null;
 }
 
 // Async function to check if user has required Plaid tokens
 export async function fetchPlaidTokensStatus(): Promise<PlaidTokensResponse> {
   try {
-    // Retrieve the token from sessionStorage
-    const token =
-      typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
-
-    if (!token) {
-      throw new Error('No access token found');
-    }
-
-    // Call the API using the native fetch method
-    const response = await fetch(
-      'http://localhost:8080/api/user/has-required-plaid-tokens',
+    // Use centralized authFetch (adds Authorization, base URL, etc.)
+    const json = await authFetch<PlaidTokensResponse>(
+      "/api/user/has-required-plaid-tokens",
       {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-          Pragma: 'no-cache',
-          Expires: '0',
-        },
+        method: "GET",
       }
     );
 
-    // Check if the response is OK
-    if (!response.ok) {
-      throw new Error(`Error: ${response.status} ${response.statusText}`);
+    return json;
+  } catch (error: any) {
+    // IMPORTANT: let AuthError bubble up so the hook can redirect to /login
+    if (error instanceof AuthError) {
+      throw error;
     }
 
-    // Parse the JSON response
-    const json = await response.json();
-    return json as PlaidTokensResponse;
-  } catch (error: any) {
     return {
       success: false,
       data: null,
-      error: error.message || 'Failed to check Plaid tokens',
+      error: error?.message || "Failed to check Plaid tokens",
     };
   }
 }
 
-// Custom hook to fetch Plaid tokens status using useQuery
+// Custom hook to fetch Plaid tokens status using useQuery (Auth Query)
 export function usePlaidTokensStatus() {
-  return useQuery<PlaidTokensResponse, Error>({
-    queryKey: ['plaidTokensStatus'],
+  const token = isBrowser ? getAccessToken() : null;
+  const navigate = useNavigate();
+
+  const query = useQuery<PlaidTokensResponse, Error>({
+    queryKey: ["plaidTokensStatus", token],
     queryFn: fetchPlaidTokensStatus,
+    enabled: !!token && isBrowser,
+    staleTime: 1000 * 60 * 5,
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate("/login", { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

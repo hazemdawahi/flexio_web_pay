@@ -1,8 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+// ~/hooks/useLogout.ts
 
-const API_BASE = 'http://localhost:8080';
-const LOGOUT_ENDPOINT = `${API_BASE}/api/user/logout`;
+import { useCallback, useRef, useState } from "react";
+import { useNavigate } from "@remix-run/react";
+import { useQueryClient } from "@tanstack/react-query";
+ import { useSession } from "~/context/SessionContext";
+import { API_BASE, getAccessToken } from "~/lib/auth/apiClient";
 
 declare global {
   interface Window {
@@ -13,58 +15,69 @@ declare global {
 
 function broadcastLogout() {
   try {
-    const bc = new BroadcastChannel('auth');
-    bc.postMessage({ type: 'LOGOUT' });
+    const bc = new BroadcastChannel("auth");
+    bc.postMessage({ type: "LOGOUT" });
     bc.close();
   } catch {}
 }
 
 async function oneSignalWebLogout() {
-  try { if (window.OneSignal?.User?.PushSubscription?.optOut) await window.OneSignal.User.PushSubscription.optOut(); } catch {}
-  try { if (window.OneSignal?.logout) await window.OneSignal.logout(); } catch {}
   try {
-    if (window.OneSignal?.setSubscription) await window.OneSignal.setSubscription(false);
-    if (window.OneSignal?.setConsentGiven) await window.OneSignal.setConsentGiven(false);
+    if (window.OneSignal?.User?.PushSubscription?.optOut)
+      await window.OneSignal.User.PushSubscription.optOut();
+  } catch {}
+  try {
+    if (window.OneSignal?.logout) await window.OneSignal.logout();
+  } catch {}
+  try {
+    if (window.OneSignal?.setSubscription)
+      await window.OneSignal.setSubscription(false);
+    if (window.OneSignal?.setConsentGiven)
+      await window.OneSignal.setConsentGiven(false);
   } catch {}
 }
 
-export function useLogoutWeb(options?: { disconnect?: () => Promise<void> | void; redirectTo?: string }) {
+export function useLogoutWeb(options?: {
+  disconnect?: () => Promise<void> | void;
+  redirectTo?: string;
+}) {
   const injectedDisconnect = options?.disconnect;
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const guardRef = useRef(false);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { logout: clearSession } = useSession();
 
   const logout = useCallback(async () => {
     if (guardRef.current) return;
     guardRef.current = true;
     setIsLoggingOut(true);
 
-    // 1) Read access token BEFORE cleanup so we can send it to the server (session only)
-    const accessToken = sessionStorage.getItem('accessToken') ?? undefined;
+    const accessToken = getAccessToken();
 
-    // 2) Call server revoke and WAIT for it (no keepalive).
-    //    Refresh cookie is HttpOnly and will be included via credentials=include.
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
       if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-      await fetch(LOGOUT_ENDPOINT, {
-        method: 'POST',
+      await fetch(`${API_BASE}/api/user/logout`, {
+        method: "POST",
         headers,
-        credentials: 'include',
-        body: JSON.stringify({}), // body not required
+        credentials: "include",
+        body: JSON.stringify({}),
       });
     } catch (e) {
-      console.warn('Logout fetch failed:', e);
+      console.warn("Logout fetch failed:", e);
     }
 
-    // 3) Local cleanup AFTER server call (session only)
-    try { sessionStorage.removeItem('accessToken'); } catch {}
+    // Clear session via context
+    clearSession();
 
     await oneSignalWebLogout();
 
     try {
-      if (typeof injectedDisconnect === 'function') await injectedDisconnect();
+      if (typeof injectedDisconnect === "function") await injectedDisconnect();
       else if (window.sb?.disconnect) await window.sb.disconnect();
     } catch {}
 
@@ -73,33 +86,14 @@ export function useLogoutWeb(options?: { disconnect?: () => Promise<void> | void
       queryClient.clear();
     } catch {}
 
-    // 4) Tell other tabs to purge their in-memory state immediately
     broadcastLogout();
 
     setIsLoggingOut(false);
     guardRef.current = false;
 
-    // 5) Hard navigation (no SPA state survives)
-    const to = options?.redirectTo ?? '/login';
-    window.location.replace(to);
-  }, [injectedDisconnect, queryClient, options?.redirectTo]);
+    const to = options?.redirectTo ?? "/login";
+    navigate(to, { replace: true });
+  }, [injectedDisconnect, queryClient, navigate, options?.redirectTo, clearSession]);
 
   return { logout, isLoggingOut };
-}
-
-// Optional: somewhere central in your app bootstrap, listen and react in every tab:
-export function registerAuthBroadcastListener(purge: () => void) {
-  try {
-    const bc = new BroadcastChannel('auth');
-    bc.onmessage = (e) => {
-      if (e?.data?.type === 'LOGOUT') {
-        try { purge(); } catch {}
-        try { sessionStorage.removeItem('accessToken'); } catch {}
-        window.location.replace('/login');
-      }
-    };
-    return () => bc.close();
-  } catch {
-    return () => {};
-  }
 }

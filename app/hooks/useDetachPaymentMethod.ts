@@ -1,7 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import { authFetch, AuthError } from "~/lib/auth/apiClient";
 
-// Define the structure of the request and response for detaching a payment method
+// Define the structure of the response for detaching a payment method
 interface DetachPaymentMethodResponse {
   success: boolean;
   data: string | null;
@@ -13,47 +14,34 @@ interface DetachPaymentMethodParams {
   paymentMethodId: string;
 }
 
-// Function to detach the payment method from the customer
-async function detachPaymentMethod({ paymentMethodId }: DetachPaymentMethodParams): Promise<DetachPaymentMethodResponse> {
-  try {
-    // Retrieve the JWT token from sessionStorage instead of SecureStore
-    const token = sessionStorage.getItem('accessToken');
-    if (!token) {
-      throw new Error('No access token found');
-    }
-    
-    console.log("paymentMethodId", paymentMethodId);
-    
-    // Make the API request to detach the payment method from the customer
-    const response = await axios.post<DetachPaymentMethodResponse>(
-      'http://localhost:8080/customer/detach-payment-method',
-      { paymentMethodId }, // Send the payment method ID in the request body
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`, // Pass the JWT token as a Bearer token
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    return response.data;
-  } catch (error: any) {
-    throw new Error(error.response?.data?.error || 'Failed to detach payment method');
-  }
+// Function to detach the payment method from the customer (authenticated)
+async function detachPaymentMethod(
+  { paymentMethodId }: DetachPaymentMethodParams
+): Promise<DetachPaymentMethodResponse> {
+  // authFetch automatically attaches the access token and handles refresh / AuthError
+  return authFetch<DetachPaymentMethodResponse>("/api/customer/detach-payment-method", {
+    method: "POST",
+    body: JSON.stringify({ paymentMethodId }),
+  });
 }
 
 // Custom hook to use in your component
 export function useDetachPaymentMethod() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
-  return useMutation({
-    mutationFn: (params: DetachPaymentMethodParams) => detachPaymentMethod(params),
+  return useMutation<DetachPaymentMethodResponse, Error, DetachPaymentMethodParams>({
+    mutationFn: (params) => detachPaymentMethod(params),
     onSuccess: () => {
-      // Invalidate the 'paymentMethods' query to refresh the list after successfully detaching the payment method
-      queryClient.invalidateQueries({ queryKey: ['paymentMethods'] });
+      // Invalidate the 'paymentMethods' query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["paymentMethods"] });
     },
     onError: (error) => {
-      console.error('Error detaching payment method:', error);
+      if (error instanceof AuthError) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      console.error("Error detaching payment method:", error.message);
     },
   });
 }

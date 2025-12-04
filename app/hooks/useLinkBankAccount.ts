@@ -1,5 +1,6 @@
-import axios from 'axios';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import { authFetch, AuthError } from "~/lib/auth/apiClient";
 
 // Define the structure of the response from the link bank account API
 export interface LinkBankAccountResponse {
@@ -10,53 +11,34 @@ export interface LinkBankAccountResponse {
   error: any | null;
 }
 
-// Define the function that makes the API request to link the bank accounts
+// Authenticated function that calls the link bank accounts endpoint
 async function linkBankAccounts(): Promise<LinkBankAccountResponse> {
-  try {
-    // Retrieve the access token from sessionStorage instead of SecureStore
-    const accessToken = sessionStorage.getItem('accessToken');
-    if (!accessToken) {
-      throw new Error('No access token found');
-    }
-
-    // Make the POST request to link the bank accounts
-    const response = await axios.post(
-      'http://localhost:8080/api/plaid/link_bank_accounts', // Use the correct API URL
-      {}, // No body required as per your API documentation
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`, // Pass the access token as a Bearer token
-        },
-      }
-    );
-
-    return response.data; // Return the response data
-  } catch (error: any) {
-    if (error.response) {
-      throw new Error(`Failed to link bank accounts: ${error.response.data}`);
-    } else if (error.request) {
-      throw new Error('Failed to link bank accounts: No response received from the server');
-    } else {
-      throw new Error(`Failed to link bank accounts: ${error.message}`);
-    }
-  }
+  // authFetch will attach the access token and handle refresh / AuthError
+  return authFetch<LinkBankAccountResponse>("/api/plaid/link_bank_accounts", {
+    method: "POST",
+    // No body required as per your API documentation
+  });
 }
 
-// Custom hook to use the link bank accounts API
+// Custom hook to use the link bank accounts API (authenticated mutation)
 export function useLinkBankAccounts() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
-  return useMutation({
-    mutationFn: linkBankAccounts, // No parameter is passed since no body is required
+  return useMutation<LinkBankAccountResponse, Error, void>({
+    mutationFn: () => linkBankAccounts(), // No parameter is passed since no body is required
     onSuccess: () => {
       // Handle the successful linking of all bank accounts
-      console.log('All bank accounts linked successfully');
-      queryClient.invalidateQueries({ queryKey: ['linkedBankAccounts'] }); // Refresh linked bank accounts data
-      queryClient.invalidateQueries({ queryKey: ['paymentMethods'] }); // Refresh payment methods
+      console.log("All bank accounts linked successfully");
+      queryClient.invalidateQueries({ queryKey: ["linkedBankAccounts"] }); // Refresh linked bank accounts data
+      queryClient.invalidateQueries({ queryKey: ["paymentMethods"] }); // Refresh payment methods
     },
     onError: (error) => {
-      console.error('Failed to link bank accounts:', error);
+      if (error instanceof AuthError) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      console.error("Failed to link bank accounts:", error.message);
     },
   });
 }

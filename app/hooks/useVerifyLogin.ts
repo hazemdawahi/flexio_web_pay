@@ -1,5 +1,8 @@
-import { useMutation } from '@tanstack/react-query';
-import { useSession } from '~/context/SessionContext';
+// ~/hooks/useVerifyLogin.ts
+
+import { useMutation } from "@tanstack/react-query";
+import { useSession } from "~/context/SessionContext";
+import { publicFetch } from "~/lib/auth/apiClient";
 
 export interface VerifyLoginRequest {
   identifier: string;
@@ -8,57 +11,57 @@ export interface VerifyLoginRequest {
 
 export interface VerifyLoginResponse {
   success: boolean;
-  data?: { accessToken: string; inapp?: boolean };
+  data?: {
+    accessToken: string;
+    inapp?: boolean;
+  };
   error?: string;
-}
-
-async function verifyLoginData(verifyRequest: VerifyLoginRequest): Promise<VerifyLoginResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-  try {
-    // Use /verify/login-web endpoint - NO refresh token, NO refresh cookie
-    const response = await fetch('http://localhost:8080/api/user/verify/login-web', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(verifyRequest),
-      signal: controller.signal,
-      cache: 'no-store',
-      // No credentials needed since we're not using cookies for this flow
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(`Verification failed: ${errorData?.error || response.status}`);
-    }
-    return await response.json();
-  } finally {
-    clearTimeout(timeoutId);
-  }
 }
 
 export function useVerifyLogin() {
   const { setAccessToken, setInApp } = useSession();
 
   return useMutation<VerifyLoginResponse, Error, VerifyLoginRequest>({
-    mutationFn: verifyLoginData,
+    mutationFn: async (data) => {
+      const res = await publicFetch<VerifyLoginResponse>(
+        "/api/user/verify/login-web",
+        {
+          method: "POST",
+          body: JSON.stringify(data),
+        }
+      );
+
+      // Normalize errors so React Query's `error` is set properly
+      if (!res?.success) {
+        throw new Error(res?.error || "Login verification failed");
+      }
+
+      return res;
+    },
     onSuccess: (data) => {
       if (data?.success && data?.data?.accessToken) {
         const at = data.data.accessToken;
+
+        // Persist access token
         try {
-          sessionStorage.setItem('accessToken', at);
-          console.log("accessToken", at);
-        } catch {}
+          sessionStorage.setItem("accessToken", at);
+        } catch {
+          // ignore storage errors
+        }
         setAccessToken(at);
 
-        // Web-only login: always false for inApp
-        const explicitInApp = data?.data?.inapp === true;
-        setInApp(explicitInApp);
+        const inApp = data?.data?.inapp === true;
+        setInApp(inApp);
         try {
-          sessionStorage.setItem("inApp", explicitInApp ? "true" : "false");
-        } catch {}
+          sessionStorage.setItem("inApp", inApp ? "true" : "false");
+        } catch {
+          // ignore storage errors
+        }
       }
-      // No refresh cookie is set by server for this endpoint
+    },
+    onError: (error) => {
+      // Optional: central place to log / toast
+      console.error("Verify login failed:", error.message);
     },
   });
 }

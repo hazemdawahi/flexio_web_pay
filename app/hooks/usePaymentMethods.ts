@@ -1,5 +1,13 @@
 // src/hooks/usePaymentMethods.ts
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useEffect } from "react";
+import { useNavigate } from "@remix-run/react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import {
+  authFetch,
+  isBrowser,
+  getAccessToken,
+  AuthError,
+} from "~/lib/auth/apiClient";
 
 /* =========================
  * Types
@@ -28,7 +36,7 @@ export interface BankAccount {
 }
 
 export interface PaymentMethod {
-  type: 'card' | 'bank';
+  type: "card" | "bank";
   id: string;
   created?: number;
   card?: Card;
@@ -49,81 +57,52 @@ export interface PaymentMethodsResponse {
 }
 
 /* =========================
- * Env helpers (web)
- * ========================= */
-const isBrowser = typeof window !== 'undefined';
-
-function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
-  for (const c of candidates) {
-    const v = (typeof c === 'string' ? c : '').trim();
-    const low = v.toLowerCase();
-    if (!v) continue;
-    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slashes
-  }
-  return undefined;
-}
-
-const API_BASE =
-  pickValidApiHost(
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-    (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-    (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
-  ) ?? 'http://localhost:8080';
-
-/* =========================
- * API
- * ========================= */
-async function fetchPaymentMethodsStrict(): Promise<PaymentMethod[]> {
-  if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-  const token = window.sessionStorage.getItem('accessToken');
-  if (!token) throw new Error('No access token found');
-
-  const res = await fetch(`${API_BASE}/customer/payment-methods?t=${Date.now()}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-    },
-    // credentials: 'include', // enable only if your API needs cookies in addition to the Bearer token
-    cache: 'no-store',
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Payment methods HTTP ${res.status}${text ? `: ${text}` : ''}`);
-  }
-
-  const json = (await res.json()) as PaymentMethodsResponse;
-
-  if (!json?.success) {
-    throw new Error(
-      `Payment methods API error: ${json?.error ?? json?.data?.error ?? 'unknown'}`
-    );
-  }
-
-  return json?.data?.data ?? [];
-}
-
-/* =========================
- * Hook
+ * Hook (Auth Query)
  * ========================= */
 /**
  * STRICT per-user cache partition.
  * - Only runs when a real userId exists (no "anon" fallback)
- * - Returns PaymentMethod[] directly
+ * - Uses authFetch so it attaches the access token automatically
+ * - Redirects to /login if the token is invalid / expired (AuthError)
  *
  * Usage:
- *   const { data, isLoading, error } = usePaymentMethods(user?.id)
+ *   const paymentMethodsQuery = usePaymentMethods(user?.id)
+ *   const methods = paymentMethodsQuery.data // PaymentMethod[] | undefined
  */
 export function usePaymentMethods(userId: string | undefined) {
-  return useQuery<PaymentMethod[], Error>({
-    queryKey: ['paymentMethods', userId], // unique per identity
-    queryFn: fetchPaymentMethodsStrict,
-    enabled: !!userId && isBrowser,       // never run for unknown identity or during SSR
+  const token = isBrowser ? getAccessToken() : null;
+  const navigate = useNavigate();
+
+  const query = useQuery<PaymentMethod[], Error>({
+    queryKey: ["paymentMethods", userId],
+    queryFn: async () => {
+      // Use authFetch so it adds Authorization and handles 401 as AuthError
+      const json = await authFetch<PaymentMethodsResponse>(
+        `/customer/payment-methods?t=${Date.now()}`
+      );
+
+      if (!json?.success) {
+        throw new Error(
+          `Payment methods API error: ${
+            json?.error ?? json?.data?.error ?? "unknown"
+          }`
+        );
+      }
+
+      return json.data?.data ?? [];
+    },
+    enabled: !!token && !!userId && isBrowser, // require token + known userId + browser
     placeholderData: keepPreviousData,
-    staleTime: 1000 * 60 * 5,             // optional: cache for 5 minutes
+    staleTime: 1000 * 60 * 5, // 5 minutes
     refetchOnWindowFocus: true,
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate("/login", { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

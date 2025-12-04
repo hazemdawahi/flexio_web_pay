@@ -2,7 +2,7 @@
 
 import React from "react";
 import { PaymentMethod } from "~/hooks/usePaymentMethods";
-import { getCardImage } from "~/utils/util";
+import { getCardImage } from "~/lib/utils";
 
 interface PaymentMethodItemProps {
   method: PaymentMethod;

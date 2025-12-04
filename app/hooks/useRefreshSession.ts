@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
+ import { useSession } from "~/context/SessionContext";
 import { refreshOnce } from "~/lib/auth/refreshOnce";
-import { useSession } from "~/context/SessionContext";
 
 export type RefreshResponse = {
   success: boolean;
@@ -19,12 +19,18 @@ export function useRefreshSession() {
         const at = res.data.accessToken!;
         try {
           sessionStorage.setItem("accessToken", at);
-        } catch {}
+        } catch {
+          // ignore storage errors (e.g., SSR or disabled storage)
+        }
         setAccessToken(at);
 
         const inapp = res?.data?.inapp === true;
         setInApp(inapp);
-        try { sessionStorage.setItem("inApp", inapp ? "true" : "false"); } catch {}
+        try {
+          sessionStorage.setItem("inApp", inapp ? "true" : "false");
+        } catch {
+          // ignore storage errors
+        }
       }
 
       if (!res?.success) {

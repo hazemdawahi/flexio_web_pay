@@ -1,6 +1,14 @@
 // src/hooks/useMonitoredProduct.ts
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  AuthError,
+  authFetch,
+  getAccessToken,
+  isBrowser,
+} from "~/lib/auth/apiClient";
 
 export interface Price {
   id: string;
@@ -19,51 +27,32 @@ export interface MonitoredProduct {
   price: Price;
   unitsInStock: number;
   inStock: boolean;
+
+  // ✅ fields your page uses:
+  state: string;
+  monitoringCount: number;
+  productUrl?: string | null;
 }
 
-export interface MonitoredProductResponse {
-  success: boolean;
-  data: MonitoredProduct | null;
-  error?: string | null;
-}
-
-// Fetch monitored product details by product id
-async function fetchMonitoredProduct(productId: string, token: string): Promise<MonitoredProductResponse> {
-  const response = await fetch(`http://localhost:8080/api/monitored-products/${productId}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`, // Pass the access token in the header
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Error: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-
-  // Assuming the API returns the product details directly
-  const res = await response.json();
-
-  return {
-    success: true,
-    data: res,
-    error: null,
-  };
-}
-
-// Custom hook to fetch monitored product details using react-query
+// ✅ We now return the product directly, not a { success, data } wrapper
 export function useMonitoredProduct(productId: string) {
-  // Retrieve the access token from sessionStorage
-  const token = typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null;
+  const token = isBrowser ? getAccessToken() : null;
+  const navigate = useNavigate();
 
-  return useQuery<MonitoredProductResponse, Error>({
-    queryKey: ['monitoredProduct', productId, token],
-    queryFn: () => {
-      if (!token) throw new Error('No access token available');
-      return fetchMonitoredProduct(productId, token);
-    },
-    enabled: !!productId && !!token,
+  const query = useQuery<MonitoredProduct, Error>({
+    queryKey: ["monitoredProduct", productId, token],
+    queryFn: () =>
+      authFetch<MonitoredProduct>(`/api/monitored-products/${productId}`),
+    enabled: !!productId && !!token && isBrowser,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate("/login", { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

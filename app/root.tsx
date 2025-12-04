@@ -12,8 +12,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import SessionProvider from "./provider/sessionProvider";
 import { Elements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
-
-// Example: using a toast library
 import { toast } from "sonner";
 
 export const links: LinksFunction = () => [
@@ -29,28 +27,26 @@ export const links: LinksFunction = () => [
   },
 ];
 
+const queryClient = new QueryClient();
+
 export default function Root() {
   const stripeKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY;
   console.log("stripe key", stripeKey);
 
   const stripePromise = useMemo(() => loadStripe(stripeKey), [stripeKey]);
-  const queryClient = new QueryClient();
 
   useEffect(() => {
     function handlePaymentMessages(event: MessageEvent) {
       if (!event.data) return;
 
-      // Optionally, verify event.origin here if needed
       const { status, error } = event.data;
 
       if (status === "COMPLETED") {
         console.log("Root.tsx => Payment COMPLETED message received");
         toast.success("Payment completed successfully!");
-        // Do any additional logic (reload data, close modal, etc.)
       } else if (status === "FAILED") {
         console.log("Root.tsx => Payment FAILED or canceled", error);
         toast.error(error || "Payment canceled or closed before completion.");
-        // Do any additional logic
       }
     }
 

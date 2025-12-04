@@ -1,20 +1,21 @@
 // File: src/hooks/useUnifiedCommerce.ts
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import { isBrowser, getAccessToken, AuthError } from "~/lib/auth/apiClient";
 
 /** =========================
  * Config
  * ========================= */
 const TIMEOUT_MS = 60_000; // 60 seconds
-const isBrowser = typeof window !== 'undefined';
 
 function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
   for (const c of candidates) {
-    const v = (typeof c === 'string' ? c : '').trim();
+    const v = (typeof c === "string" ? c : "").trim();
     const low = v.toLowerCase();
     if (!v) continue;
-    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slashes
+    if (["false", "0", "null", "undefined"].includes(low)) continue;
+    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ""); // strip trailing slashes
   }
   return undefined;
 }
@@ -22,10 +23,13 @@ function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
 function getApiBase(): string {
   return (
     pickValidApiHost(
-      (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-      (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-      (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined,
-    ) || 'http://localhost:8080'
+      (typeof import.meta !== "undefined" &&
+        (import.meta as any).env?.VITE_API_HOST) as string | undefined,
+      (typeof process !== "undefined" &&
+        (process as any).env?.REACT_APP_API_HOST) as string | undefined,
+      (typeof process !== "undefined" &&
+        (process as any).env?.API_HOST) as string | undefined
+    ) || "http://localhost:8080"
   );
 }
 
@@ -34,21 +38,21 @@ function getApiBase(): string {
  * ========================= */
 
 export type UnifiedOperationType =
-  | 'CHECKOUT'
-  | 'PAYMENT'
-  | 'SEND'
-  | 'ACCEPT_REQUEST'
-  | 'ACCEPT_SPLIT_REQUEST'
-  | 'VIRTUAL_CARD'
-  | 'SOTERIA_PAYMENT';
+  | "CHECKOUT"
+  | "PAYMENT"
+  | "SEND"
+  | "ACCEPT_REQUEST"
+  | "ACCEPT_SPLIT_REQUEST"
+  | "VIRTUAL_CARD"
+  | "SOTERIA_PAYMENT";
 
 export type FrequencyEnum =
-  | 'DAILY'
-  | 'WEEKLY'
-  | 'BI_WEEKLY'
-  | 'SEMI_MONTHLY'
-  | 'MONTHLY'
-  | 'YEARLY'
+  | "DAILY"
+  | "WEEKLY"
+  | "BI_WEEKLY"
+  | "SEMI_MONTHLY"
+  | "MONTHLY"
+  | "YEARLY"
   | string;
 
 /** Money-like input the backend accepts */
@@ -71,7 +75,7 @@ export interface SuperchargeDetail {
 
 export interface SplitPaymentDetail {
   // No id in the cURL request bodies
-  status?: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | string;
+  status?: "PENDING" | "PAID" | "FAILED" | "CANCELLED" | string;
   dueDate: string; // "YYYY-MM-DD"
   amount?: number | string;
   originalAmount?: number | string;
@@ -126,7 +130,7 @@ export interface CheckoutBlock {
   redirectUrl?: string | null;
   reference?: string | null;
   checkoutDetails?: any | null;
-  checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
+  checkoutType?: "ONLINE" | "IN_STORE" | string | null;
   discountIds?: string[];
   otherUsers?: OtherUserSplit[];
   metadata?: Record<string, any>;
@@ -134,15 +138,15 @@ export interface CheckoutBlock {
 
 /** VIRTUAL_CARD options object exactly as in your cURL */
 export interface VirtualCardOptions {
-  cardOnly?: boolean;                 // default false
-  disableControls?: boolean;          // default false
-  prefund?: boolean;                  // default true
-  approvalsOnly?: boolean;            // default true
-  activateCard?: boolean;             // default true
-  expirationHours?: number;           // default 24
-  showPan?: boolean;                  // default false
-  showCvv?: boolean;                  // default false
-  prefundAmount?: MoneyLike | null;   // optional Money
+  cardOnly?: boolean; // default false
+  disableControls?: boolean; // default false
+  prefund?: boolean; // default true
+  approvalsOnly?: boolean; // default true
+  activateCard?: boolean; // default true
+  expirationHours?: number; // default 24
+  showPan?: boolean; // default false
+  showCvv?: boolean; // default false
+  prefundAmount?: MoneyLike | null; // optional Money
   singleUse?: boolean | null;
   spendControlProfileId?: string | null;
   memo?: string | null;
@@ -153,7 +157,7 @@ export interface VirtualCardOptions {
  * ========================= */
 
 export interface CheckoutRequest extends CommonPlanFields {
-  type: 'CHECKOUT';
+  type: "CHECKOUT";
 
   /** Top-level (as per cURL) */
   checkoutToken?: string | null;
@@ -161,14 +165,14 @@ export interface CheckoutRequest extends CommonPlanFields {
   checkoutRedirectUrl?: string | null;
   checkoutReference?: string | null;
   checkoutDetails?: any | null;
-  checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
+  checkoutType?: "ONLINE" | "IN_STORE" | string | null;
 
   /** Backward-compatible nested block (optional) */
   checkout?: CheckoutBlock;
 }
 
 export interface PaymentRequest extends CommonPlanFields {
-  type: 'PAYMENT';
+  type: "PAYMENT";
 
   /** Top-level (as per cURL) */
   paymentTotalAmount?: MoneyLike | null; // alias allowed
@@ -185,24 +189,24 @@ export interface SendRecipient {
 }
 
 export interface SendRequest extends CommonPlanFields {
-  type: 'SEND';
+  type: "SEND";
   senderId?: string | null; // leave blank → server uses current user
   recipient: SendRecipient;
   note?: string | null;
 }
 
 export interface AcceptRequest extends CommonPlanFields {
-  type: 'ACCEPT_REQUEST';
+  type: "ACCEPT_REQUEST";
   requestId: string; // Request id
 }
 
 export interface AcceptSplitRequest extends CommonPlanFields {
-  type: 'ACCEPT_SPLIT_REQUEST';
+  type: "ACCEPT_SPLIT_REQUEST";
   requestId: string; // SplitRequest id
 }
 
 export interface VirtualCardRequest extends CommonPlanFields {
-  type: 'VIRTUAL_CARD';
+  type: "VIRTUAL_CARD";
   /** Top-level merchant id is REQUIRED per your cURL */
   merchantId: string;
 
@@ -215,7 +219,7 @@ export interface VirtualCardRequest extends CommonPlanFields {
 
 /** SOTERIA_PAYMENT */
 export interface SoteriaPaymentRequest extends CommonPlanFields {
-  type: 'SOTERIA_PAYMENT';
+  type: "SOTERIA_PAYMENT";
 
   /** Optional identifiers / totals */
   merchantId?: string | null;
@@ -315,11 +319,16 @@ export interface UnifiedSend {
   version?: number;
   id?: string;
   sender?: { id?: string } | null;
-  recipients?: Array<{ id?: string; user?: { id?: string } | null; amount?: number | string; status?: string }>;
+  recipients?: Array<{
+    id?: string;
+    user?: { id?: string } | null;
+    amount?: number | string;
+    status?: string;
+  }>;
   recipient?: { id?: string } | null; // some variants
   amount?: number | string;
   paymentSchemes?: Array<Record<string, any>>;
-  type?: 'INSTANTANEOUS' | 'YEARLY' | string;
+  type?: "INSTANTANEOUS" | "YEARLY" | string;
   note?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -329,7 +338,12 @@ export interface UnifiedRequestResponse {
   version?: number;
   id?: string;
   sender?: { id?: string } | null;
-  recipients?: Array<{ id?: string; user?: { id?: string } | null; amount?: number | string; status?: string }>;
+  recipients?: Array<{
+    id?: string;
+    user?: { id?: string } | null;
+    amount?: number | string;
+    status?: string;
+  }>;
   memo?: string | null;
   state?: string;
   createdAt?: string;
@@ -364,7 +378,7 @@ export interface UnifiedCommerceResponse {
  * ========================= */
 
 function isPlainObject(x: any): x is Record<string, any> {
-  return x != null && typeof x === 'object' && !Array.isArray(x);
+  return x != null && typeof x === "object" && !Array.isArray(x);
 }
 
 /**
@@ -382,7 +396,7 @@ function pruneEmptyLists(obj: any) {
   for (const key of Object.keys(obj)) {
     const val = (obj as any)[key];
 
-    if (key === 'splitPaymentsList') {
+    if (key === "splitPaymentsList") {
       const isEmptyArray = Array.isArray(val) && val.length === 0;
       const isNullish = val == null; // null or undefined
       if (isEmptyArray || isNullish) {
@@ -391,7 +405,7 @@ function pruneEmptyLists(obj: any) {
       }
     }
 
-    if (key === 'splitSuperchargeDetails' && Array.isArray(val) && val.length === 0) {
+    if (key === "splitSuperchargeDetails" && Array.isArray(val) && val.length === 0) {
       delete (obj as any)[key];
       continue;
     }
@@ -425,8 +439,8 @@ function pruneCardDefaultFlags(obj: any) {
     if (key in CARD_DEFAULTS) {
       const def = CARD_DEFAULTS[key];
       const isEqualDefault =
-        (typeof def === 'number' && typeof val === 'number' && val === def) ||
-        (typeof def === 'boolean' && typeof val === 'boolean' && val === def);
+        (typeof def === "number" && typeof val === "number" && val === def) ||
+        (typeof def === "boolean" && typeof val === "boolean" && val === def);
 
       if (val == null || isEqualDefault) {
         delete (obj as any)[key];
@@ -448,7 +462,7 @@ function stripAllSplitPayments(obj: any) {
 
   for (const key of Object.keys(obj)) {
     const val = (obj as any)[key];
-    if (key === 'splitPaymentsList') {
+    if (key === "splitPaymentsList") {
       delete (obj as any)[key];
       continue;
     }
@@ -477,16 +491,19 @@ function normalizeToTopLevel(body: UnifiedCommerceRequest): UnifiedCommerceReque
   if (c && isPlainObject(c)) {
     asCheckout.checkoutToken = asCheckout.checkoutToken ?? c.checkoutToken ?? null;
     asCheckout.checkoutMerchantId = asCheckout.checkoutMerchantId ?? (c.merchantId as any);
-    asCheckout.checkoutRedirectUrl = asCheckout.checkoutRedirectUrl ?? c.redirectUrl ?? null;
+    asCheckout.checkoutRedirectUrl =
+      asCheckout.checkoutRedirectUrl ?? c.redirectUrl ?? null;
     asCheckout.checkoutReference = asCheckout.checkoutReference ?? c.reference ?? null;
     asCheckout.checkoutDetails = asCheckout.checkoutDetails ?? c.checkoutDetails ?? null;
     asCheckout.checkoutType = asCheckout.checkoutType ?? (c.checkoutType as any);
 
     if (c.discountIds && Array.isArray(c.discountIds)) {
-      (asCheckout as any).discountIds = (asCheckout as any).discountIds ?? c.discountIds;
+      (asCheckout as any).discountIds =
+        (asCheckout as any).discountIds ?? c.discountIds;
     }
     if (c.otherUsers && Array.isArray(c.otherUsers)) {
-      (asCheckout as any).otherUsers = (asCheckout as any).otherUsers ?? c.otherUsers;
+      (asCheckout as any).otherUsers =
+        (asCheckout as any).otherUsers ?? c.otherUsers;
     }
 
     delete (asCheckout as any).checkout;
@@ -504,9 +521,9 @@ function sanitizeUnifiedRequest(body: UnifiedCommerceRequest): UnifiedCommerceRe
 
 /* ---------------- Token helper (web) ---------------- */
 async function getWebToken(): Promise<string> {
-  if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-  const token = window.sessionStorage.getItem('accessToken');
-  if (!token) throw new Error('No access token found');
+  if (!isBrowser) throw new Error("Token storage unavailable during SSR");
+  const token = getAccessToken();
+  if (!token) throw new Error("No access token found");
   return token;
 }
 
@@ -527,21 +544,26 @@ async function callUnifiedCommerce(
 
   async function sendOnce(payload: UnifiedCommerceRequest) {
     const res = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/plain',
+        "Content-Type": "application/json",
+        Accept: "application/json, text/plain",
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
 
-    const contentType = res.headers.get('content-type') || '';
+    // Map 401 → AuthError so the hook can redirect using the shared pattern
+    if (res.status === 401) {
+      throw new AuthError("Unauthorized");
+    }
+
+    const contentType = res.headers.get("content-type") || "";
     const rawText = await res.text();
 
     const parseMaybeJson = () => {
-      if (contentType.includes('application/json')) {
+      if (contentType.includes("application/json")) {
         try {
           return JSON.parse(rawText);
         } catch {
@@ -567,13 +589,13 @@ async function callUnifiedCommerce(
       (first.data && (first.data as any).error) ||
         (first.data && (first.data as any).message) ||
         first.rawText ||
-        ''
+        ""
     ).toLowerCase();
 
     if (
-      msg.includes('splitpaymentslist must not be null or empty') ||
-      (msg.includes('splitpaymentslist') && msg.includes('must not be empty')) ||
-      (msg.includes('split payments list') && msg.includes('empty'))
+      msg.includes("splitpaymentslist must not be null or empty") ||
+      (msg.includes("splitpaymentslist") && msg.includes("must not be empty")) ||
+      (msg.includes("split payments list") && msg.includes("empty"))
     ) {
       const retryBody = JSON.parse(JSON.stringify(safeBody)) as UnifiedCommerceRequest;
       stripAllSplitPayments(retryBody);
@@ -586,12 +608,12 @@ async function callUnifiedCommerce(
         }
         if (!isPlainObject(obj)) return;
 
-        if (typeof obj.numberOfPayments === 'number' && obj.numberOfPayments <= 0) {
+        if (typeof obj.numberOfPayments === "number" && obj.numberOfPayments <= 0) {
           obj.numberOfPayments = 1;
         }
         if (
           obj.virtualCard &&
-          typeof obj.virtualCard.numberOfPayments === 'number' &&
+          typeof obj.virtualCard.numberOfPayments === "number" &&
           obj.virtualCard.numberOfPayments <= 0
         ) {
           obj.virtualCard.numberOfPayments = 1;
@@ -606,7 +628,8 @@ async function callUnifiedCommerce(
       }
 
       const txt =
-        (second.data && ((second.data as any).error || (second.data as any).message)) ||
+        (second.data &&
+          ((second.data as any).error || (second.data as any).message)) ||
         second.rawText ||
         `Request failed with status ${second.status}`;
       throw new Error(txt);
@@ -618,7 +641,7 @@ async function callUnifiedCommerce(
       `Request failed with status ${first.status}`;
     throw new Error(text);
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
+    if (err?.name === "AbortError") {
       throw new Error(`Request timed out after ${TIMEOUT_MS / 1000}s`);
     }
     throw err;
@@ -629,27 +652,27 @@ async function callUnifiedCommerce(
 
 export async function callUnifiedHealth(
   opts?: { tokenOverride?: string; baseUrlOverride?: string }
-): Promise<'ok' | string> {
+): Promise<"ok" | string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   const url = `${opts?.baseUrlOverride ?? getApiBase()}/api/user/unified/health`;
 
   try {
     const res = await fetch(url, {
-      method: 'GET',
+      method: "GET",
       headers: {
         // No auth required in your example, but harmless if present:
         ...(opts?.tokenOverride ? { Authorization: `Bearer ${opts.tokenOverride}` } : {}),
-        Accept: 'text/plain, application/json',
+        Accept: "text/plain, application/json",
       },
       signal: controller.signal,
     });
 
     const text = (await res.text()).trim();
-    return (text as any) || (res.ok ? 'ok' : 'error');
+    return (text as any) || (res.ok ? "ok" : "error");
   } catch (e: any) {
-    if (e?.name === 'AbortError') return 'timeout';
-    return String(e?.message || 'error');
+    if (e?.name === "AbortError") return "timeout";
+    return String(e?.message || "error");
   } finally {
     clearTimeout(timeout);
   }
@@ -661,32 +684,37 @@ export async function callUnifiedHealth(
 
 export function useUnifiedCommerce() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   return useMutation<UnifiedCommerceResponse, Error, UnifiedCommerceRequest>({
     mutationFn: (body) => callUnifiedCommerce(body),
     onSuccess: (_data, variables) => {
       // Invalidate likely-affected caches (tweak to your app’s query keys)
-      queryClient.invalidateQueries({ queryKey: ['virtualCards'] });
-      queryClient.invalidateQueries({ queryKey: ['bnplCards'] });
-      queryClient.invalidateQueries({ queryKey: ['activeCard'] });
+      queryClient.invalidateQueries({ queryKey: ["virtualCards"] });
+      queryClient.invalidateQueries({ queryKey: ["bnplCards"] });
+      queryClient.invalidateQueries({ queryKey: ["activeCard"] });
 
-      queryClient.invalidateQueries({ queryKey: ['payments'] });
-      queryClient.invalidateQueries({ queryKey: ['checkouts'] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+      queryClient.invalidateQueries({ queryKey: ["checkouts"] });
 
-      queryClient.invalidateQueries({ queryKey: ['send'] });
-      queryClient.invalidateQueries({ queryKey: ['sends'] });
+      queryClient.invalidateQueries({ queryKey: ["send"] });
+      queryClient.invalidateQueries({ queryKey: ["sends"] });
 
-      queryClient.invalidateQueries({ queryKey: ['requests'] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
 
-      queryClient.invalidateQueries({ queryKey: ['soteria'] });
-      queryClient.invalidateQueries({ queryKey: ['soteriaPayments'] });
+      queryClient.invalidateQueries({ queryKey: ["soteria"] });
+      queryClient.invalidateQueries({ queryKey: ["soteriaPayments"] });
 
       // Optionally branch by op type if you want very targeted invalidations
       // if (variables.type === 'SEND') { ... }
       // if (variables.type === 'SOTERIA_PAYMENT') { ... }
     },
     onError: (error) => {
-      console.error('Unified commerce failed:', error.message);
+      if (error instanceof AuthError) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      console.error("Unified commerce failed:", error.message);
     },
   });
 }
@@ -700,16 +728,16 @@ export function useUnifiedCommerce() {
 export function buildCheckoutRequest(
   topLevel: {
     checkoutToken?: string | null;
-    checkoutMerchantId?: string | null;   // "MID_ABC123"
-    checkoutRedirectUrl?: string | null;  // return URL
-    checkoutReference?: string | null;    // "ORDER-100045"
-    checkoutDetails?: any | null;         // your full details object
-    checkoutType?: 'ONLINE' | 'IN_STORE' | string | null;
+    checkoutMerchantId?: string | null; // "MID_ABC123"
+    checkoutRedirectUrl?: string | null; // return URL
+    checkoutReference?: string | null; // "ORDER-100045"
+    checkoutDetails?: any | null; // your full details object
+    checkoutType?: "ONLINE" | "IN_STORE" | string | null;
   },
   common?: CommonPlanFields
 ): CheckoutRequest {
   return {
-    type: 'CHECKOUT',
+    type: "CHECKOUT",
     ...topLevel,
     ...common,
   };
@@ -724,7 +752,7 @@ export function buildPaymentRequest(
   common?: CommonPlanFields
 ): PaymentRequest {
   return {
-    type: 'PAYMENT',
+    type: "PAYMENT",
     merchantId: opts.merchantId ?? null,
     paymentTotalAmount: opts.paymentTotalAmount ?? null,
     ...common,
@@ -734,10 +762,10 @@ export function buildPaymentRequest(
 // 2b) PAYMENT (resume by id, if supported server-side)
 export function buildPaymentResumeRequest(
   paymentId: string,
-  extra?: Omit<PaymentRequest, 'type' | 'paymentId'>
+  extra?: Omit<PaymentRequest, "type" | "paymentId">
 ): PaymentRequest {
   return {
-    type: 'PAYMENT',
+    type: "PAYMENT",
     paymentId,
     ...(extra as any),
   };
@@ -750,7 +778,7 @@ export function buildSendRequest(
   common?: CommonPlanFields
 ): SendRequest {
   return {
-    type: 'SEND',
+    type: "SEND",
     senderId: opts?.senderId ?? null,
     recipient,
     note: opts?.note ?? null,
@@ -764,7 +792,7 @@ export function buildAcceptRequest(
   common?: CommonPlanFields
 ): AcceptRequest {
   return {
-    type: 'ACCEPT_REQUEST',
+    type: "ACCEPT_REQUEST",
     requestId,
     ...common,
   };
@@ -776,7 +804,7 @@ export function buildAcceptSplitRequest(
   common?: CommonPlanFields
 ): AcceptSplitRequest {
   return {
-    type: 'ACCEPT_SPLIT_REQUEST',
+    type: "ACCEPT_SPLIT_REQUEST",
     requestId,
     ...common,
   };
@@ -789,7 +817,7 @@ export function buildVirtualCardRequestWithOptions(
   common?: CommonPlanFields
 ): VirtualCardRequest {
   return {
-    type: 'VIRTUAL_CARD',
+    type: "VIRTUAL_CARD",
     merchantId,
     virtualCard,
     ...common,
@@ -802,7 +830,7 @@ export function buildVirtualCardRequest(
   common?: CommonPlanFields
 ): VirtualCardRequest {
   return {
-    type: 'VIRTUAL_CARD',
+    type: "VIRTUAL_CARD",
     merchantId,
     ...common,
   };
@@ -825,7 +853,7 @@ export function buildSoteriaPaymentRequest(
   common?: CommonPlanFields
 ): SoteriaPaymentRequest {
   return {
-    type: 'SOTERIA_PAYMENT',
+    type: "SOTERIA_PAYMENT",
     merchantId: opts?.merchantId ?? null,
     soteriaPaymentTotalAmount: opts?.soteriaPaymentTotalAmount ?? null,
     soteriaPayload: opts?.soteriaPayload ?? null,

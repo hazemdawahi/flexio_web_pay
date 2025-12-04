@@ -1,5 +1,13 @@
 // src/hooks/useCreditAccounts.ts
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@remix-run/react';
+import { useEffect } from 'react';
+import {
+  authFetch,
+  isBrowser,
+  getAccessToken,
+  AuthError,
+} from '~/lib/auth/apiClient';
 
 // --- Interfaces ------------------------------------------------------------
 
@@ -34,75 +42,11 @@ export interface CreditAccountsResponse {
   error: string | null;
 }
 
-// --- Env helpers: sanitize and require absolute http(s) --------------------
-
-const isBrowser = typeof window !== 'undefined';
-
-function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
-  for (const c of candidates) {
-    const v = (typeof c === 'string' ? c : '').trim();
-    const low = v.toLowerCase();
-    if (!v) continue;
-    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slash
-  }
-  return undefined;
-}
-
-const SERVER_BASE_URL =
-  pickValidApiHost(
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-    (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-    (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
-  ) ?? 'http://localhost:8080';
-
-// --- Fetch function --------------------------------------------------------
+// --- Fetch function (using centralized authFetch) --------------------------
 
 async function fetchCreditAccounts(): Promise<CreditAccountsResponse> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
-
-  try {
-    if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-    const token = window.sessionStorage.getItem('accessToken');
-    if (!token) {
-      throw new Error('No access token found');
-    }
-
-    const res = await fetch(`${SERVER_BASE_URL}/api/credit-accounts`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      cache: 'no-store',
-      // credentials: 'include', // enable only if your API requires cookies
-    });
-
-    if (!res.ok) {
-      // try to read json error; fallback to status text
-      let errBody: any = null;
-      try {
-        errBody = await res.json();
-      } catch {
-        // ignore
-      }
-      throw new Error(
-        `Fetch credit accounts failed: ${errBody?.error ?? res.statusText}`
-      );
-    }
-
-    // Parse the JSON into our typed interface
-    return (await res.json()) as CreditAccountsResponse;
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
+  // authFetch handles base URL, token, and throws AuthError on 401
+  return authFetch<CreditAccountsResponse>('/api/credit-accounts');
 }
 
 // --- Hook ---------------------------------------------------------------
@@ -111,13 +55,26 @@ async function fetchCreditAccounts(): Promise<CreditAccountsResponse> {
  * React-Query hook to fetch credit‐account tokens.
  *
  * Query Key: ['creditAccounts']
+ * Pattern: Authenticated Query (requires login, redirects on 401)
  */
 export function useCreditAccounts() {
-  return useQuery<CreditAccountsResponse, Error>({
-    queryKey: ['creditAccounts'],
+  const token = isBrowser ? getAccessToken() : null;
+  const navigate = useNavigate();
+
+  const query = useQuery<CreditAccountsResponse, Error>({
+    queryKey: ['creditAccounts', token],
     queryFn: fetchCreditAccounts,
     refetchOnWindowFocus: true,
-    enabled: isBrowser, // avoid accessing sessionStorage during SSR
-    staleTime: 1000 * 60 * 5, // optional: cache for 5 minutes
+    enabled: !!token && isBrowser, // avoid accessing storage during SSR
+    staleTime: 1000 * 60 * 5, // cache for 5 minutes
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate('/login', { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

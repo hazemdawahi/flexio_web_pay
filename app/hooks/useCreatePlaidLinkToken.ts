@@ -1,5 +1,6 @@
-import axios from 'axios';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from '@remix-run/react';
+import { authFetch, AuthError } from '~/lib/auth/apiClient';
 
 // Define the structure of the response from the create Plaid link token API
 export interface CreatePlaidLinkTokenResponse {
@@ -10,35 +11,33 @@ export interface CreatePlaidLinkTokenResponse {
   error: any | null;
 }
 
-// Function to fetch the link token from the API
+// Function to fetch the link token from the API (using authFetch)
 async function createPlaidLinkToken(): Promise<CreatePlaidLinkTokenResponse> {
   try {
-    // Retrieve the access token from sessionStorage instead of SecureStore
-    const accessToken = sessionStorage.getItem('accessToken');
-    if (!accessToken) {
-      throw new Error('No access token found');
-    }
-
-    const response = await axios.post(
-      'http://localhost:8080/api/plaid/create_web_link_token_stripe',
-      {}, // No body required as the userId is extracted from the JWT
+    // No body required as the userId is extracted from the JWT
+    const response = await authFetch<CreatePlaidLinkTokenResponse>(
+      '/api/plaid/create_web_link_token_stripe',
       {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`, // Pass the access token as a Bearer token
-        },
+        method: 'POST',
+        body: JSON.stringify({}), // keep explicit empty JSON body as before
       }
     );
-    console.log("response", response.data);
 
-    return response.data; // Return the entire response
+    console.log('response', response);
+    return response; // Return the entire response
   } catch (error: any) {
-    if (error.response) {
-      throw new Error(`Failed to create link token: ${error.response.data}`);
-    } else if (error.request) {
-      throw new Error('Failed to create link token: No response received from the server');
+    // Let AuthError bubble up so the hook can redirect on 401
+    if (error instanceof AuthError) {
+      throw error;
+    }
+
+    const baseMessage = 'Failed to create Plaid link token';
+    if (error?.response) {
+      throw new Error(`${baseMessage}: ${error.response.data ?? 'Unknown server error'}`);
+    } else if (error?.request) {
+      throw new Error(`${baseMessage}: No response received from the server`);
     } else {
-      throw new Error(`Failed to create link token: ${error.message}`);
+      throw new Error(`${baseMessage}: ${error?.message ?? 'Unknown error'}`);
     }
   }
 }
@@ -46,15 +45,20 @@ async function createPlaidLinkToken(): Promise<CreatePlaidLinkTokenResponse> {
 // Custom hook to use the create Plaid link token API
 export function useCreatePlaidLinkToken() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
-  return useMutation({
-    mutationFn: createPlaidLinkToken,
+  return useMutation<CreatePlaidLinkTokenResponse, Error, void>({
+    mutationFn: () => createPlaidLinkToken(),
     onSuccess: () => {
       // Handle the successful generation of the Plaid link token
       console.log('Plaid link token created successfully');
       queryClient.invalidateQueries({ queryKey: ['plaidLinkToken'] });
     },
     onError: (error) => {
+      if (error instanceof AuthError) {
+        navigate('/login', { replace: true });
+        return;
+      }
       console.error('Failed to create Plaid link token:', error);
     },
   });

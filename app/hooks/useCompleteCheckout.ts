@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+import { useNavigate } from '@remix-run/react';
+import { authFetch, AuthError } from '~/lib/auth/apiClient';
 
 // Define the payload structure for the complete checkout endpoint.
 // This supports both a normal checkout and a split checkout.
-// Fields such as checkoutToken, paymentFrequency, numberOfPayments, etc., 
+// Fields such as checkoutToken, paymentFrequency, numberOfPayments, etc.,
 // are defined based on your backend validations and the provided cURL example.
 export interface CompleteCheckoutPayload {
   checkoutToken: string;             // e.g. "sample-checkout-token"
@@ -13,9 +14,9 @@ export interface CompleteCheckoutPayload {
   instantAmount: number;             // Payment amount in cents, e.g. 10000
   yearlyAmount: number;              // Payment amount in cents, e.g. 5000
   selectedPaymentMethod: string;     // e.g. "CREDIT_CARD"
-  superchargeDetails: {              // Array of supercharge details; can be empty
-    amount: number;                // e.g. 500
-    paymentMethodId: string;       // e.g. "pm_card_mastercard"
+  superchargeDetails: {
+    amount: number;                  // e.g. 500
+    paymentMethodId: string;         // e.g. "pm_card_mastercard"
   }[];
   reference?: string;                // Optional: e.g. "order-001"
   otherUsers?: {                     // Optional field for split checkout scenarios
@@ -31,40 +32,21 @@ export interface CompleteCheckoutResponse {
   message: string;  // e.g. "Checkout completed successfully; PaymentPlan id: PP12345"
 }
 
-// Function to call the complete checkout endpoint.
+// Function to call the complete checkout endpoint (using authFetch).
 async function completeCheckout(
   payload: CompleteCheckoutPayload
 ): Promise<CompleteCheckoutResponse> {
-  try {
-    // Retrieve the access token from sessionStorage.
-    const token = sessionStorage.getItem('accessToken');
-    if (!token) {
-      throw new Error('No access token found');
-    }
-
-    // Call the API with the updated endpoint URL.
-    const response = await axios.post<CompleteCheckoutResponse>(
-      'http://localhost:8080/api/checkout/complete',
-      payload,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      }
-    );
-
-    return response.data;
-  } catch (error: any) {
-    throw new Error(
-      error.response?.data?.error || 'Failed to complete checkout'
-    );
-  }
+  // authFetch handles token, base URL, and throws AuthError on 401
+  return authFetch<CompleteCheckoutResponse>('/api/checkout/complete', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 // Custom hook that uses React Query's mutation for the complete checkout process.
 export function useCompleteCheckout() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   return useMutation<CompleteCheckoutResponse, Error, CompleteCheckoutPayload>({
     mutationFn: (payload: CompleteCheckoutPayload) => completeCheckout(payload),
@@ -73,6 +55,10 @@ export function useCompleteCheckout() {
       queryClient.invalidateQueries({ queryKey: ['checkout'] });
     },
     onError: (error) => {
+      if (error instanceof AuthError) {
+        navigate('/login', { replace: true });
+        return;
+      }
       console.error('Error completing checkout:', error);
     },
   });

@@ -1,7 +1,6 @@
-const API_BASE =
-  (typeof process !== "undefined" &&
-    ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://localhost:8080";
+// ~/lib/api/refreshOnce.ts
+
+import { API_BASE } from "./apiClient";
 
 export type RefreshResponseData = {
   success: boolean;
@@ -35,6 +34,11 @@ export async function refreshOnce(opts?: { signal?: AbortSignal }): Promise<Refr
         json = (await res.json()) as RefreshResponseData;
       } catch {
         // non-JSON or empty body
+      }
+
+      // 401 or 403 means no valid refresh token - this is expected for web-only login
+      if (res.status === 401 || res.status === 403) {
+        return { success: false, error: "No valid session" };
       }
 
       if (json.success && json.data?.accessToken) {

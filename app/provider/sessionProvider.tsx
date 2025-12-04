@@ -1,4 +1,6 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+// ~/provider/sessionProvider.tsx
+
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import SessionContext from "~/context/SessionContext";
 import { refreshOnce } from "~/lib/auth/refreshOnce";
 
@@ -30,6 +32,32 @@ export default function SessionProvider({ children }: Props) {
     } catch {}
   }, []);
 
+  const logout = useCallback(() => {
+    setAccessTokenState(null);
+    try {
+      sessionStorage.removeItem("accessToken");
+      sessionStorage.removeItem("inApp");
+    } catch {}
+  }, []);
+
+  const isAuthenticated = useMemo(() => !!accessToken, [accessToken]);
+
+  // Listen for auth errors from apiClient
+  useEffect(() => {
+    const handleAuthError = () => {
+      console.log("[SessionProvider] Auth error received, logging out");
+      setAccessTokenState(null);
+      try {
+        sessionStorage.removeItem("accessToken");
+      } catch {}
+    };
+
+    window.addEventListener("auth:error", handleAuthError);
+    return () => {
+      window.removeEventListener("auth:error", handleAuthError);
+    };
+  }, []);
+
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -55,20 +83,40 @@ export default function SessionProvider({ children }: Props) {
             try {
               sessionStorage.setItem("inApp", ia ? "true" : "false");
             } catch {}
+          } else {
+            setAccessTokenState(null);
+            try {
+              sessionStorage.removeItem("accessToken");
+            } catch {}
           }
         }
       } catch (err) {
         console.warn("SessionProvider init error:", err);
+        setAccessTokenState(null);
+        try {
+          sessionStorage.removeItem("accessToken");
+        } catch {}
       } finally {
         setInitialized(true);
       }
     })();
   }, []);
 
+  const value = useMemo(
+    () => ({
+      accessToken,
+      inApp,
+      initialized,
+      isAuthenticated,
+      setAccessToken,
+      setInApp,
+      logout,
+    }),
+    [accessToken, inApp, initialized, isAuthenticated, setAccessToken, setInApp, logout]
+  );
+
   return (
-    <SessionContext.Provider
-      value={{ accessToken, inApp, initialized, setAccessToken, setInApp }}
-    >
+    <SessionContext.Provider value={value}>
       {children}
     </SessionContext.Provider>
   );

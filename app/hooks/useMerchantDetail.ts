@@ -1,11 +1,19 @@
 // src/hooks/useMerchantDetail.ts (web)
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import {
+  authFetch,
+  AuthError,
+  isBrowser,
+  getAccessToken,
+} from "~/lib/auth/apiClient";
 
 ////////////////////////////////////////////////////////////////////////////////
 // Public Types & Interfaces
 ////////////////////////////////////////////////////////////////////////////////
 
-export type MerchantType = 'MERCHANT' | 'SERVICE';
+export type MerchantType = "MERCHANT" | "SERVICE";
 
 export interface MerchantAddress {
   id: string;
@@ -37,14 +45,14 @@ export interface MerchantOffer {
   campaignName: string;
   offerType: string;
   status: string;
-  offerAvailability: 'ONLINE' | 'IN_STORE' | 'ONLINE_AND_IN_STORE';
+  offerAvailability: "ONLINE" | "IN_STORE" | "ONLINE_AND_IN_STORE";
   offerStart?: string;
   offerEnd?: string;
   preferredUrl?: string;
   addresses: MerchantAddress[];
 }
 
-export type TermType = 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+export type TermType = "WEEKLY" | "BIWEEKLY" | "MONTHLY" | string;
 
 export interface SelfPayTier {
   termType: TermType;
@@ -159,7 +167,7 @@ interface RawMerchantOffer {
   campaignName: string;
   offerType: string;
   status: string;
-  offerAvailability: 'ONLINE' | 'IN_STORE' | 'ONLINE_AND_IN_STORE';
+  offerAvailability: "ONLINE" | "IN_STORE" | "ONLINE_AND_IN_STORE";
   offerStart?: string;
   offerEnd?: string;
   preferredUrl?: string;
@@ -197,27 +205,22 @@ interface MerchantDetailResponseRaw {
 // Env resolution (sanitize "false"/"0"/"off"/"null"/"undefined")
 ////////////////////////////////////////////////////////////////////////////////
 
-const isBrowser = typeof window !== 'undefined';
-
 const pickEnv = () => {
   const viaVite =
-    (typeof import.meta !== 'undefined' && (import.meta as any)?.env?.VITE_API_HOST) as
-      | string
-      | undefined;
+    (typeof import.meta !== "undefined" &&
+      (import.meta as any)?.env?.VITE_API_HOST) as string | undefined;
   const viaCRA =
-    (typeof process !== 'undefined' && (process as any)?.env?.REACT_APP_API_HOST) as
-      | string
-      | undefined;
+    (typeof process !== "undefined" &&
+      (process as any)?.env?.REACT_APP_API_HOST) as string | undefined;
   const viaNode =
-    (typeof process !== 'undefined' && (process as any)?.env?.API_HOST) as
-      | string
-      | undefined;
+    (typeof process !== "undefined" &&
+      (process as any)?.env?.API_HOST) as string | undefined;
   return viaVite ?? viaCRA ?? viaNode;
 };
 
 const sanitizeEnv = (v?: string) => {
   if (!v) return undefined;
-  const trimmed = v.trim().replace(/^['"]|['"]$/g, ''); // strip surrounding quotes
+  const trimmed = v.trim().replace(/^['"]|['"]$/g, ""); // strip surrounding quotes
   if (!trimmed) return undefined;
   if (/^(false|0|off|null|undefined)$/i.test(trimmed)) return undefined;
   return trimmed;
@@ -226,56 +229,93 @@ const sanitizeEnv = (v?: string) => {
 const ensureAbsoluteUrl = (base?: string) => {
   if (!base) return undefined;
   // protocol-relative //host -> default to http:
-  if (/^\/\//.test(base)) return `http:${base}`.replace(/\/+$/g, '');
+  if (/^\/\//.test(base)) return `http:${base}`.replace(/\/+$/g, "");
   // already absolute
-  if (/^https?:\/\//i.test(base)) return base.replace(/\/+$/g, '');
+  if (/^https?:\/\//i.test(base)) return base.replace(/\/+$/g, "");
   // relative — if in browser, resolve against origin; else assume http://
   if (isBrowser) {
-    const origin = window.location.origin.replace(/\/+$/g, '');
-    const path = base.replace(/^\/+/g, '');
+    const origin = window.location.origin.replace(/\/+$/g, "");
+    const path = base.replace(/^\/+/g, "");
     return `${origin}/${path}`;
   }
-  return `http://${base.replace(/^\/+/g, '')}`;
+  return `http://${base.replace(/^\/+/g, "")}`;
 };
 
-const DEFAULT_BASE = 'http://localhost:8080';
+const DEFAULT_BASE = "http://localhost:8080";
 
 const RAW_API_HOST = pickEnv();
 const CLEAN_API_HOST = sanitizeEnv(RAW_API_HOST);
 export const SERVER_BASE_URL = ensureAbsoluteUrl(CLEAN_API_HOST) ?? DEFAULT_BASE;
 
 ////////////////////////////////////////////////////////////////////////////////
-// Fetcher with normalization (web)
+// Fetcher with normalization (authenticated via authFetch)
 ////////////////////////////////////////////////////////////////////////////////
 
-async function fetchMerchantDetail(merchantId: string): Promise<MerchantDetailResponse> {
-  try {
-    if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-    const token = window.sessionStorage.getItem('accessToken');
-    if (!token) throw new Error('No access token found');
+async function fetchMerchantDetail(
+  merchantId: string
+): Promise<MerchantDetailResponse> {
+  // authFetch attaches token & handles refresh/401 via AuthError
+  const raw = await authFetch<MerchantDetailResponseRaw>(
+    `/api/merchant/${merchantId}/details`
+  );
 
-    const url = `${SERVER_BASE_URL}/api/merchant/${merchantId}/details`;
+  if (!raw.success) {
+    throw new Error(raw.error ?? "Unknown error fetching merchant");
+  }
 
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include', // keep/remove based on your CORS/session setup
-    });
+  // addresses → MerchantAddress[]
+  const normalizedAddresses: MerchantAddress[] =
+    raw.data.addresses?.map((a) => ({
+      id: a.addressId,
+      zipCode: a.zipCode,
+      streetAddress: a.streetAddress,
+      city: a.city,
+      state: a.state,
+      latitude: a.latitude,
+      longitude: a.longitude,
+      storeName: a.storeName,
+    })) ?? [];
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Error: ${res.status} ${res.statusText}${text ? ` - ${text}` : ''}`);
-    }
+  // locations → MerchantAddress[] (with created/updated)
+  const normalizedLocations: MerchantAddress[] =
+    raw.data.locations?.map((l) => ({
+      id: l.id,
+      zipCode: l.zipCode,
+      streetAddress: l.streetAddress,
+      city: l.city,
+      state: l.state,
+      latitude: l.latitude,
+      longitude: l.longitude,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    })) ?? [];
 
-    const raw = (await res.json()) as MerchantDetailResponseRaw;
-    if (!raw.success) throw new Error(raw.error ?? 'Unknown error fetching merchant');
+  // discounts
+  const normalizedDiscounts: MerchantDiscount[] =
+    raw.data.discounts?.map((d) => ({
+      discountId: d.discountId,
+      discountName: d.discountName,
+      type: d.type,
+      discountPercentage: d.discountPercentage ?? null,
+      discountAmount: d.discountAmount ?? null,
+      minimumPurchaseAmount: d.minimumPurchaseAmount ?? null,
+      singleUse: d.singleUse,
+      expiresAt: d.expiresAt ?? null,
+      discountState: d.discountState,
+    })) ?? [];
 
-    // addresses → MerchantAddress[]
-    const normalizedAddresses: MerchantAddress[] =
-      raw.data.addresses?.map((a) => ({
+  // offers (and nested addresses)
+  const normalizedOffers: MerchantOffer[] =
+    raw.data.offers?.map((o) => ({
+      offerId: o.offerId,
+      campaignName: o.campaignName,
+      offerType: o.offerType,
+      status: o.status,
+      offerAvailability: o.offerAvailability,
+      offerStart: o.offerStart,
+      offerEnd: o.offerEnd,
+      preferredUrl: o.preferredUrl,
+      addresses: o.addresses.map((a) => ({
         id: a.addressId,
         zipCode: a.zipCode,
         streetAddress: a.streetAddress,
@@ -284,103 +324,58 @@ async function fetchMerchantDetail(merchantId: string): Promise<MerchantDetailRe
         latitude: a.latitude,
         longitude: a.longitude,
         storeName: a.storeName,
-      })) ?? [];
+      })),
+    })) ?? [];
 
-    // locations → MerchantAddress[] (with created/updated)
-    const normalizedLocations: MerchantAddress[] =
-      raw.data.locations?.map((l) => ({
-        id: l.id,
-        zipCode: l.zipCode,
-        streetAddress: l.streetAddress,
-        city: l.city,
-        state: l.state,
-        latitude: l.latitude,
-        longitude: l.longitude,
-        createdAt: l.createdAt,
-        updatedAt: l.updatedAt,
-      })) ?? [];
+  const brand = { ...raw.data.brand };
 
-    // discounts
-    const normalizedDiscounts: MerchantDiscount[] =
-      raw.data.discounts?.map((d) => ({
-        discountId: d.discountId,
-        discountName: d.discountName,
-        type: d.type,
-        discountPercentage: d.discountPercentage ?? null,
-        discountAmount: d.discountAmount ?? null,
-        minimumPurchaseAmount: d.minimumPurchaseAmount ?? null,
-        singleUse: d.singleUse,
-        expiresAt: d.expiresAt ?? null,
-        discountState: d.discountState,
-      })) ?? [];
+  const normalized: MerchantDetail = {
+    merchantId: raw.data.merchantId,
+    merchantType: raw.data.merchantType,
+    merchantName: raw.data.merchantName,
 
-    // offers (and nested addresses)
-    const normalizedOffers: MerchantOffer[] =
-      raw.data.offers?.map((o) => ({
-        offerId: o.offerId,
-        campaignName: o.campaignName,
-        offerType: o.offerType,
-        status: o.status,
-        offerAvailability: o.offerAvailability,
-        offerStart: o.offerStart,
-        offerEnd: o.offerEnd,
-        preferredUrl: o.preferredUrl,
-        addresses: o.addresses.map((a) => ({
-          id: a.addressId,
-          zipCode: a.zipCode,
-          streetAddress: a.streetAddress,
-          city: a.city,
-          state: a.state,
-          latitude: a.latitude,
-          longitude: a.longitude,
-          storeName: a.storeName,
-        })),
-      })) ?? [];
+    // top-level metadata
+    accountId: raw.data.accountId ?? null,
+    mid: raw.data.mid ?? null,
+    mcc: raw.data.mcc ?? null,
+    stripeRequirements: raw.data.stripeRequirements ?? undefined,
+    verified: raw.data.verified ?? undefined,
+    createdAt: raw.data.createdAt,
+    updatedAt: raw.data.updatedAt,
 
-    const brand = { ...raw.data.brand };
+    brand,
+    addresses: normalizedAddresses.length ? normalizedAddresses : undefined,
+    locations: normalizedLocations.length ? normalizedLocations : undefined,
+    offers: normalizedOffers.length ? normalizedOffers : undefined,
+    discounts: normalizedDiscounts.length ? normalizedDiscounts : undefined,
+    url: raw.data.url ?? null,
+    configuration: raw.data.configuration ?? undefined,
+  };
 
-    const normalized: MerchantDetail = {
-      merchantId: raw.data.merchantId,
-      merchantType: raw.data.merchantType,
-      merchantName: raw.data.merchantName,
-
-      // top-level metadata
-      accountId: raw.data.accountId ?? null,
-      mid: raw.data.mid ?? null,
-      mcc: raw.data.mcc ?? null,
-      stripeRequirements: raw.data.stripeRequirements ?? undefined,
-      verified: raw.data.verified ?? undefined,
-      createdAt: raw.data.createdAt,
-      updatedAt: raw.data.updatedAt,
-
-      brand,
-      addresses: normalizedAddresses.length ? normalizedAddresses : undefined,
-      locations: normalizedLocations.length ? normalizedLocations : undefined,
-      offers: normalizedOffers.length ? normalizedOffers : undefined,
-      discounts: normalizedDiscounts.length ? normalizedDiscounts : undefined,
-      url: raw.data.url ?? null,
-      configuration: raw.data.configuration ?? undefined,
-    };
-
-    return { success: true, data: normalized, error: null };
-  } catch (err: any) {
-    return {
-      success: false,
-      data: {} as MerchantDetail,
-      error: err?.message || 'Failed to fetch merchant details',
-    };
-  }
+  return { success: true, data: normalized, error: null };
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// React Query Hook (web)
+// React Query Hook (web, authenticated + 401 redirect)
 ////////////////////////////////////////////////////////////////////////////////
 
 export function useMerchantDetail(merchantId: string) {
-  return useQuery<MerchantDetailResponse, Error>({
-    queryKey: ['merchantDetail', merchantId],
+  const navigate = useNavigate();
+  const token = isBrowser ? getAccessToken() : null;
+
+  const query = useQuery<MerchantDetailResponse, Error>({
+    queryKey: ["merchantDetail", merchantId],
     queryFn: () => fetchMerchantDetail(merchantId),
-    enabled: !!merchantId && isBrowser, // avoid SSR token read
+    enabled: !!merchantId && !!token && isBrowser, // require id + token, avoid SSR token read
     staleTime: 1000 * 60 * 5, // 5 mins
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate("/login", { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

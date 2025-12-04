@@ -1,6 +1,14 @@
 // src/hooks/useCheckoutDetail.ts
 
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from '@remix-run/react';
+import { useEffect } from 'react';
+import {
+  authFetch,
+  isBrowser,
+  getAccessToken,
+  AuthError,
+} from '~/lib/auth/apiClient';
 
 /** ===== Shared value objects ===== */
 export interface Amount {
@@ -193,48 +201,34 @@ export interface CheckoutDetailResponse {
   merchantId?: string | null;
 }
 
-/** ===== Networking ===== */
+/** ===== Networking (using authFetch) ===== */
 async function fetchCheckoutDetail(
-  checkoutToken: string,
-  accessToken: string
+  checkoutToken: string
 ): Promise<CheckoutDetailResponse> {
-  const response = await fetch(
-    `http://localhost:8080/api/checkout/details-by-token/${checkoutToken}`,
-    {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    }
+  // Centralized authFetch handles base URL, token, and AuthError on 401
+  return authFetch<CheckoutDetailResponse>(
+    `/api/checkout/details-by-token/${checkoutToken}`
   );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Error fetching checkout detail: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as CheckoutDetailResponse;
 }
 
-/** ===== React Query Hook ===== */
+/** ===== React Query Hook (Authenticated Query with redirect on 401) ===== */
 export function useCheckoutDetail(checkoutToken: string) {
-  const accessToken =
-    typeof window !== 'undefined'
-      ? sessionStorage.getItem('accessToken')
-      : null;
+  const token = isBrowser ? getAccessToken() : null;
+  const navigate = useNavigate();
 
-  return useQuery<CheckoutDetailResponse, Error>({
-    queryKey: ['checkoutDetail', checkoutToken],
-    queryFn: () => {
-      if (!accessToken) {
-        throw new Error('No access token available');
-      }
-      return fetchCheckoutDetail(checkoutToken, accessToken);
-    },
-    enabled: !!checkoutToken && !!accessToken,
+  const query = useQuery<CheckoutDetailResponse, Error>({
+    queryKey: ['checkoutDetail', checkoutToken, token],
+    queryFn: () => fetchCheckoutDetail(checkoutToken),
+    enabled: !!checkoutToken && !!token && isBrowser,
     staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate('/login', { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

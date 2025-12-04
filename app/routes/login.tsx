@@ -1,20 +1,25 @@
+// ~/routes/login.tsx
+
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
-import { useLogin, LoginRequest } from "~/hooks/useLogin";
-import { useVerifyLogin, VerifyLoginRequest } from "~/hooks/useVerifyLogin";
+import { useLogin } from "~/hooks/useLogin";
+import { useVerifyLogin } from "~/hooks/useVerifyLogin";
 import { useSession } from "~/context/SessionContext";
 import FloatingLabelInput from "~/compoments/Floatinglabelinpunt";
-
-// ✅ Added: user details + payment methods
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { usePaymentMethods } from "~/hooks/usePaymentMethods";
 
-const LoginPage: React.FC = () => {
+export const clientLoader = async () => {
+  return null;
+};
+
+export default function LoginPage() {
   const [userInput, setUserInput] = useState("");
   const [otp, setOtp] = useState("");
   const [isOtpVisible, setIsOtpVisible] = useState(false);
   const [error, setError] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [justLoggedIn, setJustLoggedIn] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -22,55 +27,67 @@ const LoginPage: React.FC = () => {
 
   const loginMutation = useLogin();
   const verifyLoginMutation = useVerifyLogin();
-  const { setAccessToken } = useSession();
+  const { setAccessToken, initialized, isAuthenticated } = useSession();
 
-  // ✅ Pull user details envelope (UserDetailsResponse)
-  const { data: userResp } = useUserDetails();
-
-  // ✅ Derive userId correctly from the envelope
+  const { data: userResp, isLoading: userLoading } = useUserDetails();
   const userId = userResp?.data?.user?.id as string | undefined;
 
-  // ✅ Fetch payment methods only when userId is known
   const {
     data: paymentMethods,
     isLoading: pmLoading,
     error: pmError,
   } = usePaymentMethods(userId);
 
-  // Do we have at least one card on file?
   const hasCard = useMemo(() => {
     if (!paymentMethods || !Array.isArray(paymentMethods)) return false;
     return paymentMethods.some((pm) => pm.type === "card" && pm.card);
   }, [paymentMethods]);
 
-  // If a token already exists on load, enter "connecting" mode and decide where to go.
   useEffect(() => {
-    const token = sessionStorage.getItem("accessToken");
-    if (!token) return; // not authenticated yet—normal login flow
-    setIsConnecting(true);
-  }, []);
+    if (!initialized) return;
+    if (isAuthenticated) {
+      setIsConnecting(true);
+    }
+  }, [initialized, isAuthenticated]);
 
-  // Post-auth router: after token exists and user/payment data are ready, route accordingly
   useEffect(() => {
-    const token = sessionStorage.getItem("accessToken");
-    if (!token) return;     // not authenticated yet
-    if (!userId) return;    // user details not ready yet
-    if (pmLoading) return;  // payment methods still loading
-
-    // If PM fetch errored, follow strict requirement and send to AddCardRequired
-    if (pmError) {
-      navigate(`/AddCardRequired`, { replace: true, state: { source } });
+    if (!isConnecting && !justLoggedIn) return;
+    if (!isAuthenticated) {
       setIsConnecting(false);
+      setJustLoggedIn(false);
+      return;
+    }
+
+    if (userLoading) return;
+    if (!userId) return;
+    if (pmLoading) return;
+
+    if (pmError) {
+      navigate("/AddCardRequired", { replace: true, state: { source } });
+      setIsConnecting(false);
+      setJustLoggedIn(false);
       return;
     }
 
     if (hasCard) {
-      navigate(`/UnifiedOptionsPage`, { replace: true, state: { source } });
+      navigate("/UnifiedOptionsPage", { replace: true, state: { source } });
     } else {
-      navigate(`/AddCardRequired`, { replace: true, state: { source } });
+      navigate("/AddCardRequired", { replace: true, state: { source } });
     }
     setIsConnecting(false);
-  }, [userId, pmLoading, pmError, hasCard, navigate, source]);
+    setJustLoggedIn(false);
+  }, [
+    userId,
+    userLoading,
+    pmLoading,
+    pmError,
+    hasCard,
+    navigate,
+    source,
+    isConnecting,
+    justLoggedIn,
+    isAuthenticated,
+  ]);
 
   const handleFirstContinue = () => {
     setError("");
@@ -79,22 +96,21 @@ const LoginPage: React.FC = () => {
       return;
     }
 
-    const loginRequest: LoginRequest = {
-      identifier: userInput,
-    };
-
-    loginMutation.mutate(loginRequest, {
-      onSuccess: (data) => {
-        if (data.success) {
-          setIsOtpVisible(true);
-        } else {
-          setError(data.error || "Failed to send OTP. Please try again.");
-        }
-      },
-      onError: (error: any) => {
-        setError(error.message || "Failed to send OTP. Please try again.");
-      },
-    });
+    loginMutation.mutate(
+      { identifier: userInput },
+      {
+        onSuccess: (data) => {
+          if (data.success) {
+            setIsOtpVisible(true);
+          } else {
+            setError(data.error || "Failed to send OTP. Please try again.");
+          }
+        },
+        onError: (err: any) => {
+          setError(err.message || "Failed to send OTP. Please try again.");
+        },
+      }
+    );
   };
 
   const handleSecondContinue = () => {
@@ -104,26 +120,24 @@ const LoginPage: React.FC = () => {
       return;
     }
 
-    const verifyRequest: VerifyLoginRequest = {
-      identifier: userInput,
-      otp,
-    };
-
-    verifyLoginMutation.mutate(verifyRequest, {
-      onSuccess: (data) => {
-        if (data.success && data.data?.accessToken) {
-          // Save token then let the post-auth effect above route after PM check
-          sessionStorage.setItem("accessToken", data.data.accessToken);
-          setAccessToken(data.data.accessToken);
-          setIsConnecting(true);
-        } else {
-          setError(data.error || "Invalid OTP. Please try again.");
-        }
-      },
-      onError: (error: any) => {
-        setError(error.message || "Invalid OTP. Please try again.");
-      },
-    });
+    verifyLoginMutation.mutate(
+      { identifier: userInput, otp },
+      {
+        onSuccess: (data) => {
+          if (data.success && data.data?.accessToken) {
+            sessionStorage.setItem("accessToken", data.data.accessToken);
+            setAccessToken(data.data.accessToken);
+            setJustLoggedIn(true);
+            setIsConnecting(true);
+          } else {
+            setError(data.error || "Invalid OTP. Please try again.");
+          }
+        },
+        onError: (err: any) => {
+          setError(err.message || "Invalid OTP. Please try again.");
+        },
+      }
+    );
   };
 
   const handleTryAgain = () => {
@@ -136,7 +150,7 @@ const LoginPage: React.FC = () => {
     loginMutation.isPending ||
     verifyLoginMutation.isPending ||
     isConnecting ||
-    pmLoading;
+    (justLoggedIn && (userLoading || pmLoading));
 
   return (
     <div className="max-w-md mx-auto px-5 py-10 bg-white font-sans">
@@ -145,7 +159,6 @@ const LoginPage: React.FC = () => {
         Sign in to your account with your email or mobile number.
       </p>
 
-      {/* Email/Phone Input */}
       <FloatingLabelInput
         label="Email or Phone Number"
         value={userInput}
@@ -154,16 +167,17 @@ const LoginPage: React.FC = () => {
         editable={!isLoading}
       />
 
-      {/* OTP Input */}
       {isOtpVisible && (
         <>
           <p className="text-sm text-gray-500 mb-6">
-            We just sent you a temporary login code. Please check your email or phone.
+            We just sent you a temporary login code. Please check your email or
+            phone.
             <span
               className="text-blue-500 underline cursor-pointer"
               onClick={handleTryAgain}
             >
-              {" "}Can't find it? Try again.
+              {" "}
+              Can't find it? Try again.
             </span>
           </p>
           <FloatingLabelInput
@@ -177,7 +191,6 @@ const LoginPage: React.FC = () => {
         </>
       )}
 
-      {/* Continue Button */}
       <button
         onClick={isOtpVisible ? handleSecondContinue : handleFirstContinue}
         disabled={isLoading}
@@ -197,6 +210,4 @@ const LoginPage: React.FC = () => {
       </p>
     </div>
   );
-};
-
-export default LoginPage;
+}

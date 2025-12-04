@@ -1,31 +1,15 @@
 // File: src/hooks/useSmartpayDetailedPlan.ts
 
-import axios from 'axios';
-import { useQuery } from '@tanstack/react-query';
-import type { Frequency } from './useFinancialCalendarPlan';
-
-/* =========================
- * Env helpers (web)
- * ========================= */
-const isBrowser = typeof window !== 'undefined';
-
-function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
-  for (const c of candidates) {
-    const v = (typeof c === 'string' ? c : '').trim();
-    const low = v.toLowerCase();
-    if (!v) continue;
-    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slashes
-  }
-  return undefined;
-}
-
-const API_BASE =
-  pickValidApiHost(
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-    (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-    (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
-  ) ?? 'http://localhost:8080';
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import type { Frequency } from "./useFinancialCalendarPlan";
+import {
+  authFetch,
+  isBrowser,
+  getAccessToken,
+  AuthError,
+} from "~/lib/auth/apiClient";
 
 /* =========================
  * Response Interfaces
@@ -131,22 +115,7 @@ export interface SmartpayDetailedResponse {
 }
 
 /* =========================
- * Axios instance (web)
- * ========================= */
-
-const axiosInstance = axios.create({
-  baseURL: API_BASE,
-  headers: {
-    'Content-Type': 'application/json',
-    'Cache-Control': 'no-cache',
-    Pragma: 'no-cache',
-    Expires: '0',
-  },
-  // withCredentials: true, // enable only if your API needs cookies
-});
-
-/* =========================
- * Fetch Function (web)
+ * Fetch Function (via authFetch)
  * ========================= */
 
 async function fetchSmartpayDetailedPlanData(
@@ -156,21 +125,23 @@ async function fetchSmartpayDetailedPlanData(
   yearly: boolean,
   interestFreeTotal: number
 ): Promise<SmartpayDetailedResponse> {
-  if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-  const token = window.sessionStorage.getItem('accessToken');
-  if (!token) throw new Error('No JWT token found');
+  if (!isBrowser) throw new Error("Token storage unavailable during SSR");
 
-  const response = await axiosInstance.get<SmartpayDetailedResponse>(
-    '/api/smartpay/plan',
-    {
-      params: { price, frequency, instantaneous, yearly, interestFreeTotal },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
+  const params = new URLSearchParams({
+    price: String(price),
+    frequency,
+    instantaneous: String(instantaneous),
+    yearly: String(yearly),
+    interestFreeTotal: String(interestFreeTotal),
+  });
 
-  return response.data;
+  // authFetch will:
+  // - attach Authorization header using current access token
+  // - use centralized API base URL
+  // - throw AuthError on 401 so the hook can redirect
+  return authFetch<SmartpayDetailedResponse>(`/api/smartpay/plan?${params.toString()}`, {
+    method: "GET",
+  });
 }
 
 /* =========================
@@ -194,14 +165,18 @@ export function useSmartpayDetailedPlan(
   yearly: boolean,
   interestFreeTotal: number
 ) {
-  return useQuery<SmartpayDetailedResponse, Error>({
+  const token = isBrowser ? getAccessToken() : null;
+  const navigate = useNavigate();
+
+  const query = useQuery<SmartpayDetailedResponse, Error>({
     queryKey: [
-      'smartpayDetailedPlan',
+      "smartpayDetailedPlan",
       price,
       frequency,
       instantaneous,
       yearly,
       interestFreeTotal,
+      token,
     ],
     queryFn: () =>
       fetchSmartpayDetailedPlanData(
@@ -211,8 +186,16 @@ export function useSmartpayDetailedPlan(
         yearly,
         interestFreeTotal
       ),
-    enabled: isBrowser,             // avoid sessionStorage during SSR
-    staleTime: 1000 * 60 * 5,       // cache for 5 minutes
+    enabled: !!token && isBrowser, // avoid SSR + require auth
+    staleTime: 1000 * 60 * 5, // cache for 5 minutes
     retry: 3,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate("/login", { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

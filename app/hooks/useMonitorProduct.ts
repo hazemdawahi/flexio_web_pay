@@ -1,51 +1,44 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
+// ~/hooks/useMonitorProduct.ts
 
-// Define the response structure for the monitor product endpoint.
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import { authFetch, AuthError } from "~/lib/auth/apiClient";
+
 export interface MonitorProductResponse {
-  productId: string; // e.g. "12345"
+  success: boolean;
+  data: {
+    productId: string;
+  } | null;
+  error: string | null;
 }
 
-// Function to call the monitor product endpoint.
-// The productId is embedded in the URL.
-async function monitorProduct(productId: string): Promise<MonitorProductResponse> {
-  // Retrieve the access token from sessionStorage.
-  const token = sessionStorage.getItem('accessToken');
-  if (!token) {
-    throw new Error('No access token found');
-  }
-
-  // Construct the URL using the provided productId.
-  const url = `http://localhost:8080/api/monitored-products/user/monitor/${productId}`;
-
-  // Call the API. Since the endpoint does not require a request body, we pass an empty object.
-  const response = await axios.post<MonitorProductResponse>(
-    url,
-    {},
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-    }
-  );
-
-  return response.data;
-}
-
-// Custom hook that uses React Query's mutation for monitoring a product.
 export function useMonitorProduct() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   return useMutation<MonitorProductResponse, Error, string>({
-    // The mutation function accepts a productId as its input.
-    mutationFn: monitorProduct,
-    onSuccess: () => {
-      // Optionally, invalidate queries related to monitored products to refresh data.
-      queryClient.invalidateQueries({ queryKey: ['monitoredProducts'] });
+    mutationFn: (productId: string) =>
+      authFetch<MonitorProductResponse>(
+        `/api/monitored-products/user/monitor/${encodeURIComponent(productId)}`,
+        {
+          method: "POST",
+          // keep empty body if your API expects JSON
+          body: JSON.stringify({}),
+        }
+      ),
+    onSuccess: (data, productId) => {
+      // Refresh monitored list + this product's monitored state
+      queryClient.invalidateQueries({ queryKey: ["monitoredProducts"] });
+      queryClient.invalidateQueries({
+        queryKey: ["isProductMonitored", productId],
+      });
     },
     onError: (error) => {
-      console.error('Error monitoring product:', error);
+      if (error instanceof AuthError) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      console.error("Error monitoring product:", error.message);
     },
   });
 }

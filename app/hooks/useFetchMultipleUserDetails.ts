@@ -1,4 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import {
+  authFetch,
+  AuthError,
+  isBrowser,
+  getAccessToken,
+} from "~/lib/auth/apiClient";
 
 // Interface for Address
 interface Address {
@@ -61,8 +69,8 @@ interface LatestActiveCard {
   stripeCardId: string;
   spendingLimit: number;
   paymentFrequency: number;
-  planType: 'MONTHLY' | 'BIWEEKLY' | null;
-  status: 'active' | 'inactive';
+  planType: "MONTHLY" | "BIWEEKLY" | null;
+  status: "active" | "inactive";
   offsetStartDate: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -71,52 +79,47 @@ interface LatestActiveCard {
 // Response interface
 interface UserDetailsResponse {
   success: boolean;
-  data: Array<{
-    user: UserDetails;
-    latestActiveCard: LatestActiveCard | null;
-  }> | null;
+  data:
+    | Array<{
+        user: UserDetails;
+        latestActiveCard: LatestActiveCard | null;
+      }>
+    | null;
   error: string | null;
 }
 
-// Async function to fetch multiple user details by POST request
-async function fetchMultipleUserDetails(userIds: string[]): Promise<UserDetailsResponse> {
-  try {
-    // Retrieve the access token from sessionStorage
-    const token = sessionStorage.getItem('accessToken');
-
-    if (!token) {
-      throw new Error('No access token found');
-    }
-
-    const response = await fetch('http://localhost:8080/api/user/user-details', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(userIds),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data as UserDetailsResponse;
-  } catch (error: any) {
-    return {
-      success: false,
-      data: null,
-      error: error.message || 'Failed to fetch user details',
-    };
-  }
+// Async function to fetch multiple user details by POST request (authenticated)
+async function fetchMultipleUserDetails(
+  userIds: string[]
+): Promise<UserDetailsResponse> {
+  // authFetch handles attaching the token and throwing AuthError on 401
+  return authFetch<UserDetailsResponse>("/api/user/user-details", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(userIds),
+  });
 }
 
 // Custom hook to fetch multiple user details using useQuery
 export function useFetchMultipleUserDetails(userIds: string[]) {
-  return useQuery<UserDetailsResponse, Error>({
-    queryKey: ['fetchMultipleUserDetails', userIds],
+  const navigate = useNavigate();
+  const token = isBrowser ? getAccessToken() : null;
+
+  const query = useQuery<UserDetailsResponse, Error>({
+    queryKey: ["fetchMultipleUserDetails", userIds],
     queryFn: () => fetchMultipleUserDetails(userIds),
-    enabled: userIds.length > 0, // Only runs if userIds is provided
+    enabled: userIds.length > 0 && !!token && isBrowser, // Only runs if userIds + token are present and we're in the browser
+    staleTime: 1000 * 60 * 5,
+    retry: false,
   });
+
+  useEffect(() => {
+    if (query.error instanceof AuthError) {
+      navigate("/login", { replace: true });
+    }
+  }, [query.error, navigate]);
+
+  return query;
 }

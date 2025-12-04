@@ -1,48 +1,18 @@
 // File: src/hooks/usePaymentPlanTerms.ts
 
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-
-/* ---------------- Env helpers (web) ---------------- */
-const isBrowser = typeof window !== 'undefined';
-
-function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
-  for (const c of candidates) {
-    const v = (typeof c === 'string' ? c : '').trim();
-    const low = v.toLowerCase();
-    if (!v) continue;
-    if (['false', '0', 'null', 'undefined'].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ''); // strip trailing slash
-  }
-  return undefined;
-}
-
-function getBaseUrl(): string {
-  return (
-    pickValidApiHost(
-      (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-      (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-      (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined,
-    ) || 'http://localhost:8080'
-  );
-}
-
-/* ---------------- Token helper (web) ---------------- */
-async function getWebToken(): Promise<string> {
-  if (!isBrowser) throw new Error('Token storage unavailable during SSR');
-  const token = window.sessionStorage.getItem('accessToken');
-  if (!token) throw new Error('No access token found');
-  return token;
-}
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@remix-run/react";
+import { authFetch, AuthError } from "~/lib/auth/apiClient";
 
 /* ---------------- Request / Response Types ---------------- */
 // Align exactly with com.example.stripedemo.Enum.Frequency
-export type PaymentFrequency = 'BI_WEEKLY' | 'MONTHLY';
+export type PaymentFrequency = "BI_WEEKLY" | "MONTHLY";
 
 export interface CalculateTermsRequest {
   frequency: PaymentFrequency;
-  purchaseAmount: number;     // e.g. 500.00
-  instantaneous?: boolean;    // optional, defaults to false
-  yearly?: boolean;           // optional, defaults to false
+  purchaseAmount: number; // e.g. 500.00
+  instantaneous?: boolean; // optional, defaults to false
+  yearly?: boolean; // optional, defaults to false
 }
 
 export interface Terms {
@@ -57,12 +27,10 @@ export interface CalculateTermsResponse {
   error: string | null;
 }
 
-/* ---------------- API Call + adapter (web) ---------------- */
+/* ---------------- API Call (via authFetch) ---------------- */
 export async function fetchPaymentPlanTerms(
   req: CalculateTermsRequest
 ): Promise<CalculateTermsResponse> {
-  const token = await getWebToken();
-
   const payload: Record<string, any> = {
     // send the enum value directly
     frequency: req.frequency,
@@ -72,48 +40,33 @@ export async function fetchPaymentPlanTerms(
     yearly: req.yearly ?? false,
   };
 
-  const response = await fetch(`${getBaseUrl()}/api/payment-plans/terms`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-      Expires: '0',
-    },
+  // authFetch:
+  // - attaches Authorization header using the current access token
+  // - uses the centralized API base URL
+  // - throws AuthError on 401 so caller can redirect to /login
+  return authFetch<CalculateTermsResponse>("/api/payment-plans/terms", {
+    method: "POST",
     body: JSON.stringify(payload),
-    // credentials: 'include', // enable only if your API requires cookies
   });
-
-  // Parse body as JSON when possible; fall back to a shaped error
-  const text = await response.text();
-  let raw: CalculateTermsResponse;
-  try {
-    raw = JSON.parse(text) as CalculateTermsResponse;
-  } catch {
-    raw = {
-      success: false,
-      data: { frequency: req.frequency } as Terms,
-      error: text || `HTTP ${response.status} ${response.statusText}`,
-    };
-  }
-
-  // Return server payload regardless of HTTP status (mirrors original behavior)
-  return raw;
 }
 
-/* ---------------- React Query Hook ---------------- */
+/* ---------------- React Query Hook (Auth Mutation) ---------------- */
 export function usePaymentPlanTerms() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   return useMutation<CalculateTermsResponse, Error, CalculateTermsRequest>({
     mutationFn: fetchPaymentPlanTerms,
     onSuccess: () => {
       // invalidate any dependent queries
-      queryClient.invalidateQueries({ queryKey: ['paymentPlanTerms'] });
+      queryClient.invalidateQueries({ queryKey: ["paymentPlanTerms"] });
     },
-    onError: (err) => {
-      console.error('Fetching payment-plan terms failed:', err.message);
+    onError: (error) => {
+      if (error instanceof AuthError) {
+        navigate("/login", { replace: true });
+        return;
+      }
+      console.error("Fetching payment-plan terms failed:", error.message);
     },
   });
 }

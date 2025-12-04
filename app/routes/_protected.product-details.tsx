@@ -1,20 +1,21 @@
 // File: src/pages/ProductDetailsPage.tsx
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { IoIosArrowBack } from 'react-icons/io';
-import { useMonitoredProduct } from '../hooks/useMonitoredProduct';
-import { useMonitorProduct } from '../hooks/useMonitorProduct';
-import { useIsProductMonitored } from '../hooks/useIsProductMonitored';
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { IoIosArrowBack } from "react-icons/io";
+import { useMonitoredProduct } from "../hooks/useMonitoredProduct";
+import { useMonitorProduct } from "../hooks/useMonitorProduct";
+import { useIsProductMonitored } from "../hooks/useIsProductMonitored";
 
 const ProductDetailsPage: React.FC = () => {
   const navigate = useNavigate();
 
   const productId =
-    typeof window !== 'undefined' ? sessionStorage.getItem('productId') || '' : '';
+    typeof window !== "undefined" ? sessionStorage.getItem("productId") || "" : "";
   console.log("productId", productId);
 
+  // ✅ useMonitoredProduct now returns MonitoredProduct directly
   const {
-    data: productResponse,
+    data: product,
     error: productError,
     isLoading: productLoading,
   } = useMonitoredProduct(productId);
@@ -37,8 +38,19 @@ const ProductDetailsPage: React.FC = () => {
           viewBox="0 0 24 24"
           aria-label="Loading"
         >
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          ></circle>
+          <path
+            className="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+          ></path>
         </svg>
       </div>
     );
@@ -54,11 +66,13 @@ const ProductDetailsPage: React.FC = () => {
     );
   }
 
-  const product = productResponse?.data;
+  // ✅ product is already the MonitoredProduct
   if (!product) {
     return (
       <div className="flex min-h-screen items-start justify-start p-4 sm:p-6">
-        <p className="text-base sm:text-lg md:text-xl">No product details available.</p>
+        <p className="text-base sm:text-lg md:text-xl">
+          No product details available.
+        </p>
       </div>
     );
   }
@@ -69,14 +83,16 @@ const ProductDetailsPage: React.FC = () => {
     if (!productId || isAlreadyMonitored) return;
 
     monitorMutation.mutate(productId, {
-      onSuccess: (data) => {
-        console.log("Product monitoring successful:", data);
+      onSuccess: (_data) => {
+        console.log("Product monitoring successful");
 
         // ❗️Do NOT postMessage here. Let SuccessMonitor show animation first,
         // then it will broadcast after its delay.
         refetchIsMonitored();
 
-        const monitoredId = encodeURIComponent(data?.productId ?? productId);
+        // Use the product we already have
+        const monitoredId = encodeURIComponent(product.id);
+
         navigate(
           `/SuccessMonitor?status=COMPLETED&ms=3500&replace_to_index=1&monitoredProductId=${monitoredId}`,
           { replace: true }
@@ -102,7 +118,9 @@ const ProductDetailsPage: React.FC = () => {
             <IoIosArrowBack className="mr-2" size={22} />
             <span className="text-sm sm:text-base">Back</span>
           </button>
-          <h1 className="mt-2 text-xl font-bold sm:text-2xl">Product Details</h1>
+          <h1 className="mt-2 text-xl font-bold sm:text-2xl">
+            Product Details
+          </h1>
         </header>
 
         {/* Row container for image on the left and details on the right */}
@@ -121,14 +139,49 @@ const ProductDetailsPage: React.FC = () => {
           {/* Details Section on the Right */}
           <div className="w-full p-1 md:p-2">
             <h2 className="mb-2 text-lg font-bold sm:text-xl md:text-2xl">
-              <strong>Product Name: </strong>{product.productName}
+              <strong>Product Name: </strong>
+              {product.productName}
             </h2>
+
             <p className="mb-2 text-base sm:text-lg md:text-xl">
-              <strong>Price: </strong>${product.price.amount}
+              <strong>Price: </strong>${product.price.amount}{" "}
+              <span className="text-sm text-gray-500">
+                {product.price.currency}
+              </span>
             </p>
+
             <p className="mb-2 text-base sm:text-lg md:text-xl">
-              <strong>Quantity Left in Stock: </strong>{product.unitsInStock}
+              <strong>Quantity Left in Stock: </strong>
+              {product.unitsInStock}
             </p>
+
+            <p className="mb-2 text-base sm:text-lg md:text-xl">
+              <strong>Availability: </strong>
+              {product.inStock ? "In stock" : "Out of stock"}
+            </p>
+
+            <p className="mb-2 text-base sm:text-lg md:text-xl">
+              <strong>Monitoring Status: </strong>
+              {product.state}
+            </p>
+
+            <p className="mb-2 text-base sm:text-lg md:text-xl">
+              <strong>Number of Monitors: </strong>
+              {product.monitoringCount}
+            </p>
+
+            {product.productUrl && (
+              <p className="mt-3 text-sm sm:text-base">
+                <a
+                  href={product.productUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline hover:text-blue-800"
+                >
+                  View product on website
+                </a>
+              </p>
+            )}
           </div>
         </div>
 

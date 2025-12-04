@@ -67,7 +67,7 @@
 
 //   const merchantId = checkoutData?.checkout.merchant.id || "";
 //   const { data: merchantDetailData } = useMerchantDetail(merchantId);
-//   const baseUrl = "http://192.168.1.121:8080";
+//   const baseUrl = "http://localhost:8080";
 
 //   const {
 //     data: discounts = [],

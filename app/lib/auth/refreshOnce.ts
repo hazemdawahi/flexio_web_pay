@@ -1,10 +1,7 @@
-// Small helper to try a single cookie-based refresh.
-// Use this when you *don't* already have an access token, or after a 401.
-
 const API_BASE =
   (typeof process !== "undefined" &&
     ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://192.168.1.121:8080";
+  "http://localhost:8080";
 
 export type RefreshResponseData = {
   success: boolean;
@@ -12,28 +9,51 @@ export type RefreshResponseData = {
   error?: string;
 };
 
+let refreshPromise: Promise<RefreshResponseData> | null = null;
+
 export async function refreshOnce(opts?: { signal?: AbortSignal }): Promise<RefreshResponseData> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
   const signal = opts?.signal ?? controller.signal;
 
-  try {
-    const res = await fetch(`${API_BASE}/api/user/refresh-tokens`, {
-      method: "POST",
-      credentials: "include",         // <-- send/receive HttpOnly cookie
-      headers: { "Content-Type": "application/json" },
-      signal,
-      cache: "no-store",
-    });
-
-    let json: RefreshResponseData = { success: false };
+  refreshPromise = (async (): Promise<RefreshResponseData> => {
     try {
-      json = (await res.json()) as RefreshResponseData;
-    } catch {
-      // non-JSON or empty body; leave default
+      const res = await fetch(`${API_BASE}/api/user/refresh-tokens`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        signal,
+        cache: "no-store",
+      });
+
+      let json: RefreshResponseData = { success: false };
+      try {
+        json = (await res.json()) as RefreshResponseData;
+      } catch {
+        // non-JSON or empty body
+      }
+
+      if (json.success && json.data?.accessToken) {
+        try {
+          sessionStorage.setItem("accessToken", json.data.accessToken);
+        } catch {}
+      }
+
+      return json;
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        return { success: false, error: "Request timed out" };
+      }
+      return { success: false, error: err?.message || "Refresh failed" };
+    } finally {
+      clearTimeout(timeout);
+      refreshPromise = null;
     }
-    return json;
-  } finally {
-    clearTimeout(timeout);
-  }
+  })();
+
+  return refreshPromise;
 }

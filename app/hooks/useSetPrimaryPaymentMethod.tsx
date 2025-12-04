@@ -24,7 +24,7 @@
 //     }
 
 //     // Make the API request
-//     const response = await fetch('http://192.168.1.121:8080/customer/mark-primary', {
+//     const response = await fetch('http://localhost:8080/customer/mark-primary', {
 //       method: 'POST',
 //       headers: {
 //         Authorization: `Bearer ${token}`, // Bearer token for authentication

@@ -37,7 +37,7 @@ import InterestFreeSheet from "~/compoments/InterestFreeSheet";
 
 /** ---------------- Small helpers ---------------- */
 const ACCENT = "#00BFFF";
-const BASE_URL = "http://192.168.1.121:8080";
+const BASE_URL = "http://localhost:8080";
 const makeFullUrl = (p?: string | null) =>
   !p ? undefined : /^https?:\/\//.test(p) ? p : `${BASE_URL}${p.startsWith("/") ? p : `/${p}`}`;
 

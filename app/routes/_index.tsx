@@ -2,7 +2,7 @@ import React, { useEffect } from "react";
 import { useSession } from "../context/SessionContext";
 import { useNavigate, useSearchParams } from "@remix-run/react";
 
-const API_BASE = "http://192.168.1.121:8080";
+const API_BASE = "http://localhost:8080";
 
 const Index: React.FC = () => {
   const navigate = useNavigate();

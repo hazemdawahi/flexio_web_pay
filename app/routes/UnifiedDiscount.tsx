@@ -37,7 +37,7 @@ const BASE_URL: string =
     (typeof process !== "undefined" && (process as any).env?.API_HOST) as
       | string
       | undefined
-  ) ?? "http://192.168.1.121:8080";
+  ) ?? "http://localhost:8080";
 
 const RADIO_BLUE = "#00BFFF";
 

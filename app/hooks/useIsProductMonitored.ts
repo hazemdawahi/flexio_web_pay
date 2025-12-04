@@ -13,7 +13,7 @@ export interface IsMonitoredResponse {
   error?: string | null;
 }
 
-const BASE_URL = 'http://192.168.1.121:8080';
+const BASE_URL = 'http://localhost:8080';
 
 /**
  * Fetch "is monitored" for a given product.

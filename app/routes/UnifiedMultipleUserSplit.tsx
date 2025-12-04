@@ -28,7 +28,7 @@ type Money = {
 /* Constants + Helpers (DOLLARS everywhere — no cents math)           */
 /* ------------------------------------------------------------------ */
 
-const BASE_URL = 'http://192.168.1.121:8080';
+const BASE_URL = 'http://localhost:8080';
 const PLACEHOLDER = 'https://via.placeholder.com/150';
 
 const makeFullUrl = (path?: string | null): string => {

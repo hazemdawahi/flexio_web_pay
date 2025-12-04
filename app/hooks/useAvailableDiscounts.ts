@@ -27,7 +27,7 @@ async function fetchAvailableDiscounts(
   orderAmount: number,
   accessToken: string
 ): Promise<Discount[]> {
-  const url = `http://192.168.1.121:8080/api/discounts/available/merchant?merchantId=${encodeURIComponent(
+  const url = `http://localhost:8080/api/discounts/available/merchant?merchantId=${encodeURIComponent(
     merchantId
   )}&orderAmount=${encodeURIComponent(String(orderAmount))}`;
 

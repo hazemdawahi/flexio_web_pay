@@ -199,7 +199,7 @@ async function fetchCheckoutDetail(
   accessToken: string
 ): Promise<CheckoutDetailResponse> {
   const response = await fetch(
-    `http://192.168.1.121:8080/api/checkout/details-by-token/${checkoutToken}`,
+    `http://localhost:8080/api/checkout/details-by-token/${checkoutToken}`,
     {
       method: 'GET',
       headers: {

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
-const API_BASE = 'http://192.168.1.121:8080';
+const API_BASE = 'http://localhost:8080';
 const LOGOUT_ENDPOINT = `${API_BASE}/api/user/logout`;
 
 declare global {

@@ -35,7 +35,7 @@ const BASE_URL =
     (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_BASE_URL) as string | undefined,
     (typeof process !== "undefined" && (process as any).env?.REACT_APP_BASE_URL) as string | undefined,
     (typeof process !== "undefined" && (process as any).env?.BASE_URL) as string | undefined
-  ) || "http://192.168.1.121:8080";
+  ) || "http://localhost:8080";
 
 const isAbsoluteUrl = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
 const isDicebearUrl = (u?: string | null) =>

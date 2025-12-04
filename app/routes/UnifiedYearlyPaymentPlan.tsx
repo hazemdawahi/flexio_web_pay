@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";
-import { usePaymentPlanTerms, type CalculateTermsResponse } from "~/routes/usePaymentPlanTerms";
+import { usePaymentPlanTerms, type CalculateTermsResponse } from "~/hooks/usePaymentPlanTerms";
 import {
   useCalculatePaymentPlan,
   type SplitPayment as CalcSplitPayment,

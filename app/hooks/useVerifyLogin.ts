@@ -5,6 +5,7 @@ export interface VerifyLoginRequest {
   identifier: string;
   otp: string;
 }
+
 export interface VerifyLoginResponse {
   success: boolean;
   data?: { accessToken: string; inapp?: boolean };
@@ -16,13 +17,14 @@ async function verifyLoginData(verifyRequest: VerifyLoginRequest): Promise<Verif
   const timeoutId = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const response = await fetch('http://192.168.1.121:8080/api/user/verify/login', {
+    // Use /verify/login-web endpoint - NO refresh token, NO refresh cookie
+    const response = await fetch('http://localhost:8080/api/user/verify/login-web', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(verifyRequest),
       signal: controller.signal,
       cache: 'no-store',
-      credentials: 'include', // server sets HttpOnly refresh cookie
+      // No credentials needed since we're not using cookies for this flow
     });
 
     if (!response.ok) {
@@ -49,12 +51,14 @@ export function useVerifyLogin() {
         } catch {}
         setAccessToken(at);
 
-        // 🔒 Do NOT force true. Only accept explicit boolean from server if provided.
+        // Web-only login: always false for inApp
         const explicitInApp = data?.data?.inapp === true;
         setInApp(explicitInApp);
-        try { sessionStorage.setItem("inApp", explicitInApp ? "true" : "false"); } catch {}
+        try {
+          sessionStorage.setItem("inApp", explicitInApp ? "true" : "false");
+        } catch {}
       }
-      // HttpOnly refresh cookie (if any) is set by server; refresh flow will reflect it.
+      // No refresh cookie is set by server for this endpoint
     },
   });
 }

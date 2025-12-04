@@ -1,4 +1,4 @@
-// File: src/routes/_protected.UnifiedPaymentPlan.tsx
+// File: src/routes/UnifiedPaymentPlan.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
@@ -24,7 +24,7 @@ import {
   type SendRecipient,
 } from "~/hooks/useUnifiedCommerce";
 
-import { usePaymentPlanTerms } from "./usePaymentPlanTerms";
+import { usePaymentPlanTerms } from "../hooks/usePaymentPlanTerms";
 
 // ⬇️ strict per-user payment methods hook (returns PaymentMethod[] directly)
 import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";

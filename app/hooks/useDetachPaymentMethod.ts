@@ -26,7 +26,7 @@ async function detachPaymentMethod({ paymentMethodId }: DetachPaymentMethodParam
     
     // Make the API request to detach the payment method from the customer
     const response = await axios.post<DetachPaymentMethodResponse>(
-      'http://192.168.1.121:8080/customer/detach-payment-method',
+      'http://localhost:8080/customer/detach-payment-method',
       { paymentMethodId }, // Send the payment method ID in the request body
       {
         headers: {

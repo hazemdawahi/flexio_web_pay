@@ -22,7 +22,7 @@ const BASE_URL =
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_HOST) as string | undefined,
     (typeof process !== 'undefined' && (process as any).env?.REACT_APP_API_HOST) as string | undefined,
     (typeof process !== 'undefined' && (process as any).env?.API_HOST) as string | undefined
-  ) ?? 'http://192.168.1.121:8080';
+  ) ?? 'http://localhost:8080';
 
 /* =========================
  * Types

@@ -18,7 +18,7 @@ export type UnifiedOperationType = "CHECKOUT";
 const BASE_URL =
   (typeof process !== "undefined" &&
     ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://192.168.1.121:8080";
+  "http://localhost:8080";
 
 const isAbsoluteUrl = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
 const isDicebearUrl = (u?: string | null) =>

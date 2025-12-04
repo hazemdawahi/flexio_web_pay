@@ -21,7 +21,7 @@ async function exchangePublicToken(publicToken: string): Promise<ExchangePublicT
 
     // Make the POST request to exchange the public token
     const response = await axios.post(
-      'http://192.168.1.121:8080/api/plaid/exchange_stripe_public_token',
+      'http://localhost:8080/api/plaid/exchange_stripe_public_token',
       { publicToken }, // Send the publicToken in the body
       {
         headers: {

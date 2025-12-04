@@ -21,7 +21,7 @@ async function linkBankAccounts(): Promise<LinkBankAccountResponse> {
 
     // Make the POST request to link the bank accounts
     const response = await axios.post(
-      'http://192.168.1.121:8080/api/plaid/link_bank_accounts', // Use the correct API URL
+      'http://localhost:8080/api/plaid/link_bank_accounts', // Use the correct API URL
       {}, // No body required as per your API documentation
       {
         headers: {

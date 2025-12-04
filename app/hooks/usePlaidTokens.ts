@@ -28,7 +28,7 @@ export async function fetchPlaidTokensStatus(): Promise<PlaidTokensResponse> {
 
     // Call the API using the native fetch method
     const response = await fetch(
-      'http://192.168.1.121:8080/api/user/has-required-plaid-tokens',
+      'http://localhost:8080/api/user/has-required-plaid-tokens',
       {
         method: 'GET',
         headers: {

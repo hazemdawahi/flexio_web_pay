@@ -4,16 +4,16 @@ import { useNavigate, useLocation } from '@remix-run/react';
 import { IoIosArrowBack } from 'react-icons/io';
 import { motion } from 'framer-motion';
 
-import PaymentPlan from '~/routes/_protected.UnifiedPaymentPlan';
-import SmartPaymentPlans from '~/routes/_protected.UnifiedSmartPaymentPlans';
+import PaymentPlan from '~/routes/UnifiedPaymentPlan';
+import SmartPaymentPlans from '~/routes/UnifiedSmartPaymentPlans';
 
 // 🔁 SmartPay prerequisite hooks (web)
 import { useCreditAccounts } from '~/hooks/useCreditAccounts';
 import { useSmartpayPreferencesMe } from '~/hooks/useSmartpayPreferencesMe';
 import { useSmartpayIncomes } from '~/hooks/useSmartpayIncomes';
 import ProtectedRoute from '~/compoments/ProtectedRoute';
-import SelfPayPaymentPlan from './_protected.UnifiedSelfPayPaymentPlan';
-import YearlyPaymentPlan from './_protected.UnifiedYearlyPaymentPlan';
+import SelfPayPaymentPlan from './UnifiedSelfPayPaymentPlan';
+import YearlyPaymentPlan from './UnifiedYearlyPaymentPlan';
 
 /** ---------------- Types (RN parity) ---------------- */
 type PowerMode = 'INSTANT' | 'YEARLY';

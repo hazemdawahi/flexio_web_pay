@@ -20,7 +20,7 @@ async function createPlaidLinkToken(): Promise<CreatePlaidLinkTokenResponse> {
     }
 
     const response = await axios.post(
-      'http://192.168.1.121:8080/api/plaid/create_web_link_token_stripe',
+      'http://localhost:8080/api/plaid/create_web_link_token_stripe',
       {}, // No body required as the userId is extracted from the JWT
       {
         headers: {

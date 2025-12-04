@@ -238,7 +238,7 @@ const ensureAbsoluteUrl = (base?: string) => {
   return `http://${base.replace(/^\/+/g, '')}`;
 };
 
-const DEFAULT_BASE = 'http://192.168.1.121:8080';
+const DEFAULT_BASE = 'http://localhost:8080';
 
 const RAW_API_HOST = pickEnv();
 const CLEAN_API_HOST = sanitizeEnv(RAW_API_HOST);

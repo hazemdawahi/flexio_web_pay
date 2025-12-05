@@ -1,87 +1,93 @@
-import React, { useEffect } from "react";
-import { useSession } from "../context/SessionContext";
+// ~/routes/_index.tsx
+
+import React, { useEffect, useRef } from "react";
+import { useSession } from "~/context/SessionContext";
 import { useNavigate, useSearchParams } from "@remix-run/react";
 
-const API_BASE = "http://localhost:8080";
+export const clientLoader = async () => {
+  return null;
+};
 
-const Index: React.FC = () => {
+export default function Index() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { initialized, isAuthenticated } = useSession();
+  const processedRef = useRef(false);
 
-  const token         = searchParams.get("token")         || "";
-  const source        = searchParams.get("source")        || "";
-  const productId     = searchParams.get("productId")     || "";
-  const rt            = searchParams.get("rt")            || ""; // incoming refresh token (one-shot ingest)
-  const displayLogo   = searchParams.get("displayLogo")   || "";
-  const displayName   = searchParams.get("displayName")   || "";
-  const totalAmount   = searchParams.get("totalAmount")   || "";
-  const amount        = searchParams.get("amount")        || "";
-  const discountList  = searchParams.get("discountList")  || "";
-  const splitPaymentId= searchParams.get("splitPaymentId")|| "";
-
-  const { setAccessToken, setInApp } = useSession();
+  const token = searchParams.get("token") || "";
+  const source = searchParams.get("source") || "";
+  const productId = searchParams.get("productId") || "";
+  const checkoutToken = searchParams.get("checkoutToken") || "";
+  const inApp = searchParams.get("inApp") === "true";
+  const displayLogo = searchParams.get("displayLogo") || "";
+  const displayName = searchParams.get("displayName") || "";
+  const totalAmount = searchParams.get("totalAmount") || "";
+  const amount = searchParams.get("amount") || "";
+  const discountList = searchParams.get("discountList") || "";
+  const splitPaymentId = searchParams.get("splitPaymentId") || "";
 
   useEffect(() => {
-    (async () => {
+    if (!initialized) return;
+    if (processedRef.current) return;
+    processedRef.current = true;
+
+    const setSession = (k: string, v: string) => {
+      if (!v) return;
       try {
-        const setSession = (k: string, v: string) => {
-          if (!v) return;
-          try { sessionStorage.setItem(k, v); } catch {}
-        };
-        const clearSession = (k: string) => {
-          try { sessionStorage.removeItem(k); } catch {}
-        };
+        sessionStorage.setItem(k, v);
+      } catch {}
+    };
 
-        // If we *have* a fresh token, overwrite; if not, clear any stale one.
-        if (token) setSession("checkoutToken", token);
-        else       clearSession("checkoutToken");
+    const clearSession = (k: string) => {
+      try {
+        sessionStorage.removeItem(k);
+      } catch {}
+    };
 
-        // Store aux context in session only (ephemeral)
-        setSession("productId",     productId);
-        setSession("displayLogo",   displayLogo);
-        setSession("displayName",   displayName);
-        setSession("totalAmount",   totalAmount);
-        setSession("amount",        amount);
-        setSession("discountList",  discountList);
-        setSession("splitPaymentId",splitPaymentId);
+    // Store context in session
+    if (checkoutToken) {
+      setSession("checkoutToken", checkoutToken);
+    } else {
+      clearSession("checkoutToken");
+    }
 
-        // If we were launched with a refresh token, ingest it server-side (sets cookie).
-        if (rt) {
-          const res = await fetch(`${API_BASE}/api/user/ingest-refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include", // so Set-Cookie lands
-            body: JSON.stringify({ refreshToken: rt }),
-          });
+    setSession("productId", productId);
+    setSession("displayLogo", displayLogo);
+    setSession("displayName", displayName);
+    setSession("totalAmount", totalAmount);
+    setSession("amount", amount);
+    setSession("discountList", discountList);
+    setSession("splitPaymentId", splitPaymentId);
 
-          const json = await res.json().catch(() => ({}));
-          if (res.ok && json?.success && json?.data?.accessToken) {
-            const at = json.data.accessToken;
-            try { sessionStorage.setItem("accessToken", at); } catch {}
-            setAccessToken(at);
+    if (inApp) {
+      setSession("inApp", "true");
+    }
 
-            // Only set inApp if server explicitly returns it
-            const inapp = json?.data?.inapp === true;
-            setInApp(inapp);
-            try { sessionStorage.setItem("inApp", inapp ? "true" : "false"); } catch {}
-          } else {
-            console.warn("Failed to ingest refresh:", json?.error || res.status);
-          }
-        }
-      } finally {
-        // Navigate to main page (strip rt/token/etc. using replace)
-        navigate(`/UnifiedOptionsPage`, { replace: true, state: { source } });
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // If token in URL, redirect to login-token to handle auth
+    if (token) {
+      const params = new URLSearchParams();
+      params.set("token", token);
+      if (checkoutToken) params.set("checkoutToken", checkoutToken);
+      if (inApp) params.set("inApp", "true");
+      navigate(`/login?${params.toString()}`, { replace: true, state: { source } });
+      return;
+    }
+
+    // No token - check if already authenticated
+    if (isAuthenticated) {
+      navigate("/UnifiedOptionsPage", { replace: true, state: { source } });
+    } else {
+      navigate("/login", { replace: true, state: { source } });
+    }
   }, [
+    initialized,
+    isAuthenticated,
     navigate,
     token,
     source,
     productId,
-    rt,
-    setAccessToken,
-    setInApp,
+    checkoutToken,
+    inApp,
     displayLogo,
     displayName,
     totalAmount,
@@ -91,10 +97,8 @@ const Index: React.FC = () => {
   ]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <p className="text-xl">Redirecting...</p>
+    <div className="flex items-center justify-center min-h-screen bg-white">
+      <p className="text-xl text-gray-700">Redirecting...</p>
     </div>
   );
-};
-
-export default Index;
+}

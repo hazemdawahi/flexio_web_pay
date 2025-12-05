@@ -37,9 +37,56 @@ import InterestFreeSheet from "~/compoments/InterestFreeSheet";
 
 /** ---------------- Small helpers ---------------- */
 const ACCENT = "#00BFFF";
-const BASE_URL = "http://localhost:8080";
-const makeFullUrl = (p?: string | null) =>
-  !p ? undefined : /^https?:\/\//.test(p) ? p : `${BASE_URL}${p.startsWith("/") ? p : `/${p}`}`;
+
+/** Dynamic BASE_URL resolution (env → window host:8080 → localhost) */
+const isBrowser = typeof window !== "undefined";
+
+function resolveBaseUrl(): string {
+  let fromEnv: string | undefined;
+
+  // 1) Node-style env vars (Remix/server)
+  if (typeof process !== "undefined" && (process as any).env) {
+    const env = (process as any).env;
+    fromEnv =
+      (env.REACT_APP_API_HOST as string | undefined) ||
+      (env.API_HOST as string | undefined) ||
+      (env.REACT_APP_BASE_URL as string | undefined) ||
+      (env.BASE_URL as string | undefined) ||
+      (env.CUSTOM_API_BASE_URL as string | undefined);
+  }
+
+  if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return fromEnv.trim().replace(/\/+$/, "");
+  }
+
+  // 2) If in the browser, derive from current hostname + :8080
+  if (isBrowser) {
+    try {
+      const loc = window.location;
+      const protocol = loc.protocol === "https:" ? "https:" : "http:";
+      const host = loc.hostname;
+      const port = "8080"; // backend port
+      const built = `${protocol}//${host}:${port}`;
+      return built;
+    } catch {
+      // ignore and fall through
+    }
+  }
+
+  // 3) Final fallback
+  return "http://localhost:8080";
+}
+
+const BASE_URL = resolveBaseUrl();
+
+/** Build absolute URL from relative path or return as-is if already absolute */
+const makeFullUrl = (p?: string | null) => {
+  if (!p) return undefined;
+  if (/^https?:\/\//.test(p)) return p;
+  const base = BASE_URL.endsWith("/") ? BASE_URL.slice(0, -1) : BASE_URL;
+  const path = p.startsWith("/") ? p : `/${p}`;
+  return `${base}${path}`;
+};
 
 /* ✅ Session helpers for checkout token persistence */
 const getSession = (key: string): string | null => {
@@ -1242,7 +1289,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                                   src={
                                     merchantDetailData.data.brand.displayLogo.startsWith("http")
                                       ? merchantDetailData.data.brand.displayLogo
-                                      : `${BASE_URL}${merchantDetailData.data.brand.displayLogo}`
+                                      : makeFullUrl(merchantDetailData.data.brand.displayLogo) || ""
                                   }
                                   alt={merchantDetailData.data.brand.displayName || ""}
                                   className="w-10 h-10 rounded-full object-cover mr-4 border border-gray-300"

@@ -15,10 +15,46 @@ import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 export type UnifiedOperationType = "CHECKOUT";
 
 /** ---------------- Env + URL helpers ---------------- */
-const BASE_URL =
-  (typeof process !== "undefined" &&
-    ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://localhost:8080";
+
+const isBrowser = typeof window !== "undefined";
+
+function resolveBaseUrl(): string {
+  let fromEnv: string | undefined;
+
+  // 1) Node-style env vars (Remix/server)
+  if (typeof process !== "undefined" && (process as any).env) {
+    const env = (process as any).env;
+    fromEnv =
+      (env.REACT_APP_API_HOST as string | undefined) ||
+      (env.API_HOST as string | undefined) ||
+      (env.REACT_APP_BASE_URL as string | undefined) ||
+      (env.BASE_URL as string | undefined) ||
+      (env.CUSTOM_API_BASE_URL as string | undefined);
+  }
+
+  if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return fromEnv.trim().replace(/\/+$/, "");
+  }
+
+  // 2) If in the browser, derive from current hostname + :8080
+  if (isBrowser) {
+    try {
+      const loc = window.location;
+      const protocol = loc.protocol === "https:" ? "https:" : "http:";
+      const host = loc.hostname;
+      const port = "8080"; // backend port
+      const built = `${protocol}//${host}:${port}`;
+      return built;
+    } catch {
+      // ignore and fall through
+    }
+  }
+
+  // 3) Final fallback
+  return "http://localhost:8080";
+}
+
+const BASE_URL = resolveBaseUrl();
 
 const isAbsoluteUrl = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
 const isDicebearUrl = (u?: string | null) =>
@@ -51,14 +87,13 @@ function resolveLogoUrl(path?: string | null): string | undefined {
 
 /** Canonicalize a discount list into JSON array of unique IDs (as strings). */
 function canonicalizeDiscountList(raw: string): string {
-  if (!raw || !raw.trim()) return "[]";
+  if (!raw || !raw.trim()) return "[]" ;
 
   const extractId = (x: any): string => {
     if (x == null) return "";
     if (typeof x === "string" || typeof x === "number") return String(x).trim();
     if (typeof x === "object") {
       const v = x.id ?? x.discountId ?? x.code ?? "";
-      // ❌ FIX: use logical OR (||) not bitwise OR (|)
       return typeof v === "string" || typeof v === "number"
         ? String(v).trim()
         : "";

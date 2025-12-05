@@ -19,23 +19,46 @@ const mask = (s?: string | null) => {
 const safeNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 /** ---------------- Env + URL helpers ---------------- */
-function pickValidBaseUrl(...candidates: Array<unknown>): string | undefined {
-  for (const c of candidates) {
-    const v = (typeof c === "string" ? c : "").trim();
-    const low = v.toLowerCase();
-    if (!v) continue;
-    if (["false", "0", "null", "undefined"].includes(low)) continue;
-    if (/^https?:\/\//i.test(v)) return v.replace(/\/+$/, ""); // strip trailing slash
+
+const isBrowser = typeof window !== "undefined";
+
+function resolveBaseUrl(): string {
+  let fromEnv: string | undefined;
+
+  // 1) Node-style env vars (Remix/server)
+  if (typeof process !== "undefined" && (process as any).env) {
+    const env = (process as any).env;
+    fromEnv =
+      (env.REACT_APP_API_HOST as string | undefined) ||
+      (env.API_HOST as string | undefined) ||
+      (env.REACT_APP_BASE_URL as string | undefined) ||
+      (env.BASE_URL as string | undefined) ||
+      (env.CUSTOM_API_BASE_URL as string | undefined);
   }
-  return undefined;
+
+  if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return fromEnv.trim().replace(/\/+$/, "");
+  }
+
+  // 2) If in the browser, derive from current hostname + :8080
+  if (isBrowser) {
+    try {
+      const loc = window.location;
+      const protocol = loc.protocol === "https:" ? "https:" : "http:";
+      const host = loc.hostname;
+      const port = "8080"; // backend port
+      const built = `${protocol}//${host}:${port}`;
+      return built;
+    } catch {
+      // ignore and fall through
+    }
+  }
+
+  // 3) Final fallback
+  return "http://localhost:8080";
 }
 
-const BASE_URL =
-  pickValidBaseUrl(
-    (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_BASE_URL) as string | undefined,
-    (typeof process !== "undefined" && (process as any).env?.REACT_APP_BASE_URL) as string | undefined,
-    (typeof process !== "undefined" && (process as any).env?.BASE_URL) as string | undefined
-  ) || "http://localhost:8080";
+const BASE_URL = resolveBaseUrl();
 
 const isAbsoluteUrl = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
 const isDicebearUrl = (u?: string | null) =>
@@ -44,8 +67,9 @@ const isDicebearUrl = (u?: string | null) =>
 function resolveLogoUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
   if (isAbsoluteUrl(path) || isDicebearUrl(path)) return path;
+  const base = BASE_URL.endsWith("/") ? BASE_URL.slice(0, -1) : BASE_URL;
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${BASE_URL}${p}`;
+  return `${base}${p}`;
 }
 
 /** Remove "null"/"undefined" and stray quotes from params. */
@@ -161,7 +185,7 @@ const UnifiedPlansOptions: React.FC = () => {
     setUsers(stateData.users || []);
     if (stateData.selectedDiscounts) setSelectedDiscounts(stateData.selectedDiscounts);
 
-    // ---- LOG: navigation state
+    // ---- LOG: navigation.state
     console.groupCollapsed("[UnifiedPlansOptions] navigation.state");
     console.log("stateData:", stateData);
     console.groupEnd();
@@ -664,7 +688,7 @@ const UnifiedPlansOptions: React.FC = () => {
             onClick={() => goAmountCustomization("SUPERCHARGE")}
             className="w-full max-w-3xl bg-white shadow-md rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center cursor-pointer hover:shadow-lg transition"
           >
-            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-sky-400 flex itemscenter justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-sky-400 flex items-center justify-center animate-[pulse_1.8s_ease-in-out_infinite] bg-sky-50/40">
               <FaCreditCard className="text-sky-500 text-lg sm:text-xl" />
             </div>
             <div className="min-w-0">

@@ -1,9 +1,7 @@
 // ~/lib/api/apiClient.ts
 
-const API_BASE =
-  (typeof process !== "undefined" &&
-    ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://localhost:8080";
+// We are 100% static here: backend is always on this host/port in dev.
+const API_BASE = "http://192.168.1.121:8080";
 
 const isBrowser = typeof window !== "undefined";
 
@@ -20,12 +18,29 @@ function clearAccessToken(): void {
   if (!isBrowser) return;
   try {
     sessionStorage.removeItem("accessToken");
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 function dispatchAuthError(): void {
   if (!isBrowser) return;
-  window.dispatchEvent(new CustomEvent("auth:error"));
+  try {
+    window.dispatchEvent(new CustomEvent("auth:error"));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Join API_BASE and endpoint safely:
+ * - strips trailing slashes from base
+ * - strips leading slashes from endpoint
+ */
+function makeUrl(endpoint: string): string {
+  const base = API_BASE.replace(/\/+$/, "");
+  const path = endpoint.replace(/^\/+/, "");
+  return `${base}/${path}`;
 }
 
 export async function authFetch<T>(
@@ -46,7 +61,7 @@ export async function authFetch<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const res = await fetch(makeUrl(endpoint), {
     ...options,
     headers,
     cache: "no-store",
@@ -75,7 +90,7 @@ export async function publicFetch<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const res = await fetch(makeUrl(endpoint), {
     ...options,
     headers,
     cache: "no-store",
@@ -103,7 +118,7 @@ export async function optionalAuthFetch<T>(
     headers.set("Content-Type", "application/json");
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const res = await fetch(makeUrl(endpoint), {
     ...options,
     headers,
     cache: "no-store",

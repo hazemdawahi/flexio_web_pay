@@ -59,10 +59,43 @@ const memKey = (merchantId?: string, tx?: string) =>
   `uac:${merchantId || "nomid"}:${(tx || "NA").toUpperCase()}`;
 
 /** ---------------- Env + URL helpers ---------------- */
-const BASE_URL =
-  (typeof process !== "undefined" &&
-    ((process as any).env?.REACT_APP_BASE_URL || (process as any).env?.BASE_URL)) ||
-  "http://localhost:8080";
+const isBrowser = typeof window !== "undefined";
+
+function resolveBaseUrl(): string {
+  // 1) Prefer explicit env vars when available
+  if (typeof process !== "undefined") {
+    const env = (process as any).env || {};
+    const fromEnv =
+      env.REACT_APP_BASE_URL ||
+      env.BASE_URL ||
+      env.CUSTOM_API_BASE_URL;
+    if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+      return fromEnv.replace(/\/+$/, ""); // strip trailing slashes
+    }
+  }
+
+  // 2) If in browser, derive from current host + :8080
+  if (isBrowser) {
+    try {
+      const loc = window.location;
+      const protocol = loc.protocol === "https:" ? "https:" : "http:";
+      const host = loc.hostname;
+      const port = "8080"; // your backend / asset host port
+      const built = `${protocol}//${host}:${port}`;
+      // Optional debug:
+      // console.log("[UnifiedAmountCustomization] Derived BASE_URL from window.location:", built);
+      return built;
+    } catch (e) {
+      // Optional debug:
+      // console.warn("[UnifiedAmountCustomization] Failed to derive BASE_URL from window.location, falling back to localhost:8080", e);
+    }
+  }
+
+  // 3) Final fallback
+  return "http://localhost:8080";
+}
+
+const BASE_URL = resolveBaseUrl();
 
 const isAbsoluteUrl = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
 const isDicebearUrl = (u?: string | null) =>

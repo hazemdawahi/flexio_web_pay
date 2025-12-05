@@ -28,7 +28,57 @@ type Money = {
 /* Constants + Helpers (DOLLARS everywhere — no cents math)           */
 /* ------------------------------------------------------------------ */
 
-const BASE_URL = 'http://localhost:8080';
+const isBrowser = typeof window !== 'undefined';
+
+function resolveBaseUrl(): string {
+  let fromEnv: string | undefined;
+
+  // 1) Prefer Vite-style env vars if present
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+      const vEnv = (import.meta as any).env;
+      fromEnv =
+        (vEnv.VITE_API_HOST as string | undefined) ||
+        (vEnv.VITE_BASE_URL as string | undefined);
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2) Fall back to Node-style env vars
+  if (!fromEnv && typeof process !== 'undefined' && (process as any).env) {
+    const env = (process as any).env;
+    fromEnv =
+      (env.REACT_APP_API_HOST as string | undefined) ||
+      (env.API_HOST as string | undefined) ||
+      (env.REACT_APP_BASE_URL as string | undefined) ||
+      (env.BASE_URL as string | undefined) ||
+      (env.CUSTOM_API_BASE_URL as string | undefined);
+  }
+
+  if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
+    return fromEnv.trim().replace(/\/+$/, ''); // strip trailing slashes
+  }
+
+  // 3) If in the browser, derive from current hostname + :8080
+  if (isBrowser) {
+    try {
+      const loc = window.location;
+      const protocol = loc.protocol === 'https:' ? 'https:' : 'http:';
+      const host = loc.hostname;
+      const port = '8080'; // backend port
+      const built = `${protocol}//${host}:${port}`;
+      return built;
+    } catch {
+      // ignore and fall through
+    }
+  }
+
+  // 4) Final fallback
+  return 'http://localhost:8080';
+}
+
+const BASE_URL = resolveBaseUrl();
 const PLACEHOLDER = 'https://via.placeholder.com/150';
 
 const makeFullUrl = (path?: string | null): string => {

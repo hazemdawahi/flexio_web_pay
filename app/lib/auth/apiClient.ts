@@ -1,6 +1,7 @@
-// ~/lib/api/apiClient.ts
+// ~/lib/auth/apiClient.ts
 
-// We are 100% static here: backend is always on this host/port in dev.
+import { refreshOnce } from "./refreshOnce";
+
 const API_BASE = "http://192.168.1.121:8080";
 
 const isBrowser = typeof window !== "undefined";
@@ -14,12 +15,30 @@ function getAccessToken(): string | null {
   }
 }
 
+function setAccessToken(token: string): void {
+  if (!isBrowser) return;
+  try {
+    sessionStorage.setItem("accessToken", token);
+  } catch {
+    // ignore
+  }
+}
+
 function clearAccessToken(): void {
   if (!isBrowser) return;
   try {
     sessionStorage.removeItem("accessToken");
   } catch {
     // ignore
+  }
+}
+
+function isInApp(): boolean {
+  if (!isBrowser) return false;
+  try {
+    return sessionStorage.getItem("inApp") === "true";
+  } catch {
+    return false;
   }
 }
 
@@ -32,11 +51,6 @@ function dispatchAuthError(): void {
   }
 }
 
-/**
- * Join API_BASE and endpoint safely:
- * - strips trailing slashes from base
- * - strips leading slashes from endpoint
- */
 function makeUrl(endpoint: string): string {
   const base = API_BASE.replace(/\/+$/, "");
   const path = endpoint.replace(/^\/+/, "");
@@ -47,7 +61,7 @@ export async function authFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getAccessToken();
+  let token = getAccessToken();
 
   if (!token) {
     clearAccessToken();
@@ -55,17 +69,32 @@ export async function authFetch<T>(
     throw new AuthError("No access token");
   }
 
-  const headers = new Headers(options.headers || {});
-  headers.set("Authorization", `Bearer ${token}`);
-  if (!headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
+  const makeRequest = async (accessToken: string) => {
+    const headers = new Headers(options.headers || {});
+    headers.set("Authorization", `Bearer ${accessToken}`);
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
 
-  const res = await fetch(makeUrl(endpoint), {
-    ...options,
-    headers,
-    cache: "no-store",
-  });
+    return fetch(makeUrl(endpoint), {
+      ...options,
+      headers,
+      cache: "no-store",
+    });
+  };
+
+  let res = await makeRequest(token);
+
+  // On 401/403 for in-app users, try refresh then retry
+  if ((res.status === 401 || res.status === 403) && isInApp()) {
+    const refreshRes = await refreshOnce();
+
+    if (refreshRes.success && refreshRes.data?.accessToken) {
+      const newToken = refreshRes.data.accessToken;
+      setAccessToken(newToken);
+      res = await makeRequest(newToken);
+    }
+  }
 
   if (res.status === 401 || res.status === 403) {
     clearAccessToken();

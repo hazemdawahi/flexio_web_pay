@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/routes/UnifiedOptionsPage.tsx
+
+import React, { useMemo } from "react";
 import {
   HiOutlineShoppingCart,
   HiOutlineUsers,
@@ -8,8 +10,8 @@ import { useNavigate, useSearchParams } from "@remix-run/react";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useLogoutWeb } from "~/hooks/useLogout";
-// ✅ NEW: use discount availability (web version)
 import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
+import { useSession } from "~/context/SessionContext";
 
 /** ---------------- Types ---------------- */
 export type UnifiedOperationType = "CHECKOUT";
@@ -21,7 +23,6 @@ const isBrowser = typeof window !== "undefined";
 function resolveBaseUrl(): string {
   let fromEnv: string | undefined;
 
-  // 1) Node-style env vars (Remix/server)
   if (typeof process !== "undefined" && (process as any).env) {
     const env = (process as any).env;
     fromEnv =
@@ -36,13 +37,12 @@ function resolveBaseUrl(): string {
     return fromEnv.trim().replace(/\/+$/, "");
   }
 
-  // 2) If in the browser, derive from current hostname + :8080
   if (isBrowser) {
     try {
       const loc = window.location;
       const protocol = loc.protocol === "https:" ? "https:" : "http:";
       const host = loc.hostname;
-      const port = "8080"; // backend port
+      const port = "8080";
       const built = `${protocol}//${host}:${port}`;
       return built;
     } catch {
@@ -50,7 +50,6 @@ function resolveBaseUrl(): string {
     }
   }
 
-  // 3) Final fallback
   return "http://localhost:8080";
 }
 
@@ -87,7 +86,7 @@ function resolveLogoUrl(path?: string | null): string | undefined {
 
 /** Canonicalize a discount list into JSON array of unique IDs (as strings). */
 function canonicalizeDiscountList(raw: string): string {
-  if (!raw || !raw.trim()) return "[]" ;
+  if (!raw || !raw.trim()) return "[]";
 
   const extractId = (x: any): string => {
     if (x == null) return "";
@@ -135,15 +134,13 @@ const UnifiedOptionsPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // In-app / token flags preserved
-  const [inApp, setInApp] = useState<boolean>(false);
-  const [hasToken, setHasToken] = useState<boolean>(false);
+  // Session info (now the single source of truth for in-app mode)
+  const { inApp, initialized } = useSession();
 
-  // ✅ Hook for sign out
+  // Hook for sign out
   const { logout, isLoggingOut } = useLogoutWeb();
 
-  // ---- URL-driven context (only the fields we still honor) ----
-  // Operation type is FIXED to CHECKOUT (per request)
+  // ---- URL-driven context ----
   const transactionType: UnifiedOperationType = "CHECKOUT";
 
   const displayLogoRaw = normalizeParam(
@@ -176,15 +173,13 @@ const UnifiedOptionsPage: React.FC = () => {
     typeof window !== "undefined"
       ? sessionStorage.getItem("checkoutToken") || ""
       : "";
-  console.log("checkoutToken", checkoutToken);
+  const hasToken = !!checkoutToken;
+
   const { data: checkoutRes, isLoading, error } = useCheckoutDetail(checkoutToken);
-  console.log("checkoutRes", checkoutRes);
 
-  // ✅ Merchant *Base* id now comes from the UPDATED response top-level `merchantBaseId`
-  // Keep a legacy fallback to `merchantId` if some envs still send it.
-  const merchantBaseId = checkoutRes?.merchantBaseId ?? checkoutRes?.merchantId ?? "";
+  const merchantBaseId =
+    checkoutRes?.merchantBaseId ?? checkoutRes?.merchantId ?? "";
 
-  // ---- Amount presence: from URL (amount or totalAmount Money JSON) or checkout.totalAmount
   const amountFromCheckout = checkoutRes?.checkout?.totalAmount?.amount
     ? parseFloat(checkoutRes.checkout.totalAmount.amount)
     : 0;
@@ -201,84 +196,60 @@ const UnifiedOptionsPage: React.FC = () => {
     Boolean(totalAmountRaw) ||
     Boolean(checkoutRes?.checkout?.totalAmount?.amount);
 
-  // Merchant details (configuration, discounts, brand, etc.)
   const {
     data: merchantRes,
     isLoading: merchantLoading,
     error: merchantError,
   } = useMerchantDetail(merchantBaseId);
 
-  // ✅ Discount availability (web): prefer hook result like mobile version
-  const { data: availableDiscountsRaw } = useAvailableDiscounts(merchantBaseId, orderAmount);
-  const availableDiscounts = Array.isArray(availableDiscountsRaw) ? availableDiscountsRaw : [];
+  const { data: availableDiscountsRaw } = useAvailableDiscounts(
+    merchantBaseId,
+    orderAmount
+  );
+  const availableDiscounts = Array.isArray(availableDiscountsRaw)
+    ? availableDiscountsRaw
+    : [];
   const discountsList = merchantBaseId ? availableDiscounts : [];
   const hasDiscounts = discountsList.length > 0;
-
-  console.log("availableDiscounts size (web)", discountsList.length);
-
-  console.log("merchantRes", checkoutRes);
-  // Mirror your original session effects
-  useEffect(() => {
-    const inAppValue =
-      typeof window !== "undefined" ? sessionStorage.getItem("inApp") : null;
-    setInApp(inAppValue === "true");
-
-    const token =
-      typeof window !== "undefined"
-        ? sessionStorage.getItem("checkoutToken")
-        : null;
-    setHasToken(!!token && token.trim() !== "");
-  }, []);
 
   // ---------- Merchant/Brand details ----------
   const brandFromMerchant = merchantRes?.data?.brand ?? null;
   const configurationFromMerchant = merchantRes?.data?.configuration;
-
-  // Split toggle strictly from merchant config (discounts come from hook)
   const splitEnabledByMerchant = !!configurationFromMerchant?.enableSplitPay;
 
-  // branding resolution (param wins; fallback to merchant brand or checkout brand)
   const fallbackBrand = brandFromMerchant ?? checkoutRes?.brand ?? null;
   const paramLogo = displayLogoRaw ? resolveLogoUrl(displayLogoRaw) : undefined;
   const brandLogo = resolveLogoUrl(fallbackBrand?.displayLogo);
   const computedLogoUri = paramLogo ?? brandLogo;
   const computedDisplayName = displayNameRaw || fallbackBrand?.displayName || "";
 
-  // ---- Canonicalize incoming discountList (from URL) once
   const discountListClean = useMemo(
     () => canonicalizeDiscountList(discountListParam),
     [discountListParam]
   );
 
-  // ---- Operation guards (since type is fixed to CHECKOUT, these are constant)
   const isTransfer = false;
   const isAcceptSplit = false;
   const isSoteria = false;
 
-  // allow complete action for CHECKOUT even if no explicit amount? keep same rule:
-  const canShowComplete = isAcceptSplit || hasAmount || isSoteria || hasAmount; // effectively: hasAmount
+  const canShowComplete = isAcceptSplit || hasAmount || isSoteria || hasAmount;
 
-  // Subscription gate (if you add a real hook later, swap it in)
   const subscribed = true;
 
-  // Show split only if subscribed + merchant enabled + not accept-split + not Soteria
   const showSplitAction =
     subscribed && splitEnabledByMerchant && !isAcceptSplit && !isSoteria;
 
-  // ---- Forward params used by downstream routes
-  // We forward the merchantBaseId as `merchantId` so downstream pages remain unchanged.
   const forwardCommon = {
-    transactionType, // always "CHECKOUT"
+    transactionType,
     displayLogo: displayLogoRaw,
     displayName: computedDisplayName,
     discountList: discountListClean,
     splitPaymentId,
-    merchantId: merchantBaseId, // <-- pass base id forward under the same key
+    merchantId: merchantBaseId,
   };
 
   const forwardAll = {
     ...forwardCommon,
-    // Keep totals in DOLLARS (strings)
     totalAmount:
       totalAmountRaw ||
       JSON.stringify({ amount: String(orderAmount || 0), currency: "USD" }),
@@ -286,10 +257,6 @@ const UnifiedOptionsPage: React.FC = () => {
     orderAmount: String(orderAmount || 0),
   };
 
-  // ---------------- Discount-aware navigation helpers ----------------
-  /**
-   * Build URLSearchParams from an object, skipping empty values.
-   */
   const buildParams = (obj: Record<string, string>) =>
     new URLSearchParams(
       Object.entries(obj).reduce<Record<string, string>>((acc, [k, v]) => {
@@ -298,10 +265,6 @@ const UnifiedOptionsPage: React.FC = () => {
       }, {})
     ).toString();
 
-  /**
-   * When discounts are available (from hook), route to /UnifiedDiscount first.
-   * Otherwise proceed to /UnifiedPlansOptions directly.
-   */
   const goComplete = () => {
     const baseParams = {
       ...forwardAll,
@@ -336,15 +299,13 @@ const UnifiedOptionsPage: React.FC = () => {
       return;
     }
 
-    // ✅ Navigate to the contacts-based split flow with all context forwarded
     navigate(`/UnifiedSplitWithContacts?${buildParams(baseParams)}`);
   };
 
-  // ---------------- Render ----------------
   const hasBlockingError = !!error || !!merchantError;
 
   return (
-    <div className="min-h-screen flex flex-col items-center bg-white p-6">
+    <div className="min-h-screen flex flex-col items-center bg-white px-6 pt-16 pb-6">
       {/* Loading / Error states */}
       {(isLoading || merchantLoading) && (
         <div className="w-full max-w-3xl mb-6 p-6 rounded-2xl border border-gray-200 flex items-center justify-center">
@@ -454,17 +415,17 @@ const UnifiedOptionsPage: React.FC = () => {
         </>
       )}
 
-      {/* Sign Out Button (conditionally rendered, preserved) */}
-      {!inApp && (
+      {/* Sign Out Button (hidden when in-app; also wait for initialization to avoid flicker) */}
+      {initialized && !inApp && (
         <button
           className="bg-black text-white font-bold py-4 px-16 rounded-lg mt-8 hover:opacity-80 transition w-full max-w-3xl disabled:opacity-60"
           aria-busy={isLoggingOut ? "true" : "false"}
           disabled={isLoggingOut}
           onClick={async () => {
             try {
-              await logout();          // ✅ call the web logout
+              await logout();
             } finally {
-              navigate("/login");      // ✅ go to login after local cleanup
+              navigate("/login");
             }
           }}
         >

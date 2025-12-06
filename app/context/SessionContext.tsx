@@ -4,17 +4,23 @@ import React, { useContext } from "react";
 
 export interface SessionContextType {
   accessToken: string | null;
-  inApp: boolean;
+  /**
+   * Tri-state:
+   * - null  => not yet determined / unknown
+   * - true  => confirmed in-app (mobile WebView)
+   * - false => confirmed regular web flow
+   */
+  inApp: boolean | null;
   initialized: boolean;
   isAuthenticated: boolean;
   setAccessToken: (token: string | null) => void;
-  setInApp: (val: boolean) => void;
+  setInApp: (val: boolean | null) => void;
   logout: () => void;
 }
 
 const SessionContext = React.createContext<SessionContextType>({
   accessToken: null,
-  inApp: false,
+  inApp: null,
   initialized: false,
   isAuthenticated: false,
   setAccessToken: () => {},

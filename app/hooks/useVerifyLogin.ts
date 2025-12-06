@@ -13,7 +13,7 @@ export interface VerifyLoginResponse {
   success: boolean;
   data?: {
     accessToken: string;
-    inapp?: boolean;
+    // no inapp here for web-only login
   };
   error?: string;
 }
@@ -50,17 +50,16 @@ export function useVerifyLogin() {
         }
         setAccessToken(at);
 
-        const inApp = data?.data?.inapp === true;
-        setInApp(inApp);
+        // Web-only login → explicitly mark as not in-app
+        setInApp(false);
         try {
-          sessionStorage.setItem("inApp", inApp ? "true" : "false");
+          sessionStorage.setItem("inApp", "false");
         } catch {
           // ignore storage errors
         }
       }
     },
     onError: (error) => {
-      // Optional: central place to log / toast
       console.error("Verify login failed:", error.message);
     },
   });

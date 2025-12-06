@@ -14,17 +14,13 @@ export default function Index() {
   const { initialized, isAuthenticated } = useSession();
   const processedRef = useRef(false);
 
+  // ONLY values that actually come from custom-button.js:
+  //  - token      -> used here as the checkout token
+  //  - productId  -> monitoring mode
+  //  - source     -> original host page, passed along in navigation state
   const token = searchParams.get("token") || "";
   const source = searchParams.get("source") || "";
   const productId = searchParams.get("productId") || "";
-  const checkoutToken = searchParams.get("checkoutToken") || "";
-  const inApp = searchParams.get("inApp") === "true";
-  const displayLogo = searchParams.get("displayLogo") || "";
-  const displayName = searchParams.get("displayName") || "";
-  const totalAmount = searchParams.get("totalAmount") || "";
-  const amount = searchParams.get("amount") || "";
-  const discountList = searchParams.get("discountList") || "";
-  const splitPaymentId = searchParams.get("splitPaymentId") || "";
 
   useEffect(() => {
     if (!initialized) return;
@@ -44,57 +40,42 @@ export default function Index() {
       } catch {}
     };
 
-    // Store context in session
-    if (checkoutToken) {
-      setSession("checkoutToken", checkoutToken);
+    // -----------------------------------------
+    // Persist context coming from custom-button
+    // -----------------------------------------
+
+    // Monitoring: productId comes via ?productId=...
+    if (productId) {
+      setSession("productId", productId);
     } else {
-      clearSession("checkoutToken");
+      clearSession("productId");
     }
 
-    setSession("productId", productId);
-    setSession("displayLogo", displayLogo);
-    setSession("displayName", displayName);
-    setSession("totalAmount", totalAmount);
-    setSession("amount", amount);
-    setSession("discountList", discountList);
-    setSession("splitPaymentId", splitPaymentId);
-
-    if (inApp) {
-      setSession("inApp", "true");
-    }
-
-    // If token in URL, redirect to login-token to handle auth
+    // Checkout: custom-button.js passes the checkout token as ?token=...
+    // Store it under "checkoutToken" for UnifiedOptionsPage & hooks.
     if (token) {
-      const params = new URLSearchParams();
-      params.set("token", token);
-      if (checkoutToken) params.set("checkoutToken", checkoutToken);
-      if (inApp) params.set("inApp", "true");
-      navigate(`/login?${params.toString()}`, { replace: true, state: { source } });
-      return;
+      setSession("checkoutToken", token);
     }
+    // NOTE: we intentionally do NOT clear "checkoutToken" if token is absent,
+    // so we don't wipe it on internal navigations back to "/".
 
-    // No token - check if already authenticated
+    // -----------------------------------------
+    // Routing decision
+    // -----------------------------------------
+
+    // At this point:
+    //  - checkout flows have "checkoutToken" in sessionStorage
+    //  - monitoring flows have "productId" in sessionStorage
+    //
+    // We now just send the user either to the unified options page
+    // (if already authenticated) or to login, carrying "source" in state.
+
     if (isAuthenticated) {
       navigate("/UnifiedOptionsPage", { replace: true, state: { source } });
     } else {
       navigate("/login", { replace: true, state: { source } });
     }
-  }, [
-    initialized,
-    isAuthenticated,
-    navigate,
-    token,
-    source,
-    productId,
-    checkoutToken,
-    inApp,
-    displayLogo,
-    displayName,
-    totalAmount,
-    amount,
-    discountList,
-    splitPaymentId,
-  ]);
+  }, [initialized, isAuthenticated, navigate, token, source, productId]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-white">

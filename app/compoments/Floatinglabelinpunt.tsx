@@ -1,52 +1,153 @@
-import React, { useState, ChangeEvent } from 'react';
+import React, { useState, InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
 
-interface FloatingLabelInputProps {
+type Variant = 'notched' | 'default';
+
+interface FloatingLabelInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onBlur' | 'onFocus'> {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
+  onBlur?: () => void;
   error?: string;
   editable?: boolean;
-  type?: string;
+  borderStyle?: React.CSSProperties;
+  onFocus?: () => void;
+  onPress?: () => void;
+  clickable?: boolean;
+  nokeyboard?: boolean;
+  multiline?: boolean;
+  numberOfLines?: number;
+  inputStyle?: React.CSSProperties;
+  labelFontSize?: number;
+  borderColor?: string;
+  accentColor?: string;
+  backgroundColor?: string;
+  variant?: Variant;
 }
 
 const FloatingLabelInput: React.FC<FloatingLabelInputProps> = ({
   label,
   value,
   onChangeText,
+  onBlur,
   error,
   editable = true,
+  borderStyle,
+  onFocus,
+  onPress,
+  clickable = false,
+  nokeyboard = false,
   type = 'text',
+  multiline = false,
+  numberOfLines = 1,
+  inputStyle,
+  labelFontSize = 16,
+  borderColor = '#ccc',
+  accentColor = '#ccc',
+  backgroundColor = '#fff',
+  variant = 'notched',
+  ...rest
 }) => {
   const [isFocused, setIsFocused] = useState(false);
 
-  return (
-    <div className="relative mb-4">
-      <label
-        className="absolute left-2 text-black bg-white px-1 transition-all ease-out"
+  const handleFocus = () => {
+    setIsFocused(true);
+    onFocus?.();
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    onBlur?.();
+  };
+
+  const handlePress = () => {
+    onPress?.();
+    if (!nokeyboard) setIsFocused(true);
+  };
+
+  const isActive = isFocused || (value?.length ?? 0) > 0;
+  const currentBorder = error ? 'red' : isFocused ? accentColor : borderColor;
+  const isDisplayOnly = clickable && (!editable || nokeyboard);
+
+  const content = (
+    <>
+      <div
+        className="relative rounded-[10px] mb-2 overflow-visible"
         style={{
-          top: isFocused || value ? '0px' : '18px',
-          fontSize: isFocused || value ? '12px' : '16px',
+          height: multiline ? 100 : 61,
+          borderWidth: 1,
+          borderStyle: 'solid',
+          borderColor: currentBorder,
+          backgroundColor,
+          ...borderStyle,
         }}
       >
-        {label}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => onChangeText(e.target.value)}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
-        disabled={!editable}
-        className={`w-full pt-6 pb-1.5 px-2 text-base rounded-lg focus:outline-none ${
-          error ? 'border border-red-500' : 'border border-gray-300'
-        }`}
-      />
-      {error && (
-        <div className="text-red-500 text-xs font-bold pb-2.5">
-          {error}
-        </div>
-      )}
+        {variant === 'notched' ? (
+          <div
+            className="absolute px-1.5 pointer-events-none transition-all duration-[160ms]"
+            style={{
+              left: 10,
+              top: isActive ? -10 : 18,
+              backgroundColor,
+            }}
+          >
+            <span style={{ fontSize: labelFontSize, color: '#000' }}>{label}</span>
+          </div>
+        ) : (
+          <span
+            className="absolute pointer-events-none transition-all duration-[160ms]"
+            style={{
+              left: 12,
+              top: isActive ? -10 : 18,
+              fontSize: labelFontSize,
+              color: '#000',
+            }}
+          >
+            {label}
+          </span>
+        )}
+
+        {isDisplayOnly ? (
+          <div
+            className="text-base text-black px-3 rounded-lg font-normal"
+            style={{ paddingTop: 18, paddingBottom: 12, lineHeight: '22px', ...inputStyle }}
+          >
+            {value || ''}
+          </div>
+        ) : multiline ? (
+          <textarea
+            value={value}
+            onChange={(e) => onChangeText(e.target.value)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            disabled={nokeyboard || !editable}
+            rows={numberOfLines}
+            className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none resize-none"
+            style={{ paddingTop: 8, paddingBottom: 8, lineHeight: '22px', height: '100%', ...inputStyle }}
+          />
+        ) : (
+          <input
+            type={type}
+            value={value}
+            onChange={(e) => onChangeText(e.target.value)}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            disabled={nokeyboard || !editable}
+            className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none"
+            style={{ paddingTop: 18, paddingBottom: 12, lineHeight: '22px', ...inputStyle }}
+            {...rest}
+          />
+        )}
+      </div>
+      {error && <div className="text-red-500 text-xs font-bold mt-1.5 mb-1.5">{`* ${error}`}</div>}
+    </>
+  );
+
+  return clickable ? (
+    <div onClick={handlePress} className="cursor-pointer">
+      {content}
     </div>
+  ) : (
+    content
   );
 };
 

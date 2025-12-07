@@ -1,19 +1,22 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, InputHTMLAttributes } from "react";
 
-interface FloatingLabelInputWithInstantProps {
+interface FloatingLabelInputWithInstantProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onBlur' | 'onFocus'> {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
   onBlur?: () => void;
   error?: string;
   editable?: boolean;
-  onFocus?: () => void;
   borderStyle?: React.CSSProperties;
+  onFocus?: () => void;
   onPress?: () => void;
   nokeyboard?: boolean;
   instantPower?: number;
   keyboardType?: "text" | "number";
   powerType?: "instantaneous" | "yearly";
+  labelFontSize?: number;
+  borderColor?: string;
+  backgroundColor?: string;
 }
 
 const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps> = ({
@@ -30,82 +33,86 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
   instantPower,
   keyboardType = "text",
   powerType = "instantaneous",
+  labelFontSize = 16,
+  borderColor = "#ccc",
+  backgroundColor = "#fff",
+  ...rest
 }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [labelActive, setLabelActive] = useState(false);
 
-  useEffect(() => {
-    if (value) {
-      setLabelActive(true);
-    } else if (!isFocused) {
-      setLabelActive(false);
-    }
-  }, [value, isFocused]);
+  const isActive = isFocused || (value?.length ?? 0) > 0;
 
   const handleFocus = () => {
     setIsFocused(true);
-    setLabelActive(true);
-    if (onFocus) onFocus();
+    onFocus?.();
   };
 
   const handleBlur = () => {
     setIsFocused(false);
-    if (!value) setLabelActive(false);
-    if (onBlur) onBlur();
+    onBlur?.();
   };
 
   const handlePress = () => {
-    if (onPress) onPress();
-    if (!nokeyboard) {
-      setIsFocused(true);
-    }
+    onPress?.();
+    if (!nokeyboard) setIsFocused(true);
   };
 
-  // Removed any division/multiplication by 100
-  const formatToDollars = (amount: number) =>
-    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+  const formattedPower = instantPower !== undefined ? `$${instantPower.toFixed(2)}` : '';
 
   return (
-    <div onClick={handlePress} className="w-full">
+    <div onClick={handlePress} className="cursor-pointer">
       <div
-        className={`flex flex-row items-center border ${
-          error ? "border-red-500" : "border-gray-300"
-        } rounded-lg shadow-md`}
-        style={borderStyle}
+        className="w-full rounded-[10px] mb-4 overflow-visible shadow-md relative"
+        style={{
+          height: 61,
+          borderWidth: 1,
+          borderStyle: 'solid',
+          borderColor: error ? 'red' : borderColor,
+          backgroundColor,
+          ...borderStyle,
+        }}
       >
-        {/* Input Container */}
-        <div className="relative flex-1 border-r rounded-l-lg p-2">
-          <label
-            className={`absolute left-2 transition-all duration-300 pointer-events-none ${
-              labelActive ? "top-0 text-sm text-gray-700" : "top-2.5 text-base text-gray-500"
-            }`}
-          >
-            {label}
-          </label>
-          <input
-            type={keyboardType === "number" ? "number" : "text"}
-            value={value}
-            onChange={(e) => onChangeText(e.target.value)}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            disabled={nokeyboard}
-            className="w-full py-2 px-2 border-none focus:outline-none bg-transparent"
-          />
+        <div
+          className="absolute px-1.5 pointer-events-none transition-all duration-[160ms]"
+          style={{
+            left: 10,
+            top: isActive ? -10 : 18,
+            backgroundColor,
+          }}
+        >
+          <span style={{ fontSize: labelFontSize, color: '#000' }}>{label}</span>
         </div>
 
-        {/* Power Section */}
-        {instantPower !== undefined && (
-          <div className="flex flex-col items-center justify-center p-2">
-            <span className="text-sm font-bold">{formatToDollars(instantPower)}</span>
-            <span className="text-xs text-gray-500">
-              {powerType === "yearly" ? "Yearly Power" : "Instant Power"}
-            </span>
+        <div className="flex flex-row items-center h-full pr-2">
+          <div className="flex-1">
+            <input
+              type={keyboardType === "number" ? "number" : "text"}
+              value={value}
+              onChange={(e) => onChangeText(e.target.value)}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              disabled={nokeyboard || !editable}
+              className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none"
+              style={{ paddingTop: 18, paddingBottom: 12, lineHeight: '22px' }}
+              {...rest}
+            />
           </div>
-        )}
+
+          {instantPower !== undefined && (
+            <div className="flex flex-row items-center ml-1">
+              <div className="w-px bg-gray-300 h-9 mx-2.5" />
+              <div className="flex flex-col items-center justify-center">
+                <span className="text-base font-bold text-black">{formattedPower}</span>
+                <span className="text-xs text-[#00BFFF] mt-0.5">
+                  {powerType === "yearly" ? "Yearly Power" : "Instant Power"}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Error Message */}
-      {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
+      {error && <div className="text-red-500 text-xs font-bold mt-1.5 mb-1.5">{`* ${error}`}</div>}
     </div>
   );
 };

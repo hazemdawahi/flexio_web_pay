@@ -8,7 +8,7 @@ import React, {
   useMemo,
 } from "react";
 import SessionContext from "~/context/SessionContext";
-import { refreshOnce, RefreshResponseData } from "~/lib/auth/refreshOnce";
+import { refresh, RefreshResponseData } from "~/lib/auth/refresh";
 
 type Props = { children: React.ReactNode };
 
@@ -85,16 +85,16 @@ export default function SessionProvider({ children }: Props) {
   const [initialized, setInitialized] = useState(false);
   const initRef = useRef(false);
 
-  /** Setters that always sync to sessionStorage (when in a browser) */
+  /** Setters that always sync to localStorage (when in a browser) */
   const setAccessToken = useCallback((token: string | null) => {
     setAccessTokenState(token);
     if (typeof window === "undefined") return;
 
     try {
       if (token) {
-        window.sessionStorage.setItem("accessToken", token);
+        window.localStorage.setItem("accessToken", token);
       } else {
-        window.sessionStorage.removeItem("accessToken");
+        window.localStorage.removeItem("accessToken");
       }
     } catch {
       // ignore storage errors
@@ -108,9 +108,9 @@ export default function SessionProvider({ children }: Props) {
     try {
       if (val === null) {
         // "unknown" => remove key, so next load can re-detect
-        window.sessionStorage.removeItem("inApp");
+        window.localStorage.removeItem("inApp");
       } else {
-        window.sessionStorage.setItem("inApp", val ? "true" : "false");
+        window.localStorage.setItem("inApp", val ? "true" : "false");
       }
     } catch {
       // ignore storage errors
@@ -124,8 +124,8 @@ export default function SessionProvider({ children }: Props) {
     if (typeof window === "undefined") return;
 
     try {
-      window.sessionStorage.removeItem("accessToken");
-      window.sessionStorage.removeItem("inApp");
+      window.localStorage.removeItem("accessToken");
+      window.localStorage.removeItem("inApp");
     } catch {
       // ignore storage errors
     }
@@ -164,8 +164,8 @@ export default function SessionProvider({ children }: Props) {
 
         if (typeof window !== "undefined") {
           try {
-            storedToken = window.sessionStorage.getItem("accessToken");
-            storedInAppRaw = window.sessionStorage.getItem("inApp");
+            storedToken = window.localStorage.getItem("accessToken");
+            storedInAppRaw = window.localStorage.getItem("inApp");
           } catch {
             storedToken = null;
             storedInAppRaw = null;
@@ -200,13 +200,13 @@ export default function SessionProvider({ children }: Props) {
 
         if (!shouldCallRefresh) {
           // Web-only flow:
-          //  - We rely solely on the access token we already have in sessionStorage.
+          //  - We rely solely on the access token we already have in localStorage.
           //  - No refresh cookie, so don't ping /refresh-tokens (avoids 403 noise).
           return;
         }
 
         // 4) In-app flow: we *do* have refresh cookie, so try to refresh once.
-        const res = await refreshOnce();
+        const res = await refresh();
 
         const backendToken = res.data?.accessToken ?? null;
         const backendInApp = normalizeInAppFlag(res.data); // boolean | null

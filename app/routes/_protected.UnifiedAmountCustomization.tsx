@@ -13,7 +13,7 @@ import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";
 
-// ✅ Unified commerce (builders + sender used only for SUPERCHARGE submit)
+// Unified commerce (builders + sender used only for SUPERCHARGE submit)
 import {
   useUnifiedCommerce,
   buildCheckoutRequest,
@@ -82,12 +82,9 @@ function resolveBaseUrl(): string {
       const host = loc.hostname;
       const port = "8080"; // your backend / asset host port
       const built = `${protocol}//${host}:${port}`;
-      // Optional debug:
-      // console.log("[UnifiedAmountCustomization] Derived BASE_URL from window.location:", built);
       return built;
     } catch (e) {
-      // Optional debug:
-      // console.warn("[UnifiedAmountCustomization] Failed to derive BASE_URL from window.location, falling back to localhost:8080", e);
+      // fallback
     }
   }
 
@@ -168,6 +165,18 @@ const getSession = (key: string): string | null => {
   }
 };
 
+/** ---------------- Helper to get all used method IDs from supercharge fields ---------------- */
+function getUsedMethodIds(fields: SuperchargeField[], excludeIndex?: number): Set<string> {
+  const ids = new Set<string>();
+  fields.forEach((f, idx) => {
+    if (excludeIndex !== undefined && idx === excludeIndex) return;
+    if (f.selectedPaymentMethod?.id) {
+      ids.add(f.selectedPaymentMethod.id);
+    }
+  });
+  return ids;
+}
+
 /** ======================== Component ======================== */
 const UnifiedAmountCustomization: React.FC = () => {
   const navigate = useNavigate();
@@ -201,7 +210,7 @@ const UnifiedAmountCustomization: React.FC = () => {
   const paymentSchemeId = normalizeParam(searchParams.get("paymentSchemeId"), "");
   const splitPaymentId = normalizeParam(searchParams.get("splitPaymentId"), "");
 
-  // ---- LOG: show exactly what we received (removed recipient raw here)
+  // ---- LOG: show exactly what we received
   useEffect(() => {
     console.groupCollapsed("[UAC] URL Params (normalized]");
     console.table([
@@ -365,7 +374,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     console.groupEnd();
   }, [parsedOtherUsers, recipientParsed]);
 
-  // ✅ Compute split flag based on otherUsers (excluding self)
+  // Compute split flag based on otherUsers (excluding self)
   const isSplitFlow = (parsedOtherUsers?.length ?? 0) > 0;
   const splitComputed = isSplitFlow ? "true" : "false";
 
@@ -403,7 +412,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     setSuperchargeFields((prev) => {
       let next = [...prev];
 
-      // ✅ Ensure at least one field exists whenever SUPERCHARGE is active
+      // Ensure at least one field exists whenever SUPERCHARGE is active
       if (isSupercharge && next.length === 0) {
         next = [{ amount: "", selectedPaymentMethod: pickPrimaryCard() ?? null }];
       }
@@ -439,10 +448,31 @@ const UnifiedAmountCustomization: React.FC = () => {
     };
   }, [key, powerMode, instantPowerAmount, superchargeFields]);
 
+  /** -------- Track used payment method IDs (excluding current picker field) -------- */
+  const usedMethodIds = useMemo(() => {
+    return getUsedMethodIds(superchargeFields, activeFieldIndex ?? undefined);
+  }, [superchargeFields, activeFieldIndex]);
+
+  /** -------- Count how many card methods are still available -------- */
+  const canAddMoreSupercharge = useMemo(() => {
+    const allUsedIds = getUsedMethodIds(superchargeFields);
+    const availableCount = cards.filter((m) => !allUsedIds.has(m.id)).length;
+    return availableCount > 0;
+  }, [superchargeFields, cards]);
+
   /** -------- SUPERCHARGE field handlers -------- */
+  // Add field with first available (unused) method - computed inside setState for correctness
   const addField = useCallback(() => {
-    setSuperchargeFields((prev) => [...prev, { amount: "", selectedPaymentMethod: pickPrimaryCard() }]);
-  }, [pickPrimaryCard]);
+    setSuperchargeFields((prev) => {
+      const currentUsedIds = getUsedMethodIds(prev);
+      const availableMethod = cards.find((m) => !currentUsedIds.has(m.id)) ?? null;
+      
+      // Do not add if no method available
+      if (!availableMethod) return prev;
+      
+      return [...prev, { amount: "", selectedPaymentMethod: availableMethod }];
+    });
+  }, [cards]);
 
   const updateFieldAmount = (idx: number, val: string) => {
     // allow digits + single dot, max 2 decimals (or empty)
@@ -491,6 +521,9 @@ const UnifiedAmountCustomization: React.FC = () => {
     !exactMatch ||
     !meetsMinContribution;
 
+  // Disable Add Supercharge if no more methods available
+  const addDisabled = !canAddMoreSupercharge;
+
   useEffect(() => {
     console.groupCollapsed("[UAC] Entry/Validation (cents)");
     console.table([
@@ -505,6 +538,8 @@ const UnifiedAmountCustomization: React.FC = () => {
       { key: "minRequiredCents", value: minRequiredCents },
       { key: "meetsMinContribution", value: meetsMinContribution },
       { key: "disabled", value: disabled },
+      { key: "addDisabled", value: addDisabled },
+      { key: "canAddMoreSupercharge", value: canAddMoreSupercharge },
     ]);
     console.groupEnd();
   }, [
@@ -519,6 +554,8 @@ const UnifiedAmountCustomization: React.FC = () => {
     disabled,
     minRequiredCents,
     meetsMinContribution,
+    addDisabled,
+    canAddMoreSupercharge,
   ]);
 
   /** -------- Navigate to UnifiedPlans (non-SUPERCHARGE) -------- */
@@ -572,7 +609,7 @@ const UnifiedAmountCustomization: React.FC = () => {
       displayName: displayNameParam,
 
       // extras
-      // ⚠️ Use computed split flag (ignore incoming split param)
+      // Use computed split flag (ignore incoming split param)
       split: splitComputed,
       logoUri: logoUriParam,
       paymentPlanId,
@@ -580,7 +617,7 @@ const UnifiedAmountCustomization: React.FC = () => {
       splitPaymentId,
     });
 
-    console.groupCollapsed("[UAC] NAV → /UnifiedPlans");
+    console.groupCollapsed("[UAC] NAV -> /UnifiedPlans");
     console.log("query (raw):", Object.fromEntries(baseParams.entries()));
     console.log("split(computed):", splitComputed);
     if (otherUsersJson) { try { console.log("otherUsers(parsed):", JSON.parse(otherUsersJson)); } catch {} }
@@ -608,20 +645,20 @@ const UnifiedAmountCustomization: React.FC = () => {
     const start = Date.now();
     try {
       try {
-        console.groupCollapsed(`[UAC → ${type}] OUTGOING payload`);
+        console.groupCollapsed(`[UAC -> ${type}] OUTGOING payload`);
         console.log(JSON.parse(JSON.stringify(payload)));
         console.groupEnd();
       } catch {
-        console.log(`[UAC → ${type}] OUTGOING payload (stringify failed)`, payload);
+        console.log(`[UAC -> ${type}] OUTGOING payload (stringify failed)`, payload);
       }
       const res = await runUnified(payload);
       try {
-        console.log(`[UAC → ${type}] SUCCESS in ${Date.now() - start}ms`, res);
+        console.log(`[UAC -> ${type}] SUCCESS in ${Date.now() - start}ms`, res);
       } catch {}
       return res;
     } catch (err: any) {
       try {
-        console.log(`[UAC → ${type}] ERROR in ${Date.now() - start}ms`, {
+        console.log(`[UAC -> ${type}] ERROR in ${Date.now() - start}ms`, {
           message: err?.message ?? String(err),
           stack: err?.stack,
         });
@@ -675,13 +712,13 @@ const UnifiedAmountCustomization: React.FC = () => {
       interestFreeUsed: 0,
       interestRate: 0,
       apr: 0,
-      schemeAmount: centsToMajor(myTargetCents), // ✅ renamed to match new interface
+      schemeAmount: centsToMajor(myTargetCents),
       otherUsers: parsedOtherUsers,
       ...(hasDiscounts ? { discountIds } : {}),
     };
 
     try {
-      console.groupCollapsed("[UAC] SUPERCHARGE → common parties snapshot");
+      console.groupCollapsed("[UAC] SUPERCHARGE -> common parties snapshot");
       console.log("otherUsers (actual):", common.otherUsers || []);
       console.log("recipient (actual):", recipientParsed || null);
       console.log("split(computed):", splitComputed);
@@ -691,11 +728,10 @@ const UnifiedAmountCustomization: React.FC = () => {
     try {
       switch (transactionType) {
         case "CHECKOUT": {
-          // ✅ Pull the checkout token from sessionStorage
+          // Pull the checkout token from sessionStorage
           const sessionCheckoutToken = getSession("checkoutToken");
           console.log("[UAC] Using checkoutToken from session:", sessionCheckoutToken);
 
-          // ⛔ No checkoutTotalAmount field per new interface/comments
           const req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
@@ -703,7 +739,6 @@ const UnifiedAmountCustomization: React.FC = () => {
               checkoutRedirectUrl: null,
               checkoutReference: null,
               checkoutDetails: null,
-              // ✅ pass the saved token here
               checkoutToken: sessionCheckoutToken,
             },
             common
@@ -800,7 +835,7 @@ const UnifiedAmountCustomization: React.FC = () => {
             splitPaymentId,
             displayLogo: displayLogoParam || undefined,
             displayName: displayNameParam || undefined,
-            // ⚠️ Stamp computed split flag here
+            // Stamp computed split flag here
             split: splitComputed,
             logoUri: logoUriParam || undefined,
           };
@@ -857,7 +892,7 @@ const UnifiedAmountCustomization: React.FC = () => {
   if ((!preferParamsBranding && loadingMerchant) || loadingUser || loadingMethods) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
-        <span>Loading…</span>
+        <span>Loading...</span>
       </div>
     );
   }
@@ -896,7 +931,7 @@ const UnifiedAmountCustomization: React.FC = () => {
 
         {errorMsg ? <div className="text-center text-red-600 mb-3">{errorMsg}</div> : null}
 
-        {/* ⬇️ Increased bottom margin from mb-1 → mb-4 for a bit more space */}
+        {/* Increased bottom margin from mb-1 -> mb-4 for a bit more space */}
         <h1 className="text-xl font-bold mb-4">
           {headerName
             ? `Customize Your $${centsToMajor(myTargetCents).toFixed(2)} for ${headerName}`
@@ -947,7 +982,10 @@ const UnifiedAmountCustomization: React.FC = () => {
               <button
                 onClick={addField}
                 type="button"
-                className="flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
+                disabled={addDisabled}
+                className={`flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc] ${
+                  addDisabled ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
                 Add Supercharge
               </button>
@@ -974,7 +1012,7 @@ const UnifiedAmountCustomization: React.FC = () => {
                 }`}
               >
                 {unifiedPending
-                  ? "Processing…"
+                  ? "Processing..."
                   : txUpper === "VIRTUAL_CARD"
                   ? "Pay & Issue Card"
                   : "Pay & Finish"}
@@ -982,8 +1020,15 @@ const UnifiedAmountCustomization: React.FC = () => {
             )}
           </div>
 
+          {/* Helper text when Add is disabled */}
+          {addDisabled && subscribed && !isRestrictedToInstant && (
+            <p className="text-xs text-gray-500 mt-2">
+              All payment methods are already in use.
+            </p>
+          )}
+
           {/* Hint placed under the buttons */}
-          {!meetsMinContribution && (
+          {!meetsMinContribution && !addDisabled && (
             <p className="text-xs text-gray-500 mt-2">
               Minimum required: ${centsToMajor(minRequiredCents).toFixed(2)} (10% of total)
             </p>
@@ -1030,6 +1075,7 @@ const UnifiedAmountCustomization: React.FC = () => {
                     }
                     onSelect={handleMethodSelect}
                     isLastItem={idx === arr.length - 1}
+                    disabled={usedMethodIds.has(m.id)}
                   />
                 ))}
               </div>

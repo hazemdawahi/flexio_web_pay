@@ -123,7 +123,7 @@ function getSoteriaExplicitTotal(req: UnifiedCommerceRequest | null): number {
   return 0;
 }
 
-// Read ONLY splitSuperchargeDetails (legacy tolerant). Prefer plan → root → (legacy) card.
+// Read ONLY splitSuperchargeDetails (legacy tolerant). Prefer plan -> root -> (legacy) card.
 function getExistingSplitSupers(
   req: UnifiedCommerceRequest | null
 ): { amount: number; paymentMethodId: string }[] {
@@ -152,7 +152,7 @@ function getExistingDiscountIds(req: UnifiedCommerceRequest | null): string[] {
   return [];
 }
 
-// Place discounts into canonical spot for the op type (CHECKOUT → checkout; others → root)
+// Place discounts into canonical spot for the op type (CHECKOUT -> checkout; others -> root)
 function withDiscountIdsForwarded(req: UnifiedCommerceRequest): UnifiedCommerceRequest {
   const anyReq: any = req;
   const discountIds = getExistingDiscountIds(anyReq).filter(Boolean);
@@ -167,7 +167,7 @@ function withDiscountIdsForwarded(req: UnifiedCommerceRequest): UnifiedCommerceR
 
 /* -------------------- SPLIT helpers -------------------- */
 
-// Get otherUsers from canonical locations (prefer plan → root; legacy card tolerated)
+// Get otherUsers from canonical locations (prefer plan -> root; legacy card tolerated)
 function getOtherUsers(req: UnifiedCommerceRequest | null): { userId: string; amount: number }[] {
   if (!req) return [];
   const anyReq: any = req;
@@ -205,13 +205,25 @@ function withSplitSupersOnly(
   return { ...anyReq, splitSuperchargeDetails: splitSupers };
 }
 
+/* -------------------- Helper to get all used method IDs from fields -------------------- */
+function getUsedMethodIds(fields: Field[], excludeIndex?: number): Set<string> {
+  const ids = new Set<string>();
+  fields.forEach((f, idx) => {
+    if (excludeIndex !== undefined && idx === excludeIndex) return;
+    if (f.selectedMethod?.id) {
+      ids.add(f.selectedMethod.id);
+    }
+  });
+  return ids;
+}
+
 /* -------------------- Component -------------------- */
 
 const UnifiedPayCustomizeScreen: React.FC = () => {
   const navigate = useNavigate();
   const { search } = useLocation();
 
-  // Read payload from ?data=… or sessionStorage (set by other pages)
+  // Read payload from ?data=... or sessionStorage (set by other pages)
   const [payload, setPayload] = useState<UnifiedCommerceRequest | null>(null);
   useEffect(() => {
     // compute qs INSIDE the effect and depend on the stable 'search' string
@@ -233,7 +245,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
         toast.error("Invalid stored customize payload.");
       }
     }
-  }, [search]); // ✅ fixed (no new object every render)
+  }, [search]);
 
   // User + payment methods
   const { data: userDetails } = useUserDetails();
@@ -303,7 +315,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
     }
   }, [payload, methods, selectableMethods, fields.length]);
 
-  // ⭐ Backfill: once selectable methods are available, ensure any null selectedMethod (esp. first row) gets a default
+  // Backfill: once selectable methods are available, ensure any null selectedMethod (esp. first row) gets a default
   useEffect(() => {
     if (!fields.length || !selectableMethods.length) return;
 
@@ -343,27 +355,46 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
   }, [otherUsersAll, userId]);
   const isSplitFlow = otherUsersExcludingSelf.length > 0;
 
-  // Add row (moved button to CTA row; handler unchanged)
-  const handleAdd = useCallback(() => {
-    const def =
-      selectableMethods.find((m) => (m as any).card?.primary === true) ||
-      selectableMethods[0] ||
-      null;
-    setFields((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}`,
-        label: `Supercharge #${prev.length + 1}`,
-        value: "",
-        selectedMethod: def ? (def as any) : null,
-        error: "",
-      },
-    ]);
-  }, [selectableMethods]);
-
   // Picker modal state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+
+  // Track used payment method IDs (excluding current picker field)
+  const usedMethodIds = useMemo(() => {
+    return getUsedMethodIds(fields, activeIndex ?? undefined);
+  }, [fields, activeIndex]);
+
+  // Count how many methods are still available
+  const canAddMoreSupercharge = useMemo(() => {
+    const allUsedIds = getUsedMethodIds(fields);
+    const availableCount = selectableMethods.filter((m) => !allUsedIds.has(m.id)).length;
+    return availableCount > 0;
+  }, [fields, selectableMethods]);
+
+  // Disable Add Supercharge if no more methods available
+  const addDisabled = !canAddMoreSupercharge;
+
+  // Add row with first available (unused) method - computed inside setState for correctness
+  const handleAdd = useCallback(() => {
+    setFields((prev) => {
+      const currentUsedIds = getUsedMethodIds(prev);
+      const availableMethod = selectableMethods.find((m) => !currentUsedIds.has(m.id)) ?? null;
+      
+      // Do not add if no method available
+      if (!availableMethod) return prev;
+      
+      return [
+        ...prev,
+        {
+          id: `${Date.now()}`,
+          label: `Supercharge #${prev.length + 1}`,
+          value: "",
+          selectedMethod: availableMethod as any,
+          error: "",
+        },
+      ];
+    });
+  }, [selectableMethods]);
 
   // Submit
   const { mutate: runUnified, isPending } = useUnifiedCommerce();
@@ -450,7 +481,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
         const qToken = token ? `&checkoutToken=${encodeURIComponent(String(token))}` : "";
         const qSplit = `&split=${isSplitFlow ? "true" : "false"}`;
 
-        // ✅ Navigate to SuccessPayment with the exact params it expects + split flag
+        // Navigate to SuccessPayment with the exact params it expects + split flag
         navigate(`/SuccessPayment?amount=${qAmount}${qToken}${qSplit}&replace_to_index=1`);
       },
       onError: (e: unknown) => {
@@ -474,7 +505,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
           className="w-10 h-10 rounded-full border-4 border-gray-300 animate-spin"
           style={{ borderTopColor: "#000" }}
         />
-        <p className="mt-3 text-sm text-gray-700">Loading…</p>
+        <p className="mt-3 text-sm text-gray-700">Loading...</p>
       </div>
     );
   }
@@ -566,7 +597,10 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleAdd}
-                className="flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc]"
+                disabled={addDisabled}
+                className={`flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc] ${
+                  addDisabled ? "opacity-50 cursor-not-allowed" : ""
+                }`}
                 type="button"
               >
                 Add Supercharge
@@ -579,9 +613,16 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
                   disabled ? "bg-gray-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
                 }`}
               >
-                {isPending ? "Submitting…" : "Complete"}
+                {isPending ? "Submitting..." : "Complete"}
               </button>
             </div>
+
+            {/* Helper note when Add is disabled */}
+            {addDisabled && (
+              <p className="text-xs text-gray-500 mt-2">
+                All payment methods are already in use.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -644,6 +685,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
                       }}
                       isLastItem={idx === arr.length - 1}
                       GREEN_COLOR={ACCENT}
+                      disabled={usedMethodIds.has(method.id)}
                     />
                   ))}
                 </div>

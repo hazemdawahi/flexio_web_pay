@@ -1,4 +1,4 @@
-// ~/lib/auth/refreshOnce.ts
+// ~/lib/auth/refresh.ts
 import { API_BASE } from "./apiClient";
 
 export type RefreshResponseData = {
@@ -15,7 +15,7 @@ export type RefreshResponseData = {
 
 let refreshPromise: Promise<RefreshResponseData> | null = null;
 
-export async function refreshOnce(
+export async function refresh(
   opts?: { signal?: AbortSignal }
 ): Promise<RefreshResponseData> {
   if (refreshPromise) {

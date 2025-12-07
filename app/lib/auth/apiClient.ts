@@ -1,15 +1,15 @@
 // ~/lib/auth/apiClient.ts
 
-import { refreshOnce } from "./refreshOnce";
+import { refresh } from "./refresh";
 
-const API_BASE = "http://192.168.1.121:8080";
+export const API_BASE = "http://192.168.1.121:8080";
 
 const isBrowser = typeof window !== "undefined";
 
 function getAccessToken(): string | null {
   if (!isBrowser) return null;
   try {
-    return sessionStorage.getItem("accessToken");
+    return localStorage.getItem("accessToken");
   } catch {
     return null;
   }
@@ -18,7 +18,7 @@ function getAccessToken(): string | null {
 function setAccessToken(token: string): void {
   if (!isBrowser) return;
   try {
-    sessionStorage.setItem("accessToken", token);
+    localStorage.setItem("accessToken", token);
   } catch {
     // ignore
   }
@@ -27,7 +27,7 @@ function setAccessToken(token: string): void {
 function clearAccessToken(): void {
   if (!isBrowser) return;
   try {
-    sessionStorage.removeItem("accessToken");
+    localStorage.removeItem("accessToken");
   } catch {
     // ignore
   }
@@ -36,7 +36,7 @@ function clearAccessToken(): void {
 function isInApp(): boolean {
   if (!isBrowser) return false;
   try {
-    return sessionStorage.getItem("inApp") === "true";
+    return localStorage.getItem("inApp") === "true";
   } catch {
     return false;
   }
@@ -87,7 +87,7 @@ export async function authFetch<T>(
 
   // On 401/403 for in-app users, try refresh then retry
   if ((res.status === 401 || res.status === 403) && isInApp()) {
-    const refreshRes = await refreshOnce();
+    const refreshRes = await refresh();
 
     if (refreshRes.success && refreshRes.data?.accessToken) {
       const newToken = refreshRes.data.accessToken;
@@ -168,4 +168,4 @@ export class AuthError extends Error {
   }
 }
 
-export { API_BASE, getAccessToken, clearAccessToken, isBrowser };
+export { getAccessToken, clearAccessToken, isBrowser };

@@ -1,10 +1,8 @@
-// app/components/FloatingLabelInputOverdraft.tsx
-
-import React, { useState, useEffect } from "react";
+import React, { useState, InputHTMLAttributes } from "react";
 import CompactSelectedPaymentMethod from "./CompactSelectedPaymentMethod";
 import { PaymentMethod } from "~/hooks/usePaymentMethods";
 
-interface FloatingLabelInputOverdraftProps {
+interface FloatingLabelInputOverdraftProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'onBlur' | 'onFocus'> {
   label: string;
   value: string;
   onChangeText: (text: string) => void;
@@ -16,7 +14,9 @@ interface FloatingLabelInputOverdraftProps {
   selectedMethod: PaymentMethod | null;
   onPaymentMethodPress?: () => void;
   keyboardType?: "text" | "number";
-  className?: string;
+  labelFontSize?: number;
+  borderColor?: string;
+  backgroundColor?: string;
 }
 
 const FloatingLabelInputOverdraft: React.FC<FloatingLabelInputOverdraftProps> = ({
@@ -31,69 +31,68 @@ const FloatingLabelInputOverdraft: React.FC<FloatingLabelInputOverdraftProps> = 
   selectedMethod,
   onPaymentMethodPress,
   keyboardType = "text",
-  className,
+  labelFontSize = 16,
+  borderColor = "#ccc",
+  backgroundColor = "#fff",
+  ...rest
 }) => {
   const [isFocused, setIsFocused] = useState(false);
-  const [labelActive, setLabelActive] = useState(false);
 
-  useEffect(() => {
-    if (value) {
-      setLabelActive(true);
-    } else if (!isFocused) {
-      setLabelActive(false);
-    }
-  }, [value, isFocused]);
+  const isActive = isFocused || (value?.length ?? 0) > 0;
 
   const handleFocus = () => {
     setIsFocused(true);
-    setLabelActive(true);
-    if (onFocus) onFocus();
+    onFocus?.();
   };
 
   const handleBlur = () => {
     setIsFocused(false);
-    if (!value) setLabelActive(false);
-    if (onBlur) onBlur();
+    onBlur?.();
   };
 
   return (
-    <div className={`flex flex-row items-center w-full ${className || ""}`}>
-      {/* Floating Label Input with integrated payment method selector */}
+    <div className="flex flex-row w-full h-[65px] items-stretch">
       <div
-        className={`flex flex-row items-center flex-1 border ${
-          error ? "border-red-500" : "border-gray-300"
-        } rounded-lg shadow-md`}
+        className="flex-[0.4] h-full rounded-l-lg overflow-visible shadow-md relative"
+        style={{
+          borderWidth: 1,
+          borderStyle: 'solid',
+          borderColor: error ? 'red' : borderColor,
+          borderRightWidth: 0,
+          backgroundColor,
+        }}
       >
-        {/* Input Container */}
-        <div className="relative flex-1 border-r rounded-l-lg p-2">
-          <label
-            className={`absolute left-2 transition-all duration-300 pointer-events-none ${
-              labelActive
-                ? "top-0 text-sm text-gray-700"
-                : "top-2.5 text-base text-gray-500"
-            }`}
-          >
-            {label}
-          </label>
-          <input
-            type={keyboardType === "number" ? "number" : "text"}
-            value={value}
-            onChange={(e) => onChangeText(e.target.value)}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            disabled={!editable}
-            className="w-full py-2 px-2 border-none focus:outline-none bg-transparent"
-            style={{ caretColor: editable ? undefined : "transparent" }}
-          />
+        <div
+          className="absolute px-1.5 pointer-events-none transition-all duration-[160ms]"
+          style={{
+            left: 10,
+            top: isActive ? -10 : 18,
+            backgroundColor,
+          }}
+        >
+          <span style={{ fontSize: labelFontSize, color: '#000' }}>{label}</span>
         </div>
 
-        {/* Compact Payment Method Selector */}
-        <CompactSelectedPaymentMethod
-          selectedMethod={selectedMethod}
-          onPress={onPaymentMethodPress || (() => {})}
-          error={error}
+        <input
+          type={keyboardType === "number" ? "number" : "text"}
+          value={value}
+          onChange={(e) => onChangeText(e.target.value)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          disabled={nokeyboard || !editable}
+          className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none"
+          style={{ paddingTop: 18, paddingBottom: 12, lineHeight: '22px' }}
+          {...rest}
         />
+        {error && <div className="text-red-500 text-xs font-bold pt-1 px-3">{error}</div>}
       </div>
+
+      <div className="w-px bg-gray-300 h-full" />
+
+      <CompactSelectedPaymentMethod
+        selectedMethod={selectedMethod}
+        onPress={onPaymentMethodPress || (() => {})}
+      />
     </div>
   );
 };

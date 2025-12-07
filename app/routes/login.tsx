@@ -187,6 +187,8 @@ export default function LoginPage() {
             error={error && isOtpVisible ? error : ""}
             editable={!isLoading}
             type="text"
+            maxLength={6}
+
           />
         </>
       )}

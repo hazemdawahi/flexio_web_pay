@@ -60,6 +60,8 @@ interface UnifiedPaymentPlanProps {
   displayLogo?: string;
 }
 
+const ACCENT = "#00BFFF";
+
 const normalizeStr = (v: any, fallback = ""): string => {
   const val = Array.isArray(v) ? (v[0] ?? fallback) : (v ?? fallback);
   if (val === "null" || val === "undefined") return "";
@@ -83,9 +85,9 @@ const extractDiscountIds = (raw: string | string[] | undefined): string[] => {
   try {
     const parsed = JSON.parse(raw as string);
     if (Array.isArray(parsed)) return uniq(parsed.map(take));
-    if (typeof parsed === "string") return uniq(parsed.split(",").map(s => s.trim()));
+    if (typeof parsed === "string") return uniq(parsed.split(",").map((s) => s.trim()));
   } catch {
-    return uniq(String(raw).split(",").map(s => s.trim()));
+    return uniq(String(raw).split(",").map((s) => s.trim()));
   }
   return [];
 };
@@ -158,8 +160,9 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   const modeSplit = splitFlag === "true";
 
   // 🔹 honor powerMode (INSTANT|YEARLY)
-  const powerModeParam = (normalizeStr(qs.get("powerMode"), "INSTANT").toUpperCase() ||
-    "INSTANT") as "INSTANT" | "YEARLY";
+  const powerModeParam = (normalizeStr(qs.get("powerMode"), "INSTANT").toUpperCase() || "INSTANT") as
+    | "INSTANT"
+    | "YEARLY";
   const isYearlyMode = powerModeParam === "YEARLY";
 
   const discountListRawQS = normalizeStr(qs.get("discountList"), "");
@@ -215,6 +218,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   /* ───── Amount derivation (parity with RN) ───── */
   const displayedInstant = Number(parseFloat(instantPowerAmount).toFixed(2)) || 0;
 
+  // ✅ Calculate supercharge total (parity with mobile)
   const totalSupercharge = useMemo(
     () =>
       (superchargeDetails ?? []).reduce((acc, d) => {
@@ -227,6 +231,9 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   // Keep `amount` as the base amount the plan is built on (mobile parity).
   const amount = Number(displayedInstant.toFixed(2));
 
+  // ✅ Total with supercharge (for display)
+  const totalWithSupercharge = amount + totalSupercharge;
+
   useEffect(() => {
     try {
       console.groupCollapsed("[UnifiedPaymentPlan/web] Plan Inputs");
@@ -237,12 +244,23 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         { key: "amount (base)", value: amount },
         { key: "supercharge count", value: (superchargeDetails ?? []).length },
         { key: "totalSupercharge", value: totalSupercharge },
+        { key: "totalWithSupercharge", value: totalWithSupercharge },
         { key: "totalAmountParam(fallback)", value: totalAmountParam },
         { key: "orderAmountParam(unused)", value: orderAmountParam },
       ]);
       console.groupEnd();
     } catch {}
-  }, [powerModeParam, isYearlyMode, instantPowerAmount, amount, superchargeDetails, totalSupercharge, totalAmountParam, orderAmountParam]);
+  }, [
+    powerModeParam,
+    isYearlyMode,
+    instantPowerAmount,
+    amount,
+    superchargeDetails,
+    totalSupercharge,
+    totalWithSupercharge,
+    totalAmountParam,
+    orderAmountParam,
+  ]);
 
   /* ───── Data hooks ───── */
   const { data: userDetailsData } = useUserDetails();
@@ -287,33 +305,30 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
   // Default method selection (prefer primary card)
   useEffect(() => {
-    const cards = (methods ?? []).filter(m => m.type === "card");
+    const cards = (methods ?? []).filter((m) => m.type === "card");
     if (!cards.length || selectedPaymentMethod) return;
-    const primaryCard = cards.find(m => m.card?.primary === true);
+    const primaryCard = cards.find((m) => m.card?.primary === true);
     setSelectedPaymentMethod(primaryCard ?? cards[0]);
   }, [methods, selectedPaymentMethod]);
 
   // Normalize other users (⚠️ keep current user)
   const otherUsersNormalized = useMemo(() => {
     return (otherUserAmounts ?? [])
-      .map(u => ({
+      .map((u) => ({
         userId: String(u?.userId ?? ""),
         amount: Number(parseFloat(u?.amount ?? "0") || 0),
       }))
-      .filter(u => !!u.userId && Number.isFinite(u.amount) && u.amount >= 0);
+      .filter((u) => !!u.userId && Number.isFinite(u.amount) && u.amount >= 0);
   }, [otherUserAmounts]);
 
   const isSplitFlow = otherUsersNormalized.length > 0;
 
   // Discounts (merge props + qs)
-  const parsedDiscountIds = useMemo(
-    () => {
-      const fromProps = extractDiscountIds(selectedDiscounts);
-      const fromQS = extractDiscountIds(discountListRawQS || undefined);
-      return Array.from(new Set([...fromProps, ...fromQS]));
-    },
-    [selectedDiscounts, discountListRawQS]
-  );
+  const parsedDiscountIds = useMemo(() => {
+    const fromProps = extractDiscountIds(selectedDiscounts);
+    const fromQS = extractDiscountIds(discountListRawQS || undefined);
+    return Array.from(new Set([...fromProps, ...fromQS]));
+  }, [selectedDiscounts, discountListRawQS]);
   const hasDiscounts = parsedDiscountIds.length > 0;
 
   // Fetch dynamic term bounds
@@ -355,23 +370,20 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   }, [amount, paymentFrequency, isYearlyMode]);
 
   // Build request for plan calculation
-  const planRequest = useMemo(
-    () => {
-      const raw = parseInt(numberOfPeriods, 10) || minTerm;
-      const count = Math.max(minTerm, Math.min(raw, maxTerm));
-      return {
-        frequency: paymentFrequency as PaymentFrequency,
-        numberOfPayments: count,
-        purchaseAmount: amount,
-        startDate,
-        selfPay: false,
-        instantaneous: !isYearlyMode,
-        yearly: isYearlyMode,
-        interestFreeAmt: Number(interestFreeUsed.toFixed(2)),
-      };
-    },
-    [paymentFrequency, numberOfPeriods, minTerm, maxTerm, amount, startDate, interestFreeUsed, isYearlyMode]
-  );
+  const planRequest = useMemo(() => {
+    const raw = parseInt(numberOfPeriods, 10) || minTerm;
+    const count = Math.max(minTerm, Math.min(raw, maxTerm));
+    return {
+      frequency: paymentFrequency as PaymentFrequency,
+      numberOfPayments: count,
+      purchaseAmount: amount,
+      startDate,
+      selfPay: false,
+      instantaneous: !isYearlyMode,
+      yearly: isYearlyMode,
+      interestFreeAmt: Number(interestFreeUsed.toFixed(2)),
+    };
+  }, [paymentFrequency, numberOfPeriods, minTerm, maxTerm, amount, startDate, interestFreeUsed, isYearlyMode]);
 
   // Calculate plan whenever inputs change
   useEffect(() => {
@@ -386,9 +398,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     calculatePlan(planRequest, {
       onSuccess: (res: any) => {
         const empty =
-          !res?.data ||
-          !Array.isArray(res?.data?.splitPayments) ||
-          res?.data?.splitPayments.length === 0;
+          !res?.data || !Array.isArray(res?.data?.splitPayments) || res?.data?.splitPayments.length === 0;
         setPlanExplicitlyEmpty(empty);
         setPlanPending(false);
       },
@@ -402,28 +412,24 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
   // First-due detection
   const today = new Date().toISOString().split("T")[0];
-  const hasDueToday =
-    calculatedPlan?.data?.splitPayments?.some((p: any) => p?.dueDate === today) ?? false;
+  const hasDueToday = calculatedPlan?.data?.splitPayments?.some((p: any) => p?.dueDate === today) ?? false;
 
   /* ─────────────────────────────────────────────────────────────
      Unified helpers (parity with RN)
      ───────────────────────────────────────────────────────────── */
 
-  const buildSplits = useCallback(
-    (plan: any | null): SplitPaymentDetailDTO[] => {
-      if (!plan?.splitPayments) return [];
-      return plan.splitPayments.map((p: any) => ({
-        dueDate: p?.dueDate,
-        amount: Number(p?.amount ?? 0),
-        originalAmount: Number(p?.originalAmount ?? 0),
-        interestFreeSlice: Number(p?.interestFreeSlice ?? 0),
-        interestRate: Number(p?.interestRate ?? 0),
-        interestAmount: Number(p?.interestAmount ?? 0),
-        originalInterestAmount: Number(p?.originalInterestAmount ?? 0),
-      }));
-    },
-    []
-  );
+  const buildSplits = useCallback((plan: any | null): SplitPaymentDetailDTO[] => {
+    if (!plan?.splitPayments) return [];
+    return plan.splitPayments.map((p: any) => ({
+      dueDate: p?.dueDate,
+      amount: Number(p?.amount ?? 0),
+      originalAmount: Number(p?.originalAmount ?? 0),
+      interestFreeSlice: Number(p?.interestFreeSlice ?? 0),
+      interestRate: Number(p?.interestRate ?? 0),
+      interestAmount: Number(p?.interestAmount ?? 0),
+      originalInterestAmount: Number(p?.originalInterestAmount ?? 0),
+    }));
+  }, []);
 
   type CommonWithDiscounts = {
     paymentFrequency?: any;
@@ -442,7 +448,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     /** Optional—only include when available */
     originalTotalInterest?: number;
     currentTotalInterest?: number;
-    schemeAmount?: number; // ← renamed from schemeTotalAmount
+    schemeAmount?: number;
+    schemeTotalAmount?: number;
     splitPaymentsList?: SplitPaymentDetailDTO[];
     otherUsers?: { userId: string; amount: number }[];
     discountIds?: string[];
@@ -457,19 +464,14 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         paymentMethodId: s.paymentMethodId,
       }));
 
-      const superchargeSum = (superchargeDetails || []).reduce((acc, s) => {
-        const n = Number(s.amount);
-        return acc + (isNaN(n) ? 0 : n);
-      }, 0);
-      const schemeTotalAmount = Number((amount + superchargeSum).toFixed(2));
+      const schemeTotalAmount = Number(totalWithSupercharge.toFixed(2));
 
-      const others =
-        isSplitFlow
-          ? otherUsersNormalized.map(u => ({
-              userId: u.userId,
-              amount: Number(u.amount) || 0,
-            }))
-          : undefined;
+      const others = isSplitFlow
+        ? otherUsersNormalized.map((u) => ({
+            userId: u.userId,
+            amount: Number(u.amount) || 0,
+          }))
+        : undefined;
 
       const discountIds = hasDiscounts ? parsedDiscountIds : undefined;
 
@@ -484,16 +486,17 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         numberOfPayments: splits.length || Number(numberOfPeriods) || 1,
         offsetStartDate: startDate,
         instantAmount: !isYearlyMode ? Number(amount.toFixed(2)) : 0,
-        yearlyAmount:  isYearlyMode ? Number(amount.toFixed(2)) : 0,
+        yearlyAmount: isYearlyMode ? Number(amount.toFixed(2)) : 0,
         selectedPaymentMethod: selectedPaymentMethod?.id,
         superchargeDetails: mappedSupercharges,
         splitSuperchargeDetails: [],
         selfPayActive: false,
-        totalPlanAmount: Number(((calculatedPlan?.data?.totalAmount ?? amount)).toFixed(2)),
+        totalPlanAmount: Number((calculatedPlan?.data?.totalAmount ?? amount).toFixed(2)),
         interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
         interestRate: Number(calculatedPlan?.data?.periodInterestRate ?? 0),
         apr: Number(calculatedPlan?.data?.apr ?? 0),
-        schemeAmount: schemeTotalAmount, // ✅ new key
+        schemeAmount: schemeTotalAmount,
+        schemeTotalAmount,
         splitPaymentsList: splits,
         otherUsers: others,
         discountIds,
@@ -507,7 +510,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     [
       buildSplits,
       superchargeDetails,
-      amount,
+      totalWithSupercharge,
       isSplitFlow,
       otherUsersNormalized,
       paymentFrequency,
@@ -521,6 +524,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       parsedDiscountIds,
       interestFreeUsed,
       isYearlyMode,
+      amount,
       calculatedPlan?.data,
     ]
   );
@@ -570,7 +574,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     }
     if (out.checkout && Object.keys(out.checkout).length === 0) delete out.checkout;
     if (out.card && Object.keys(out.card).length === 0) delete out.card;
-    if (out.virtualCard && Object.keys(out.virtualCard ?? {}).length === 0) delete out.virtualCard; // ✅ fix
+    if (out.virtualCard && Object.keys(out.virtualCard ?? {}).length === 0) delete out.virtualCard;
     return out as T;
   }
 
@@ -585,13 +589,9 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   }, []);
 
   // 🔢 Display/limit total (server total → totalAmount param → base amount)
-  const displayTotal: number = Number(
-    (calculatedPlan?.data?.totalAmount ?? totalAmountParam ?? amount).toFixed(2)
-  );
+  const displayTotal: number = Number((calculatedPlan?.data?.totalAmount ?? totalAmountParam ?? amount).toFixed(2));
 
   // ⛳ Navigate to the SuccessPayment route in app/routes/SuccessPayment.tsx
-  //    Supports optional checkoutToken passthrough without altering existing logic.
-  //    ⬇️ UPDATED: always send split=true when otherUsersNormalized is non-empty, else false.
   const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
     const num = typeof amt === "number" ? amt : Number(amt || 0);
     const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
@@ -657,7 +657,6 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             console.groupEnd();
           } catch {}
 
-          // ✅ Pull any existing checkout token from session and include it
           const sessionCheckoutToken = getSession("checkoutToken");
           console.log("[UnifiedPaymentPlan] Using checkoutToken from session:", sessionCheckoutToken);
 
@@ -679,24 +678,22 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
           req = sanitizeForType("CHECKOUT", req);
           logUnifiedPayload("CHECKOUT", req);
-          const res = await runUnified(req); // UnifiedCommerceResponse
+          const res = await runUnified(req);
 
-          // ✅ Persist any returned checkout token for subsequent steps / flows
           const token =
-            res?.checkout?.checkoutToken ??
-            res?.checkout?.token ??
+            (res as any)?.checkout?.checkoutToken ??
+            (res as any)?.checkout?.token ??
             (res as any)?.checkoutToken ??
             (res as any)?.token ??
             undefined;
 
           if (token) {
             try {
-              setSession("checkoutToken", String(token)); // ← store for reuse
+              setSession("checkoutToken", String(token));
               console.log("[UnifiedPaymentPlan] Saved checkoutToken to session:", token);
             } catch {}
           }
 
-          // Best-effort pass token to success page too
           navigateSuccess(displayTotal, token);
           break;
         }
@@ -706,7 +703,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           let req = buildPaymentRequest(
             {
               merchantId,
-              paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
+              paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
             },
             common as any
           );
@@ -773,8 +770,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           let req = buildSoteriaPaymentRequest(
             {
               merchantId,
-              soteriaPaymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
-              paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
+              soteriaPaymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
+              paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
               ...(paymentPlanId ? { paymentPlanId } : {}),
               ...(paymentSchemeId ? { paymentSchemeId } : {}),
               ...(splitPaymentId ? { splitPaymentId } : {}),
@@ -810,30 +807,32 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           amount: Number(s.amount),
           paymentMethodId: s.paymentMethodId,
         }));
-        const superchargeSum = (superchargeDetails || []).reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
-        const schemeTotalAmount = Number((amount + superchargeSum).toFixed(2));
+        const schemeTotalAmount = Number(totalWithSupercharge.toFixed(2));
 
         const common: any = {
           paymentFrequency,
           numberOfPayments: splits.length || Number(numberOfPeriods) || 1,
           offsetStartDate: firstSplitDueDate,
           instantAmount: !isYearlyMode ? Number(amount.toFixed(2)) : 0,
-          yearlyAmount:  isYearlyMode ? Number(amount.toFixed(2)) : 0,
+          yearlyAmount: isYearlyMode ? Number(amount.toFixed(2)) : 0,
           selectedPaymentMethod: selectedPaymentMethod?.id,
           superchargeDetails: mappedSupercharges,
           splitSuperchargeDetails: [],
           selfPayActive: false,
-          totalPlanAmount: Number(((calculatedPlan?.data?.totalAmount ?? amount)).toFixed(2)),
+          totalPlanAmount: Number((calculatedPlan?.data?.totalAmount ?? amount).toFixed(2)),
           interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
           interestRate: Number(calculatedPlan?.data?.periodInterestRate ?? 0),
           apr: Number(calculatedPlan?.data?.apr ?? 0),
-          ...(Number.isFinite(Number(calculatedPlan?.data?.originalTotalInterest)) ? { originalTotalInterest: Number(calculatedPlan?.data?.originalTotalInterest) } : {}),
-          ...(Number.isFinite(Number(calculatedPlan?.data?.currentTotalInterest)) ? { currentTotalInterest: Number(calculatedPlan?.data?.currentTotalInterest) } : {}),
-          schemeAmount: schemeTotalAmount, // ✅ new key
+          ...(Number.isFinite(Number(calculatedPlan?.data?.originalTotalInterest))
+            ? { originalTotalInterest: Number(calculatedPlan?.data?.originalTotalInterest) }
+            : {}),
+          ...(Number.isFinite(Number(calculatedPlan?.data?.currentTotalInterest))
+            ? { currentTotalInterest: Number(calculatedPlan?.data?.currentTotalInterest) }
+            : {}),
+          schemeAmount: schemeTotalAmount,
+          schemeTotalAmount,
           splitPaymentsList: splits,
-          otherUsers: isSplitFlow
-            ? otherUsersNormalized.map(u => ({ userId: u.userId, amount: Number(u.amount) || 0 }))
-            : undefined,
+          otherUsers: isSplitFlow ? otherUsersNormalized.map((u) => ({ userId: u.userId, amount: Number(u.amount) || 0 })) : undefined,
           ...(hasDiscounts ? { discountIds: parsedDiscountIds } : {}),
         };
 
@@ -843,12 +842,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       }
 
       case "CHECKOUT": {
-        const baseCommon: any = {
-          ...buildCommonFields(calculatedPlan?.data),
-          offsetStartDate: firstSplitDueDate
-        };
+        const baseCommon: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
 
-        // ✅ Include any existing session checkout token here as well
         const sessionCheckoutToken = getSession("checkoutToken");
         console.log("[UnifiedPaymentPlan/Customize] Using checkoutToken from session:", sessionCheckoutToken);
 
@@ -876,7 +871,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         let req = buildPaymentRequest(
           {
             merchantId,
-            paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
+            paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
           },
           common as any
         );
@@ -914,8 +909,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         let req = buildSoteriaPaymentRequest(
           {
             merchantId,
-            soteriaPaymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
-            paymentTotalAmount: { amount: Number(amount.toFixed(2)), currency: "USD" },
+            soteriaPaymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
+            paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
             ...(paymentPlanId ? { paymentPlanId } : {}),
             ...(paymentSchemeId ? { paymentSchemeId } : {}),
             ...(splitPaymentId ? { splitPaymentId } : {}),
@@ -951,6 +946,8 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
     interestFreeUsed,
     isYearlyMode,
     superchargeDetails,
+    totalWithSupercharge,
+    buildSplits,
   ]);
 
   // Normalize plan data for UI component
@@ -970,17 +967,16 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
   const canCustomize =
     !!calculatedPlan?.data &&
-    (calculatedPlan?.data?.splitPayments?.some((p: any) => p?.dueDate === new Date().toISOString().split("T")[0]) ?? false) &&
+    (calculatedPlan?.data?.splitPayments?.some((p: any) => p?.dueDate === new Date().toISOString().split("T")[0]) ??
+      false) &&
     !!transactionType &&
-    (
-      (transactionType === "VIRTUAL_CARD" && !!selectedPaymentMethod) ||
+    ((transactionType === "VIRTUAL_CARD" && !!selectedPaymentMethod) ||
       (transactionType === "SEND" && !!recipientObj) ||
       (transactionType === "ACCEPT_REQUEST" && !!requestId) ||
       (transactionType === "ACCEPT_SPLIT_REQUEST" && !!requestId) ||
       transactionType === "CHECKOUT" ||
       transactionType === "PAYMENT" ||
-      transactionType === "SOTERIA_PAYMENT"
-    );
+      transactionType === "SOTERIA_PAYMENT");
 
   const applyFree = () => {
     // Cap against availableIF and the displayed total
@@ -994,18 +990,24 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
   return (
     <>
       <div className="flex flex-col p-4 bg-white min-h-screen">
-        <h1 className="text-2xl font-bold mb-6">
-          {`${displayName ? `${displayName} — ` : ""}Flex $${displayTotal.toFixed(2)}`}
-        </h1>
+        <h1 className="text-2xl font-bold mb-6">{`${displayName ? `${displayName} — ` : ""}Flex $${displayTotal.toFixed(
+          2
+        )}`}</h1>
+
+        {/* ✅ Supercharge Summary Container (parity with mobile) */}
+        {totalSupercharge > 0 && (
+          <div className="bg-sky-50 p-3 rounded-lg mb-4 border border-sky-200">
+            <p className="text-sm text-sky-700 font-medium">
+              Supercharge: ${totalSupercharge.toFixed(2)} • Total: ${totalWithSupercharge.toFixed(2)}
+            </p>
+          </div>
+        )}
 
         {/* Periods + Frequency */}
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="flex-1">
             <label className="block text-sm font-medium mb-1">
-              Number of periods{" "}
-              {termsPending && (
-                <span className="text-xs text-gray-500">(updating…)</span>
-              )}
+              Number of periods {termsPending && <span className="text-xs text-gray-500">(updating…)</span>}
             </label>
             <select
               value={numberOfPeriods}
@@ -1015,9 +1017,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
               {Array.from(
                 {
                   length:
-                    (maxTerm || (paymentFrequency === "BI_WEEKLY" ? 26 : 12)) -
-                    (minTerm || 1) +
-                    1,
+                    (maxTerm || (paymentFrequency === "BI_WEEKLY" ? 26 : 12)) - (minTerm || 1) + 1,
                 },
                 (_, i) => i + (minTerm || 1)
               ).map((v) => (
@@ -1027,17 +1027,12 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
               ))}
             </select>
             <p className="text-xs text-gray-500 mt-1">
-              Allowed: {minTerm}–{maxTerm}{" "}
-              {paymentFrequency === "BI_WEEKLY"
-                ? "periods (bi-weekly)"
-                : "periods (monthly)"}
+              Allowed: {minTerm}–{maxTerm} {paymentFrequency === "BI_WEEKLY" ? "periods (bi-weekly)" : "periods (monthly)"}
             </p>
           </div>
 
           <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">
-              Payment frequency
-            </label>
+            <label className="block text-sm font-medium mb-1">Payment frequency</label>
             <select
               value={paymentFrequency}
               onChange={(e) => setPaymentFrequency(e.target.value as PaymentFrequency)}
@@ -1084,10 +1079,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           {methodsError ? (
             <p className="text-red-500">Error fetching methods.</p>
           ) : (
-            <SelectedPaymentMethod
-              selectedMethod={selectedPaymentMethod}
-              onPress={() => setIsModalOpen(true)}
-            />
+            <SelectedPaymentMethod selectedMethod={selectedPaymentMethod} onPress={() => setIsModalOpen(true)} />
           )}
         </div>
 
@@ -1103,16 +1095,14 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
                 }
                 try {
                   if (typeof window !== "undefined") {
-                    sessionStorage.setItem(
-                      "unified_customize_payload",
-                      JSON.stringify(req)
-                    );
+                    sessionStorage.setItem("unified_customize_payload", JSON.stringify(req));
                   }
                 } catch {}
                 const data = encodeURIComponent(JSON.stringify(req));
                 navigate(`/UnifiedPayCustomizeScreen?data=${data}`);
               }}
               className="flex-1 border border-gray-300 rounded-lg py-3 font-bold"
+              type="button"
             >
               Customize
             </button>
@@ -1122,9 +1112,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             disabled={
               !(
                 transactionType != null &&
-                ((!!calculatedPlan?.data ||
-                  transactionType === "SEND" ||
-                  transactionType === "SOTERIA_PAYMENT") &&
+                ((!!calculatedPlan?.data || transactionType === "SEND" || transactionType === "SOTERIA_PAYMENT") &&
                   (transactionType === "ACCEPT_REQUEST" ||
                   transactionType === "ACCEPT_SPLIT_REQUEST" ||
                   transactionType === "SEND" ||
@@ -1138,12 +1126,9 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             className={`flex-1 py-3 rounded-lg font-bold text-white ${
               unifiedPending ? "bg-gray-500" : "bg-black hover:bg-gray-800"
             }`}
+            type="button"
           >
-            {unifiedPending
-              ? "Processing…"
-              : hasDueToday
-              ? "Pay & Finish"
-              : "Finish"}
+            {unifiedPending ? "Processing…" : hasDueToday ? "Pay & Finish" : "Finish"}
           </button>
         </div>
       </div>
@@ -1176,16 +1161,16 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
                 <div className="p-4 space-y-4">
                   {(methods ?? [])
                     .filter((m: PaymentMethod) => m.type === "card")
-                    .map((method: PaymentMethod, idx: number, arr: PaymentMethod[]) => (
+                    .map((method: PaymentMethod) => (
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        selectedMethod={selectedPaymentMethod ?? ({} as PaymentMethod)}
+                        selectedMethod={selectedPaymentMethod} // ✅ pass null or a real method only
                         onSelect={(m) => {
                           setSelectedPaymentMethod(m);
                           setIsModalOpen(false);
                         }}
-                        isLastItem={idx === arr.length - 1}
+                        GREEN_COLOR={ACCENT}
                       />
                     ))}
                 </div>

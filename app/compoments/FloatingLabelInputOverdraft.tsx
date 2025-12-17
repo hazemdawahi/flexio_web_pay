@@ -1,3 +1,4 @@
+// FloatingLabelInputOverdraft.tsx
 import React, { useState, InputHTMLAttributes } from "react";
 import CompactSelectedPaymentMethod from "./CompactSelectedPaymentMethod";
 import { PaymentMethod } from "~/hooks/usePaymentMethods";
@@ -53,13 +54,14 @@ const FloatingLabelInputOverdraft: React.FC<FloatingLabelInputOverdraftProps> = 
   return (
     <div className="flex flex-row w-full h-[65px] items-stretch">
       <div
-        className="flex-[0.4] h-full rounded-l-lg overflow-visible shadow-md relative"
+        className="flex-[0.4] h-full rounded-l-lg overflow-visible relative"
         style={{
           borderWidth: 1,
           borderStyle: 'solid',
           borderColor: error ? 'red' : borderColor,
           borderRightWidth: 0,
           backgroundColor,
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
         }}
       >
         <div

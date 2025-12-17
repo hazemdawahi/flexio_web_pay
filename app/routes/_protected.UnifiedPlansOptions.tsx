@@ -19,7 +19,6 @@ const mask = (s?: string | null) => {
 const safeNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 /** ---------------- Env + URL helpers ---------------- */
-
 const isBrowser = typeof window !== "undefined";
 
 function resolveBaseUrl(): string {
@@ -120,10 +119,20 @@ function formatNoRound(value: number): string {
 }
 
 /** ---------------- Types (for navigation payloads) ---------------- */
-type PowerMode = "INSTANT" | "YEARLY" | "SUPERCHARGE";
-export interface SplitEntry { userId: string; amount: string; }
-export interface SplitData { userAmounts: SplitEntry[]; }
-export interface User { id: string; username: string; logo: string; isCurrentUser?: boolean; }
+type PowerMode = "INSTANT" | "YEARLY" | "SUPERCHARGE" | "SELFPAY";
+export interface SplitEntry {
+  userId: string;
+  amount: string;
+}
+export interface SplitData {
+  userAmounts: SplitEntry[];
+}
+export interface User {
+  id: string;
+  username: string;
+  logo: string;
+  isCurrentUser?: boolean;
+}
 
 /** ======================== Component ======================== */
 const UnifiedPlansOptions: React.FC = () => {
@@ -132,38 +141,21 @@ const UnifiedPlansOptions: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   // ------------------ BEGIN: UNCONDITIONAL HOOKS BLOCK ------------------
-  // Session flags
-  const [inApp, setInApp] = useState<boolean>(false);
-
-  // Retrieve user details
   const { data: userDetailsData, isLoading: userLoading, isError: userError } = useUserDetails();
 
-  // Token → checkout details (for config + amount)
-  const checkoutToken =
-    typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
-  const {
-    data: checkoutData,
-    isLoading: checkoutLoading,
-    error: checkoutError
-  } = useCheckoutDetail(checkoutToken);
+  const checkoutToken = typeof window !== "undefined" ? sessionStorage.getItem("checkoutToken") || "" : "";
+  const { data: checkoutData, isLoading: checkoutLoading, error: checkoutError } = useCheckoutDetail(checkoutToken);
 
-  // Merchant base id (from updated CheckoutConfigResponse)
   const merchantBaseId = checkoutData?.merchantBaseId ?? checkoutData?.merchantId ?? "";
 
-  // Merchant details (configuration, discounts, brand, etc.)
-  const {
-    data: merchantRes,
-    isLoading: merchantLoading,
-    error: merchantError
-  } = useMerchantDetail(merchantBaseId);
+  const { data: merchantRes, isLoading: merchantLoading, error: merchantError } = useMerchantDetail(merchantBaseId);
 
-  // Local state for optional split/user data via location.state (kept)
   const [splitData, setSplitData] = useState<SplitData | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [selectedDiscounts, setSelectedDiscounts] = useState<string[]>([]);
   // ------------------ END:   UNCONDITIONAL HOOKS BLOCK ------------------
 
-  // ---- LOG: raw search params (once on mount or when they change)
+  // ---- LOG: raw search params
   useEffect(() => {
     console.groupCollapsed("[UnifiedPlansOptions] URL Search Params (raw)");
     try {
@@ -176,45 +168,39 @@ const UnifiedPlansOptions: React.FC = () => {
 
   // Pull optional state (from previous page)
   useEffect(() => {
-    const stateData = (location.state as {
-      splitData?: SplitData;
-      users?: User[];
-      selectedDiscounts?: string[];
-    } | undefined) || {};
+    const stateData =
+      ((location.state as { splitData?: SplitData; users?: User[]; selectedDiscounts?: string[] } | undefined) || {}) ??
+      {};
     if (stateData.splitData) setSplitData(stateData.splitData);
     setUsers(stateData.users || []);
     if (stateData.selectedDiscounts) setSelectedDiscounts(stateData.selectedDiscounts);
 
-    // ---- LOG: navigation.state
     console.groupCollapsed("[UnifiedPlansOptions] navigation.state");
     console.log("stateData:", stateData);
     console.groupEnd();
   }, [location.state]);
 
-  // In-app flag
-  useEffect(() => {
-    const value = typeof window !== "undefined" ? sessionStorage.getItem("inApp") : null;
-    setInApp(value === "true");
-
-    // ---- LOG: session flags
-    console.groupCollapsed("[UnifiedPlansOptions] Session flags");
-    console.log("inApp(sessionStorage):", value);
-    console.groupEnd();
-  }, []);
-
   // ------------- URL param context -------------
-  const amountParam        = normalizeParam(searchParams.get("amount") ?? undefined, "");
-  const orderAmountRaw     = normalizeParam(searchParams.get("orderAmount") ?? undefined, "");
-  const totalAmount        = normalizeParam(searchParams.get("totalAmount") ?? undefined, "");
-  const discountListRaw    = normalizeParam(searchParams.get("discountList") ?? undefined, "[]");
-  const displayLogoParam   = normalizeParam(searchParams.get("displayLogo") ?? undefined, "");
-  const displayNameParam   = normalizeParam(searchParams.get("displayName") ?? undefined, "");
-  const logoUriParam       = normalizeParam(searchParams.get("logoUri") ?? undefined, "");
+  const requestId = normalizeParam(searchParams.get("requestId") ?? undefined, "");
+
+  const amountParam = normalizeParam(searchParams.get("amount") ?? undefined, "");
+  const orderAmountRaw = normalizeParam(searchParams.get("orderAmount") ?? undefined, "");
+  const totalAmount = normalizeParam(searchParams.get("totalAmount") ?? undefined, "");
+  const discountListRaw = normalizeParam(searchParams.get("discountList") ?? undefined, "[]");
+  const displayLogoParam = normalizeParam(searchParams.get("displayLogo") ?? undefined, "");
+  const displayNameParam = normalizeParam(searchParams.get("displayName") ?? undefined, "");
+  const logoUriParam = normalizeParam(searchParams.get("logoUri") ?? undefined, "");
   const transactionTypeRaw = normalizeParam(searchParams.get("transactionType") ?? undefined, "");
-  const splitParam         = normalizeParam(searchParams.get("split") ?? undefined, "");
-  const requestId          = normalizeParam(searchParams.get("requestId") ?? undefined, "");
-  // ⬇️ NEW: otherUsers param (JSON array or empty)
-  const otherUsersRaw      = normalizeParam(searchParams.get("otherUsers") ?? undefined, "");
+  const splitParam = normalizeParam(searchParams.get("split") ?? undefined, "");
+  const otherUsersRaw = normalizeParam(searchParams.get("otherUsers") ?? undefined, "");
+  const recipientRaw = normalizeParam(searchParams.get("recipient") ?? undefined, "");
+  const superchargeDetailsRaw = normalizeParam(searchParams.get("superchargeDetails") ?? undefined, "[]");
+  const paymentPlanId = normalizeParam(searchParams.get("paymentPlanId") ?? undefined, "");
+  const paymentSchemeId = normalizeParam(searchParams.get("paymentSchemeId") ?? undefined, "");
+  const splitPaymentId = normalizeParam(searchParams.get("splitPaymentId") ?? undefined, "");
+
+  // Optional hint param (web-only): if provided, can mimic RN’s splitSummary “type”
+  const splitTypeParam = normalizeParam(searchParams.get("splitType") ?? undefined, "");
 
   // ---- LOG: normalized URL params
   useEffect(() => {
@@ -230,7 +216,13 @@ const UnifiedPlansOptions: React.FC = () => {
       { key: "transactionType", value: transactionTypeRaw },
       { key: "split", value: splitParam },
       { key: "requestId", value: requestId },
-      { key: "otherUsers", value: otherUsersRaw }
+      { key: "otherUsers", value: otherUsersRaw },
+      { key: "recipient", value: recipientRaw },
+      { key: "superchargeDetails", value: superchargeDetailsRaw },
+      { key: "paymentPlanId", value: paymentPlanId },
+      { key: "paymentSchemeId", value: paymentSchemeId },
+      { key: "splitPaymentId", value: splitPaymentId },
+      { key: "splitType", value: splitTypeParam },
     ]);
     console.groupEnd();
   }, [
@@ -244,13 +236,19 @@ const UnifiedPlansOptions: React.FC = () => {
     transactionTypeRaw,
     splitParam,
     requestId,
-    otherUsersRaw
+    otherUsersRaw,
+    recipientRaw,
+    superchargeDetailsRaw,
+    paymentPlanId,
+    paymentSchemeId,
+    splitPaymentId,
+    splitTypeParam,
   ]);
 
-  // ---- Derived params (Hooks: useMemo) — declared BEFORE any early return
+  // ---- Derived params
   const discountList = useMemo(() => canonicalizeDiscountList(discountListRaw), [discountListRaw]);
 
-  // ⬇️ NEW: detect split by otherUsers JSON (array of {userId, amount})
+  // Split flow detection (otherUsers JSON)
   const isSplitFlow = useMemo(() => {
     if (!otherUsersRaw) return false;
     try {
@@ -261,7 +259,6 @@ const UnifiedPlansOptions: React.FC = () => {
     }
   }, [otherUsersRaw]);
 
-  // forward orderAmount (not used for eligibility)
   const orderAmount = useMemo(() => {
     return (
       orderAmountRaw ||
@@ -277,27 +274,31 @@ const UnifiedPlansOptions: React.FC = () => {
 
   // ---------- Derived data from queries ----------
   const instantaneousPower = userDetailsData?.data?.user?.instantaneousPower ?? 0;
-  const yearlyPower        = userDetailsData?.data?.user?.yearlyPower ?? 0;
-  const subscribed         = userDetailsData?.data?.subscribed ?? true;
+  const yearlyPower = userDetailsData?.data?.user?.yearlyPower ?? 0;
+  const subscribed = userDetailsData?.data?.subscribed ?? true;
 
   // ---- determine type flags
-  const upperType       = (transactionTypeRaw || "").toUpperCase().trim();
-  const isSend          = upperType === "SEND";
-  const isAccept        = upperType === "ACCEPT_REQUEST";
-  const isSoteria       = upperType === "SOTERIA_PAYMENT";
-  const isAcceptSplit   = upperType === "ACCEPT_SPLIT_REQUEST";
+  const upperType = (transactionTypeRaw || "").toUpperCase().trim();
+  const isSend = upperType === "SEND";
+  const isAccept = upperType === "ACCEPT_REQUEST";
+  const isSoteria = upperType === "SOTERIA_PAYMENT";
+  const isAcceptSplit = upperType === "ACCEPT_SPLIT_REQUEST";
   const isVirtualCardTx = upperType === "VIRTUAL_CARD";
-  const isCardTx        = upperType === "CARD";
+  const isCardTx = upperType === "CARD";
 
-  // ---- merchant config (with ACCEPT_SPLIT_REQUEST fallback when merchant data is missing)
+  // Mobile parity (without split summary hook):
+  // If backend passes splitType=card (or split=card), treat as card-split.
+  const splitTypeLower = (splitTypeParam || splitParam || "").toString().toLowerCase();
+  const isCardSplit = isAcceptSplit && splitTypeLower === "card";
+
+  // ---- merchant config
   const hasMerchantData = !!merchantRes?.data;
   const cfg = merchantRes?.data?.configuration;
 
   // Fallback: if we're accepting a split and merchant data is missing, assume Self-Pay is allowed & unbounded
   const fallbackSelfPayEnabled = isAcceptSplit && !hasMerchantData;
 
-  const selfPayEnabled =
-    (!!cfg?.enableSelfPay && hasMerchantData) || fallbackSelfPayEnabled;
+  const selfPayEnabled = (!!cfg?.enableSelfPay && hasMerchantData) || fallbackSelfPayEnabled;
 
   // Top-level bounds
   const topMinRaw = hasMerchantData ? cfg?.minAmount?.amount : undefined;
@@ -310,11 +311,9 @@ const UnifiedPlansOptions: React.FC = () => {
   const withinMin = minAmount == null || effectiveAmount >= minAmount;
   const withinMax = maxAmount == null || effectiveAmount <= maxAmount;
 
-  type AnyTier = { termType?: string; minTerm?: number; maxTerm?: number; minAmount?: string; maxAmount?: string; };
+  type AnyTier = { termType?: string; minTerm?: number; maxTerm?: number; minAmount?: string; maxAmount?: string };
   const tiers: AnyTier[] =
-    hasMerchantData && Array.isArray(cfg?.selfPayTiers)
-      ? (cfg!.selfPayTiers as AnyTier[])
-      : [];
+    hasMerchantData && Array.isArray(cfg?.selfPayTiers) ? (cfg!.selfPayTiers as AnyTier[]) : [];
 
   const fitsAnyTier = useMemo(() => {
     if (!tiers.length) return true;
@@ -327,30 +326,32 @@ const UnifiedPlansOptions: React.FC = () => {
 
   // final eligibility — STRICTLY from amountParam (fallback path requires > 0)
   const selfPayAmountEligible =
-    selfPayEnabled &&
-    (fallbackSelfPayEnabled ? effectiveAmount > 0 : (withinMin && withinMax && fitsAnyTier));
+    selfPayEnabled && (fallbackSelfPayEnabled ? effectiveAmount > 0 : withinMin && withinMax && fitsAnyTier);
 
-  // visibility — allow for ACCEPT_SPLIT_REQUEST even if cfg missing
+  // visibility — mobile parity
   const hideSelfPayBase = isVirtualCardTx || isSoteria;
-  const hideSelfPay     = hideSelfPayBase;
+  const hideSelfPay = hideSelfPayBase || isCardSplit;
 
-  const showSelfPayCard =
-    !hideSelfPay &&
-    !(isSend || isAccept) &&
-    (selfPayEnabled || isAcceptSplit);
+  const showSelfPayCard = !hideSelfPay && !(isSend || isAccept) && (selfPayEnabled || isAcceptSplit);
 
-  // Branding resolution (param wins; fallback to merchant brand or checkout brand)
-  const brandFromMerchant   = merchantRes?.data?.brand ?? null;
-  const fallbackBrand       = brandFromMerchant ?? checkoutData?.brand ?? null;
-  const paramLogo           = displayLogoParam ? resolveLogoUrl(displayLogoParam) : undefined;
-  const brandLogo           = resolveLogoUrl(fallbackBrand?.displayLogo);
-  const computedLogoUri     = logoUriParam || paramLogo || brandLogo;
+  // Branding
+  const brandFromMerchant = merchantRes?.data?.brand ?? null;
+  const fallbackBrand = brandFromMerchant ?? checkoutData?.brand ?? null;
+  const paramLogo = displayLogoParam ? resolveLogoUrl(displayLogoParam) : undefined;
+  const brandLogo = resolveLogoUrl(fallbackBrand?.displayLogo);
+  const computedLogoUri = logoUriParam || paramLogo || brandLogo;
   const computedDisplayName = displayNameParam || fallbackBrand?.displayName || "";
 
-  // ---- loading / errors (effects: always declared)
-  useEffect(() => { if (userError)     toast.error("Error loading user details."); }, [userError]);
-  useEffect(() => { if (checkoutError) toast.error("Error loading checkout details."); }, [checkoutError]);
-  useEffect(() => { if (merchantError) toast.error("Error loading merchant details."); }, [merchantError]);
+  // ---- loading / errors
+  useEffect(() => {
+    if (userError) toast.error("Error loading user details.");
+  }, [userError]);
+  useEffect(() => {
+    if (checkoutError) toast.error("Error loading checkout details.");
+  }, [checkoutError]);
+  useEffect(() => {
+    if (merchantError) toast.error("Error loading merchant details.");
+  }, [merchantError]);
 
   // ------- LOG: fetched data snapshots & derived flags -------
   useEffect(() => {
@@ -381,7 +382,7 @@ const UnifiedPlansOptions: React.FC = () => {
       enableSelfPay: cfg?.enableSelfPay,
       minAmount: cfg?.minAmount?.amount,
       maxAmount: cfg?.maxAmount?.amount,
-      tiersCount: Array.isArray(cfg?.selfPayTiers) ? cfg?.selfPayTiers.length : 0
+      tiersCount: Array.isArray(cfg?.selfPayTiers) ? cfg?.selfPayTiers.length : 0,
     });
     console.log("raw merchantRes:", merchantRes);
     console.groupEnd();
@@ -402,7 +403,8 @@ const UnifiedPlansOptions: React.FC = () => {
       { key: "selfPayAmountEligible", value: selfPayAmountEligible },
       { key: "showSelfPayCard", value: showSelfPayCard },
       { key: "isSplitFlow (otherUsers)", value: isSplitFlow },
-      { key: "flags", value: { isSend, isAccept, isSoteria, isAcceptSplit, isVirtualCardTx, isCardTx } }
+      { key: "isCardSplit (param)", value: isCardSplit },
+      { key: "flags", value: { isSend, isAccept, isSoteria, isAcceptSplit, isVirtualCardTx, isCardTx } },
     ]);
     console.groupEnd();
   }, [
@@ -418,20 +420,22 @@ const UnifiedPlansOptions: React.FC = () => {
     selfPayAmountEligible,
     showSelfPayCard,
     isSplitFlow,
+    isCardSplit,
     isSend,
     isAccept,
     isSoteria,
     isAcceptSplit,
     isVirtualCardTx,
-    isCardTx
+    isCardTx,
   ]);
 
-  // ------- handlers (hooks) — declared BEFORE any early return -------
+  // ------- handlers / forward payload -------
   const forwardAll = useMemo(
     () => ({
       merchantId: merchantBaseId,
-      // ⬇️ IMPORTANT: if it's a split flow, forward ONLY the user's share (amountParam)
-      amount: isSplitFlow ? amountParam : (orderAmount || amountParam),
+      // If it's a split flow, forward ONLY the user's share (amountParam)
+      amount: isSplitFlow ? amountParam : orderAmount || amountParam,
+      amountParam, // keep original amountParam available downstream (mobile parity)
       totalAmount,
       orderAmount,
       discountList,
@@ -440,15 +444,19 @@ const UnifiedPlansOptions: React.FC = () => {
       displayName: displayNameParam,
       split: splitParam,
       logoUri: computedLogoUri ?? "",
-      requestId, // forwarded only; not used here
-      // ⬇️ forward otherUsers so the plan screen can compute split context
+      requestId,
       otherUsers: otherUsersRaw,
+      recipient: recipientRaw,
+      superchargeDetails: superchargeDetailsRaw,
+      paymentPlanId,
+      paymentSchemeId,
+      splitPaymentId,
     }),
     [
       merchantBaseId,
-      orderAmount,
-      amountParam,
       isSplitFlow,
+      amountParam,
+      orderAmount,
       totalAmount,
       discountList,
       transactionTypeRaw,
@@ -458,16 +466,21 @@ const UnifiedPlansOptions: React.FC = () => {
       computedLogoUri,
       requestId,
       otherUsersRaw,
+      recipientRaw,
+      superchargeDetailsRaw,
+      paymentPlanId,
+      paymentSchemeId,
+      splitPaymentId,
     ]
   );
 
-  // ---- LOG: forward payload snapshot
   useEffect(() => {
     console.groupCollapsed("[UnifiedPlansOptions] forwardAll payload");
     console.log(forwardAll);
     console.groupEnd();
   }, [forwardAll]);
 
+  // Mobile parity: all options go through UnifiedAmountCustomization
   const goAmountCustomization = useCallback(
     (picked: PowerMode) => {
       const params = new URLSearchParams({
@@ -476,6 +489,7 @@ const UnifiedPlansOptions: React.FC = () => {
           return acc;
         }, {}),
         powerMode: picked,
+        selfPay: picked === "SELFPAY" ? "true" : "false",
       });
 
       console.groupCollapsed("[UnifiedPlansOptions] NAV → /UnifiedAmountCustomization");
@@ -488,29 +502,33 @@ const UnifiedPlansOptions: React.FC = () => {
     [forwardAll, navigate]
   );
 
+  // SelfPay click (mobile parity): SELFPAY mode, selfPay=true, and force amount=amountParam
   const handleSelfPayClick = useCallback(() => {
     if (!selfPayAmountEligible) {
       console.warn("[UnifiedPlansOptions] SelfPay click ignored: not eligible");
       return;
     }
+
     const params = new URLSearchParams({
       ...Object.entries(forwardAll).reduce<Record<string, string>>((acc, [k, v]) => {
         if (v != null && v !== "") acc[k] = String(v);
         return acc;
       }, {}),
       amount: amountParam,
-      amountParam, // pass explicitly too (for downstream parity)
+      amountParam,
+      powerMode: "SELFPAY",
+      selfPay: "true",
     });
 
-    console.groupCollapsed("[UnifiedPlansOptions] NAV → /UnifiedSelfPayPaymentPlan");
+    console.groupCollapsed("[UnifiedPlansOptions] NAV → /UnifiedAmountCustomization (SELFPAY)");
     console.log("query:", Object.fromEntries(params.entries()));
     console.groupEnd();
 
-    navigate(`/UnifiedSelfPayPaymentPlan?${params.toString()}`);
+    navigate(`/UnifiedAmountCustomization?${params.toString()}`);
   }, [forwardAll, selfPayAmountEligible, amountParam, navigate]);
 
   // ---------------- Early returns come AFTER all hooks ----------------
-  const showSpinner = userLoading || (merchantBaseId && merchantLoading) || checkoutLoading;
+  const showSpinner = userLoading || checkoutLoading || (merchantBaseId && merchantLoading);
 
   useEffect(() => {
     console.groupCollapsed("[UnifiedPlansOptions] Render gates");
@@ -547,9 +565,9 @@ const UnifiedPlansOptions: React.FC = () => {
   }
 
   // ---------------- Render ----------------
-  const hideSupercharge =
-    (isSend || isAccept || isSoteria) ||
-    (isVirtualCardTx || isCardTx);
+  const hideSuperchargeBase = isSend || isAccept || isSoteria;
+  const hideSuperchargeForVirtualOrCardTx = isVirtualCardTx || isCardTx;
+  const hideSupercharge = hideSuperchargeBase || hideSuperchargeForVirtualOrCardTx || isCardSplit;
 
   const showInstant = instantaneousPower > 0;
   const showYearly = !(isSend || isAccept) && subscribed && yearlyPower > 0;
@@ -559,10 +577,8 @@ const UnifiedPlansOptions: React.FC = () => {
 
   return (
     <ProtectedRoute>
-      {/* Keep overall top padding; adjust Back slightly downward (less negative margin) while preserving title spacing */}
       <div className="min-h-screen flex flex-col bg-white p-3 sm:p-4 pt-12 sm:pt-16 lg:pt-20">
         <header className="w-full max-w-3xl mb-6 sm:mb-8">
-          {/* Slightly reduced lift: from -mt-10/-12/-16 to -mt-8/-10/-12 */}
           <div className="-mt-8 sm:-mt-10 lg:-mt-8">
             <button
               onClick={() => {
@@ -582,7 +598,6 @@ const UnifiedPlansOptions: React.FC = () => {
           </h1>
         </header>
 
-        {/* Logo (centered) */}
         {computedLogoUri && (
           <div className="w-full max-w-3xl flex justify-center">
             <img
@@ -598,7 +613,6 @@ const UnifiedPlansOptions: React.FC = () => {
           </div>
         )}
 
-        {/* Instant Power — original text content preserved */}
         {showInstant && (
           <div
             onClick={() => goAmountCustomization("INSTANT")}
@@ -610,16 +624,13 @@ const UnifiedPlansOptions: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">
                 Instant Power{" "}
-                <span className="text-base sm:text-lg text-gray-600">
-                  ${formatNoRound(instantaneousPower)}
-                </span>
+                <span className="text-base sm:text-lg text-gray-600">${formatNoRound(instantaneousPower)}</span>
               </h2>
               <p className="text-gray-600 text-sm sm:text-base">Get immediate power when you need it.</p>
             </div>
           </div>
         )}
 
-        {/* Yearly Power — original text content preserved */}
         {showYearly && (
           <div
             onClick={() => goAmountCustomization("YEARLY")}
@@ -631,16 +642,15 @@ const UnifiedPlansOptions: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-xl sm:text-2xl font-bold mb-1 sm:mb-2">
                 Yearly Power{" "}
-                <span className="text-base sm:text-lg text-gray-600">
-                  ${formatNoRound(yearlyPower / 5)} / year
-                </span>
+                <span className="text-base sm:text-lg text-gray-600">${formatNoRound(yearlyPower / 5)} / year</span>
               </h2>
-              <p className="text-gray-600 text-sm sm:text-base">Secure your energy needs for the entire year with a convenient plan.</p>
+              <p className="text-gray-600 text-sm sm:text-base">
+                Secure your energy needs for the entire year with a convenient plan.
+              </p>
             </div>
           </div>
         )}
 
-        {/* Self-Pay (dynamic text preserved) */}
         {showSelfPayVisible && (
           <div
             onClick={selfPayAmountEligible ? handleSelfPayClick : undefined}
@@ -661,16 +671,16 @@ const UnifiedPlansOptions: React.FC = () => {
                       tiers
                         .map((t) => (t?.termType || "").toUpperCase())
                         .filter(Boolean)
-                        .map((f) => (f === "BIWEEKLY" || f === "BI_WEEKLY" ? "Bi-weekly" : f === "MONTHLY" ? "Monthly" : f))
+                        .map((f) =>
+                          f === "BIWEEKLY" || f === "BI_WEEKLY" ? "Bi-weekly" : f === "MONTHLY" ? "Monthly" : f
+                        )
                     )
                   );
                   const minTerms = tiers.map((t) => t.minTerm).filter((n): n is number => typeof n === "number");
                   const maxTerms = tiers.map((t) => t.maxTerm).filter((n): n is number => typeof n === "number");
                   let minTerm = minTerms.length ? Math.min(...minTerms) : undefined;
                   let maxTerm = maxTerms.length ? Math.max(...maxTerms) : undefined;
-                  if (minTerm != null && maxTerm != null && minTerm > maxTerm) {
-                    [minTerm, maxTerm] = [maxTerm, minTerm];
-                  }
+                  if (minTerm != null && maxTerm != null && minTerm > maxTerm) [minTerm, maxTerm] = [maxTerm, minTerm];
                   const parts: string[] = [];
                   if (freqs.length) parts.push(freqs.join(" / "));
                   if (minTerm != null && maxTerm != null) parts.push(`${minTerm}–${maxTerm} payments`);
@@ -682,7 +692,6 @@ const UnifiedPlansOptions: React.FC = () => {
           </div>
         )}
 
-        {/* Supercharge — original text content preserved */}
         {!hideSupercharge && subscribed && (
           <div
             onClick={() => goAmountCustomization("SUPERCHARGE")}
@@ -698,7 +707,6 @@ const UnifiedPlansOptions: React.FC = () => {
           </div>
         )}
 
-        {/* Empty-state — original text content preserved */}
         {noVisibleOptions && (
           <div className="w-full max-w-3xl bg-white rounded-2xl p-6 sm:p-8 mb-5 sm:mb-6 flex items-center border border-gray-200">
             <div className="w-10 h-10 sm:w-11 sm:h-11 mr-4 sm:mr-6 rounded-full border border-gray-300 flex items-center justify-center bg-gray-50">
@@ -712,16 +720,6 @@ const UnifiedPlansOptions: React.FC = () => {
         )}
 
         <Toaster richColors position="top-right" />
-
-        {/* Sign Out Button (conditionally rendered, preserved) */}
-        {!inApp && (
-          <button
-            className="bg-black text-white font-bold py-3 sm:py-4 px-10 sm:px-16 rounded-lg mt-6 sm:mt-8 hover:opacity-80 transition w-full max-w-3xl"
-            onClick={() => console.log("[UnifiedPlansOptions] Sign Out clicked")}
-          >
-            Sign Out
-          </button>
-        )}
       </div>
     </ProtectedRoute>
   );

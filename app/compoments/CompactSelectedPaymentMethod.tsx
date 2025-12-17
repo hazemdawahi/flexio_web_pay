@@ -1,7 +1,8 @@
-// app/components/CompactSelectedPaymentMethod.tsx
-
-import React from "react";
-import { PaymentMethod } from "~/hooks/usePaymentMethods";
+// CompactSelectedPaymentMethod.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@remix-run/react";
+import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
+import { useUserDetails } from "~/hooks/useUserDetails";
 import { getCardImage } from "~/lib/utils";
 
 interface CompactSelectedPaymentMethodProps {
@@ -15,72 +16,98 @@ const CompactSelectedPaymentMethod: React.FC<CompactSelectedPaymentMethodProps> 
   onPress,
   error,
 }) => {
-  const renderCardDetails = () => {
-    if (!selectedMethod || selectedMethod.type !== "card") return null;
+  const navigate = useNavigate();
 
-    const last4 = selectedMethod.card?.last4;
-    if (!last4) return null;
+  const { data: userRes } = useUserDetails();
+  const userId: string | undefined = userRes?.data?.user?.id;
+  const { data: methods = [] } = usePaymentMethods(userId);
 
-    return (
-      <span className="ml-2 text-gray-700 text-sm font-bold">
-        ***{last4}
-      </span>
-    );
+  const firstCard: PaymentMethod | undefined = useMemo(
+    () => methods.find((m) => m.type === 'card'),
+    [methods]
+  );
+
+  const [displayMethod, setDisplayMethod] = useState<PaymentMethod | null>(selectedMethod);
+
+  useEffect(() => {
+    if (selectedMethod) setDisplayMethod(selectedMethod);
+    else if (firstCard) setDisplayMethod(firstCard);
+    else setDisplayMethod(null);
+  }, [selectedMethod, firstCard]);
+
+  const handlePress = () => {
+    if (displayMethod) onPress();
+    else navigate('/payment_methods');
   };
 
   return (
     <button
-      onClick={onPress}
-      className={`flex items-center justify-center p-2 rounded-r-lg ${
-        error ? "border-l border-red-500" : "border-l border-gray-300"
-      } bg-white focus:outline-none`}
-      style={{ minWidth: "4rem" }}
+      onClick={handlePress}
+      className={`flex-[0.6] h-full bg-white rounded-r-lg flex items-center justify-start px-2.5 ${
+        error ? "border border-l-0 border-red-500" : "border border-l-0 border-gray-300"
+      } focus:outline-none`}
+      style={{
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+      }}
       aria-label="Select Payment Method"
     >
-      {selectedMethod ? (
-        selectedMethod.type === "card" ? (
-          <div className="flex items-center justify-center">
-            <img
-              src={getCardImage(selectedMethod.card?.brand || "")}
-              alt="Selected Card"
-              className="w-6 h-6 object-contain"
-            />
-            {renderCardDetails()}
-          </div>
-        ) : (
+      {displayMethod ? (
+        <div className="flex items-center w-full">
+          {displayMethod.type === 'card' ? (
+            <>
+              <img
+                src={getCardImage(displayMethod.card?.brand || "")}
+                alt="Card"
+                className="w-[30px] h-[30px] object-contain mr-2.5"
+              />
+              <span className="text-sm font-semibold flex-1 text-left truncate">
+                {displayMethod.card?.brand ?? 'Card'} ****{displayMethod.card?.last4 ?? ''}
+              </span>
+            </>
+          ) : (
+            <>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-[30px] h-[30px] mr-2.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"
+                />
+              </svg>
+              <span className="text-sm font-semibold flex-1 text-left truncate">
+                {displayMethod.bank?.institutionName ?? 'Bank'} ****{displayMethod.bank?.accounts?.[0]?.mask ?? ''}
+              </span>
+            </>
+          )}
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="w-6 h-6 text-gray-600"
+            className="w-5 h-5 ml-1"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
-            aria-hidden="true"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 8c1.657 0 3-1.343 3-3S13.657 2 12 2 9 3.343 9 5s1.343 3 3 3z"
-            />
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M6 20h12a2 2 0 002-2V8a2 2 0 00-2-2H6a2 2 0 00-2 2v10a2 2 0 002 2z"
-            />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-        )
+        </div>
       ) : (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-6 h-6 text-gray-400"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
+        <div className="flex items-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="w-[30px] h-[30px]"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-sm font-semibold text-black ml-2">Credit / Debit Card</span>
+        </div>
       )}
     </button>
   );

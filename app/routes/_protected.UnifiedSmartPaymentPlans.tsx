@@ -1,35 +1,18 @@
 // File: app/routes/UnifiedSmartPaymentPlans.tsx
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 
-// ── Smart Pay prerequisites (web analogs to RN) ──────────────────────────────
-import { useCreditAccounts } from "~/hooks/useCreditAccounts";
-import { useSmartpayPreferencesMe } from "~/hooks/useSmartpayPreferencesMe";
-import { useSmartpayIncomes } from "~/hooks/useSmartpayIncomes";
-
-// User & detailed plan (supplies BOTH plan + calendar like RN)
+import { useCalculatePaymentPlan } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
-import { useSmartpayDetailedPlan } from "~/hooks/useSmartpayDetailedPlan";
 
-// STRICT per-user payment methods (updated signature)
-import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";
-
-// UI components (web)
-import PaymentCircle from "~/compoments/PaymentCircle";
-import CustomCalendar from "~/compoments/CustomCalendar";
-import FlipCard from "~/compoments/FlipCard";
-import FlippedContent from "~/compoments/FlippedContent";
-import PaymentMethodItem from "~/compoments/PaymentMethodItem";
-import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
-
-// ✅ Unified commerce hook & helpers (parity with RN)
 import {
   useUnifiedCommerce,
   buildCheckoutRequest,
   buildPaymentRequest,
+  buildSendRequest,
   buildAcceptRequest,
   buildAcceptSplitRequest,
   buildVirtualCardRequestWithOptions,
@@ -37,73 +20,54 @@ import {
   type VirtualCardOptions,
   type SplitPaymentDetail as SplitPaymentDetailDTO,
   type UnifiedCommerceRequest,
+  type SendRecipient,
 } from "~/hooks/useUnifiedCommerce";
+
+import { usePaymentPlanTerms } from "../hooks/usePaymentPlanTerms";
+import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";
+
+import PaymentMethodItem from "~/compoments/PaymentMethodItem";
+import PaymentPlanMocking from "~/compoments/PaymentPlanMocking";
+import SelectedPaymentMethod from "~/compoments/SelectedPaymentMethod";
 import InterestFreeSheet from "~/compoments/InterestFreeSheet";
 
-// ────────────────────────────────────────────────────────────────────────────
+type PaymentFrequency = "BI_WEEKLY" | "MONTHLY";
 
-type Frequency = "BI_WEEKLY" | "MONTHLY";
+interface SplitEntry {
+  userId: string;
+  amount: string;
+}
 
-interface SuperchargeDetailProp {
-  amount: string; // dollars string
+interface SuperchargeDetail {
+  amount: string;
   paymentMethodId: string;
 }
-interface SplitEntryProp {
-  userId: string;
-  amount: string; // dollars string
+
+interface SmartPlanOption {
+  id: string;
+  label: string;
+  frequency: PaymentFrequency;
+  periods: number;
+  description: string;
 }
+
 interface UnifiedSmartPaymentPlansProps {
-  // Core
-  amount?: string; // major units
-  powerMode?: "INSTANT" | "YEARLY"; // ← drives instant vs yearly (parity with mobile)
-
-  // (legacy inputs kept for compat; ignored when powerMode is present)
-  instantPowerAmount?: string;
-  yearlyPowerAmount?: string;
-
-  superchargeDetails?: SuperchargeDetailProp[];
-  otherUserAmounts?: SplitEntryProp[];
+  instantPowerAmount: string;
+  superchargeDetails: SuperchargeDetail[];
+  otherUserAmounts?: SplitEntry[];
   selectedDiscounts?: string[];
-
-  // Unified commerce passthrough (from URL)
-  merchantId?: string;
-  split?: "true" | "false" | "";
-  discountList?: string; // JSON array of ids/codes
-  requestId?: string;
-  transactionType?: string; // CHECKOUT|PAYMENT|ACCEPT_REQUEST|ACCEPT_SPLIT_REQUEST|VIRTUAL_CARD|SOTERIA_PAYMENT
-  paymentPlanId?: string;
-  paymentSchemeId?: string;
-  splitPaymentId?: string;
+  displayName?: string;
+  displayLogo?: string;
 }
-
-interface PaymentDetail {
-  dueDate: string;
-  amount: number;
-}
-interface DateDetails {
-  date: string;
-  splitPayments: PaymentDetail[];
-  incomeEvents: { date: string; amount: number; provider: string }[];
-  liabilityEvents: { date: string; amount: number; type: string }[];
-  rentEvents: { date: string; amount: number; type: string }[];
-  paymentPlanPayments: PaymentDetail[];
-  isAvoided: boolean;
-  avoidedRangeName?: string;
-  avoidedRangeId?: string;
-}
-
-// Allowed Unified types (recipient/SEND removed)
-const ALLOWED_TYPES = [
-  "CHECKOUT",
-  "PAYMENT",
-  "ACCEPT_REQUEST",
-  "ACCEPT_SPLIT_REQUEST",
-  "VIRTUAL_CARD",
-  "SOTERIA_PAYMENT",
-] as const;
-type AllowedType = (typeof ALLOWED_TYPES)[number];
 
 const ACCENT = "#00BFFF";
+
+const SMART_PLAN_OPTIONS: SmartPlanOption[] = [
+  { id: "quick", label: "Quick Pay", frequency: "BI_WEEKLY", periods: 2, description: "Pay off in 4 weeks" },
+  { id: "standard", label: "Standard", frequency: "BI_WEEKLY", periods: 4, description: "Pay off in 8 weeks" },
+  { id: "extended", label: "Extended", frequency: "MONTHLY", periods: 3, description: "Pay off in 3 months" },
+  { id: "max", label: "Maximum Flex", frequency: "MONTHLY", periods: 6, description: "Pay off in 6 months" },
+];
 
 const normalizeStr = (v: any, fallback = ""): string => {
   const val = Array.isArray(v) ? (v[0] ?? fallback) : (v ?? fallback);
@@ -111,31 +75,29 @@ const normalizeStr = (v: any, fallback = ""): string => {
   return typeof val === "string" ? val : fallback;
 };
 
-const parseNumber = (v: string | undefined, def = 0): number => {
-  const n = parseFloat(v ?? "");
-  return Number.isFinite(n) ? Number(n.toFixed(2)) : def;
-};
-
-/* ───────────── Session helpers for checkout token ───────────── */
-const getSession = (key: string): string | null => {
+const extractDiscountIds = (raw: string | string[] | undefined): string[] => {
+  if (!raw) return [];
+  const take = (x: any): string => {
+    if (x == null) return "";
+    if (typeof x === "string" || typeof x === "number") return String(x).trim();
+    if (typeof x === "object") {
+      const v = (x as any).id ?? (x as any).discountId ?? (x as any).code ?? "";
+      return typeof v === "string" || typeof v === "number" ? String(v).trim() : "";
+    }
+    return "";
+  };
+  const uniq = (a: string[]) => Array.from(new Set(a.filter(Boolean)));
+  if (Array.isArray(raw)) return uniq(raw.map(take));
   try {
-    if (typeof window === "undefined") return null;
-    return window.sessionStorage?.getItem(key) ?? null;
+    const parsed = JSON.parse(raw as string);
+    if (Array.isArray(parsed)) return uniq(parsed.map(take));
+    if (typeof parsed === "string") return uniq(parsed.split(",").map((s) => s.trim()));
   } catch {
-    return null;
+    return uniq(String(raw).split(",").map((s) => s.trim()));
   }
+  return [];
 };
 
-const setSession = (key: string, value: string) => {
-  try {
-    if (typeof window === "undefined") return;
-    window.sessionStorage?.setItem(key, value);
-  } catch {
-    // ignore storage errors
-  }
-};
-
-/** Center spinner (shared look with UnifiedPaymentPlan) */
 const CenterSpinner: React.FC = () => (
   <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
     <motion.div
@@ -149,263 +111,320 @@ const CenterSpinner: React.FC = () => (
   </div>
 );
 
-const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props) => {
+const ALLOWED_TYPES = [
+  "CHECKOUT",
+  "PAYMENT",
+  "SEND",
+  "ACCEPT_REQUEST",
+  "ACCEPT_SPLIT_REQUEST",
+  "VIRTUAL_CARD",
+  "SOTERIA_PAYMENT",
+] as const;
+type AllowedType = (typeof ALLOWED_TYPES)[number];
+
+const getSession = (key: string): string | null => {
+  try {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const setSession = (key: string, value: string) => {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage?.setItem(key, value);
+  } catch {}
+};
+
+const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = ({
+  instantPowerAmount,
+  superchargeDetails,
+  otherUserAmounts = [],
+  selectedDiscounts = [],
+  displayName,
+  displayLogo,
+}) => {
   const navigate = useNavigate();
   const { search } = useLocation();
   const qs = new URLSearchParams(search);
 
-  // ── Resolve params (props override URL) ────────────────────────────────────
-  const getParam = (key: keyof UnifiedSmartPaymentPlansProps, def = "") =>
-    normalizeStr((props as any)[key] ?? qs.get(String(key)) ?? def, def);
+  const merchantId = normalizeStr(qs.get("merchantId"), "");
+  const splitFlag = normalizeStr(qs.get("split"), "");
+  const modeSplit = splitFlag === "true";
 
-  // Core
-  const amountStr = getParam("amount", "");
-  const powerModeParam = getParam("powerMode", "INSTANT").toUpperCase() as "INSTANT" | "YEARLY";
+  const powerModeParam = (normalizeStr(qs.get("powerMode"), "INSTANT").toUpperCase() || "INSTANT") as
+    | "INSTANT"
+    | "YEARLY";
+  const isYearlyMode = powerModeParam === "YEARLY";
 
-  // Back-compat (if powerMode missing): fall back to legacy instant/yearlyPowerAmount choice
-  const instantPowerAmount = getParam("instantPowerAmount", "");
-  const yearlyPowerAmount = getParam("yearlyPowerAmount", "");
+  const discountListRawQS = normalizeStr(qs.get("discountList"), "");
+  const requestId = normalizeStr(qs.get("requestId"), "");
+  const transactionTypeParam = normalizeStr(qs.get("transactionType"), "").toUpperCase();
 
-  const merchantId = getParam("merchantId", "");
-  const discountListRaw = getParam("discountList", "[]");
-  const requestId = getParam("requestId", "");
-  const transactionTypeParam = getParam("transactionType", "");
+  const transactionType: AllowedType | null = (ALLOWED_TYPES as readonly string[]).includes(
+    transactionTypeParam as AllowedType
+  )
+    ? (transactionTypeParam as AllowedType)
+    : null;
 
-  const paymentPlanId = getParam("paymentPlanId", "") || undefined;
-  const paymentSchemeId = getParam("paymentSchemeId", "") || undefined;
-  const splitPaymentId = getParam("splitPaymentId", "") || undefined;
+  const paymentPlanId = normalizeStr(qs.get("paymentPlanId"), "") || undefined;
+  const paymentSchemeId = normalizeStr(qs.get("paymentSchemeId"), "") || undefined;
+  const splitPaymentId = normalizeStr(qs.get("splitPaymentId"), "") || undefined;
 
-  const propSupercharge = (props.superchargeDetails ?? []) as SuperchargeDetailProp[];
-  const propDiscounts = (props.selectedDiscounts ?? []) as string[];
-
-  // Determine mode + purchase amount (parity with mobile)
-  const isYearlyMode = useMemo(() => {
-    // Prefer explicit powerMode; otherwise infer from presence of yearlyPowerAmount
-    if (powerModeParam === "YEARLY" || powerModeParam === "INSTANT") return powerModeParam === "YEARLY";
-    return !!yearlyPowerAmount && !instantPowerAmount;
-  }, [powerModeParam, yearlyPowerAmount, instantPowerAmount]);
-
-  const purchaseAmount = useMemo(() => {
-    // Mobile uses a single "amount" with powerMode; keep compat fallback
-    const base = parseNumber(amountStr, NaN);
-    if (Number.isFinite(base)) return base;
-    const fallback = isYearlyMode ? yearlyPowerAmount : instantPowerAmount;
-    return parseNumber(fallback || "0", 0);
-  }, [amountStr, isYearlyMode, yearlyPowerAmount, instantPowerAmount]);
-
-  // Frequency default: if yearly mode -> MONTHLY, else BI_WEEKLY
-  const [frequency] = useState<Frequency>(isYearlyMode ? "MONTHLY" : "BI_WEEKLY");
-
-  // Unified transaction type (strict)
-  const transactionType: AllowedType | null = useMemo(() => {
-    const t = transactionTypeParam.toUpperCase();
-    return (ALLOWED_TYPES as readonly string[]).includes(t as AllowedType)
-      ? (t as AllowedType)
-      : null;
-  }, [transactionTypeParam]);
-
-  // Discounts (merge props + discountList QS)
-  const parsedDiscountIds: string[] = useMemo(() => {
-    let fromQS: string[] = [];
+  const recipientJson = normalizeStr(qs.get("recipient"), "");
+  const recipientObj: SendRecipient | null = (() => {
+    if (!recipientJson) return null;
     try {
-      const arr = JSON.parse(discountListRaw);
-      if (Array.isArray(arr)) fromQS = arr.map(String).filter(Boolean);
-    } catch {}
-    const merged = Array.from(new Set([...(propDiscounts || []), ...fromQS]));
-    return merged;
-  }, [discountListRaw, propDiscounts]);
-  const hasDiscounts = parsedDiscountIds.length > 0;
+      const x = JSON.parse(recipientJson);
+      const rid = String(x?.recipientId || "");
+      const amt = Number(x?.amount || 0);
+      if (!rid || !Number.isFinite(amt) || amt <= 0) return null;
+      return { recipientId: rid, amount: amt } as SendRecipient;
+    } catch {
+      return null;
+    }
+  })();
 
-  // ── User & Smart Pay prerequisites ────────────────────────────────────────
-  const { data: userRes, isLoading: userLoading, isError: userError } = useUserDetails();
-  const currentUserId: string | undefined = userRes?.data?.user?.id;
+  const parseMoneyLike = (raw: string): number | undefined => {
+    const s = (raw || "").trim();
+    if (!s) return undefined;
+    try {
+      const j = JSON.parse(s);
+      if (j && typeof j === "object") {
+        const a = (j.amount ?? j.value ?? j.total ?? "") as any;
+        const n = Number(a);
+        return Number.isFinite(n) ? n : undefined;
+      }
+    } catch {
+      const n = Number(s);
+      if (Number.isFinite(n)) return n;
+    }
+    return undefined;
+  };
+  const totalAmountParam = parseMoneyLike(normalizeStr(qs.get("totalAmount"), ""));
 
-  const { data: creditRes, isLoading: creditLoading } = useCreditAccounts();
-  const { data: preferencesRaw, isLoading: prefLoading } = useSmartpayPreferencesMe();
-  const { data: incomesRaw, isLoading: incomesLoading } = useSmartpayIncomes();
+  const displayedInstant = Number(parseFloat(instantPowerAmount).toFixed(2)) || 0;
 
-  const creditTokens = useMemo(() => {
-    const t = creditRes?.data?.tokens;
-    return Array.isArray(t) ? t : [];
-  }, [creditRes]);
-  const hasCredit = creditTokens.length > 0;
-
-  const preferences = useMemo(() => {
-    return (preferencesRaw as any)?.data ?? preferencesRaw ?? null;
-  }, [preferencesRaw]);
-  const hasPreferences = !!preferences;
-
-  const incomes: any[] = useMemo(() => {
-    if (Array.isArray(incomesRaw)) return incomesRaw;
-    if (Array.isArray((incomesRaw as any)?.data)) return (incomesRaw as any).data;
-    if (Array.isArray((incomesRaw as any)?.items)) return (incomesRaw as any).items;
-    return [];
-  }, [incomesRaw]);
-  const hasIncomes = incomes.length > 0;
-
-  // Smart enabled (align with UnifiedPlans)
-  const smartEnabled = hasCredit && hasPreferences && hasIncomes;
-
-  // Detailed Smart Plan (calendar + plan)
-  // ✅ Pass interestFreeUsed (parity with mobile) and mode flags from powerMode
-  const [interestFreeUsed, setInterestFreeUsed] = useState(0);
-  const { data: detailedData, isLoading: detailedLoading } = useSmartpayDetailedPlan(
-    purchaseAmount,
-    (isYearlyMode ? "MONTHLY" : frequency),
-    !isYearlyMode, // instantaneous
-    isYearlyMode, // yearly
-    interestFreeUsed
+  // ✅ Calculate supercharge total (parity with mobile)
+  const totalSupercharge = useMemo(
+    () =>
+      (superchargeDetails ?? []).reduce((acc, d) => {
+        const n = Number(d?.amount ?? 0);
+        return acc + (Number.isFinite(n) ? n : 0);
+      }, 0),
+    [superchargeDetails]
   );
 
-  // Strict per-user payment methods
+  const amount = Number(displayedInstant.toFixed(2));
+
+  // ✅ Total with supercharge (for display)
+  const totalWithSupercharge = amount + totalSupercharge;
+
+  const { data: userDetailsData } = useUserDetails();
+  const currentUserId: string | undefined = userDetailsData?.data?.user?.id;
+  const availableIF: number = Number(userDetailsData?.data?.interestFreeCreditAmount ?? 0);
+
   const {
     data: methods = [],
     isLoading: methodsLoading,
     isError: methodsError,
   } = usePaymentMethods(currentUserId);
 
-  // Unified Commerce mutation (web analog)
+  const { mutate: calculatePlan, data: calculatedPlan } = useCalculatePaymentPlan();
   const { mutateAsync: runUnified, isPending: unifiedPending } = useUnifiedCommerce();
 
-  // ── Selection state ───────────────────────────────────────────────────────
+  // ✅ Smart plan selection state
+  const [selectedPlan, setSelectedPlan] = useState<SmartPlanOption>(SMART_PLAN_OPTIONS[1]);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod | null>(null);
-  // prefer primary card by default
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const [interestFreeUsed, setInterestFreeUsed] = useState<number>(0);
+  const [freeInput, _setFreeInput] = useState<string>("");
+  const setFreeInput = useCallback((v: string) => _setFreeInput(v), [_setFreeInput]);
+  const [isIFOpen, setIsIFOpen] = useState<boolean>(false);
+
+  const [planPending, setPlanPending] = useState<boolean>(true);
+  const [planExplicitlyEmpty, setPlanExplicitlyEmpty] = useState<boolean>(false);
+
   useEffect(() => {
-    if (!methods.length || selectedPaymentMethod) return;
-    const primary = methods.find((m) => m.type === "card" && m.card?.primary === true);
-    const firstCard = methods.find((m) => m.type === "card");
-    setSelectedPaymentMethod(primary ?? firstCard ?? methods[0]);
+    const cards = (methods ?? []).filter((m) => m.type === "card");
+    if (!cards.length || selectedPaymentMethod) return;
+    const primaryCard = cards.find((m) => m.card?.primary === true);
+    setSelectedPaymentMethod(primaryCard ?? cards[0]);
   }, [methods, selectedPaymentMethod]);
 
-  const [rotation, setRotation] = useState(0);
-  const handleToggle = useCallback(() => setRotation((r) => (r === 0 ? 180 : 0)), []);
+  const otherUsersNormalized = useMemo(() => {
+    return (otherUserAmounts ?? [])
+      .map((u) => ({
+        userId: String(u?.userId ?? ""),
+        amount: Number(parseFloat(u?.amount ?? "0") || 0),
+      }))
+      .filter((u) => !!u.userId && Number.isFinite(u.amount) && u.amount >= 0);
+  }, [otherUserAmounts]);
 
-  const [isMethodModalOpen, setIsMethodModalOpen] = useState(false);
+  const isSplitFlow = otherUsersNormalized.length > 0;
 
-  // Interest-free controls (chip + bottom sheet)
-  const [freeInput, setFreeInput] = useState("");
-  const [isIFModalOpen, setIsIFModalOpen] = useState(false);
+  const parsedDiscountIds = useMemo(() => {
+    const fromProps = extractDiscountIds(selectedDiscounts);
+    const fromQS = extractDiscountIds(discountListRawQS || undefined);
+    return Array.from(new Set([...fromProps, ...fromQS]));
+  }, [selectedDiscounts, discountListRawQS]);
+  const hasDiscounts = parsedDiscountIds.length > 0;
 
-  const [showFullExplanation, setShowFullExplanation] = useState(false);
-
-  const [selectedDetails, setSelectedDetails] = useState<DateDetails | null>(null);
-
-  // ── Unwrap Smart Plan & derived values (BEFORE gates so hooks below can depend safely) ──
-  const { plan, calendar, explanation } = detailedData ?? ({} as any);
-  const {
-    splitPayments = [],
-    paymentCycles = [],
-    incomeEvents = [],
-    liabilityEvents = [],
-    rentEvents = [],
-    avoidedDates = [],
-    planEvents = [],
-  } = calendar ?? {};
-
-  // Non-hook derived data
-   const mockPayments = (paymentCycles || []).filter((c: any) => (c?.amount ?? 0) > 0);
-  const today = new Date().toISOString().split("T")[0];
-  const hasDueToday = mockPayments.some((c: any) => c.dueDate === today);
-
-  // ---------- All hooks must be declared before any early return ----------
-
-  const buildSplitsFromMock = useCallback((): SplitPaymentDetailDTO[] => {
-    const count = Math.max(1, (mockPayments || []).length);
-    const basePer = count ? purchaseAmount / count : 0;
-    return (mockPayments || []).map((c: any) => ({
-      dueDate: c.dueDate,
-      amount: Number(c.amount ?? 0),
-      originalAmount: Number(basePer || 0),
-      interestFreeSlice: Number(c.interestFreeSlice ?? 0),
-      interestRate: Number(plan?.periodInterestRate ?? 0),
-      interestAmount: Number(c.interestAmount ?? 0),
-      originalInterestAmount: Number(c.originalInterestAmount ?? 0),
-    }));
-  }, [mockPayments, purchaseAmount, plan?.periodInterestRate]);
-
-  const allSplitUsers = useMemo(
-    () =>
-      (props.otherUserAmounts ?? [])
-        .map((u) => ({
-          userId: String(u.userId),
-          amount: Number(parseFloat(u.amount) || 0),
-        }))
-        .filter((u) => !!u.userId && Number.isFinite(u.amount) && u.amount >= 0),
-    [props.otherUserAmounts]
+  // ✅ Plan request based on selected smart plan
+  const planRequest = useMemo(
+    () => ({
+      frequency: selectedPlan.frequency,
+      numberOfPayments: selectedPlan.periods,
+      purchaseAmount: amount,
+      startDate,
+      selfPay: false,
+      instantaneous: !isYearlyMode,
+      yearly: isYearlyMode,
+      interestFreeAmt: Number(interestFreeUsed.toFixed(2)),
+    }),
+    [selectedPlan, amount, startDate, interestFreeUsed, isYearlyMode]
   );
 
-  // EXCLUDE the current user for split detection and otherUsers payload
-  const splitUsersExcludingSelf = useMemo(() => {
-    if (!currentUserId) return allSplitUsers;
-    return allSplitUsers.filter((u) => u.userId !== currentUserId);
-  }, [allSplitUsers, currentUserId]);
+  useEffect(() => {
+    if (amount <= 0) {
+      setPlanPending(false);
+      setPlanExplicitlyEmpty(false);
+      return;
+    }
+    setPlanPending(true);
+    setPlanExplicitlyEmpty(false);
 
-  const isSplitFlow = splitUsersExcludingSelf.length > 0;
+    calculatePlan(planRequest, {
+      onSuccess: (res: any) => {
+        const empty =
+          !res?.data || !Array.isArray(res?.data?.splitPayments) || res?.data?.splitPayments.length === 0;
+        setPlanExplicitlyEmpty(empty);
+        setPlanPending(false);
+      },
+      onError: () => {
+        toast.error("Could not calculate plan.");
+        setPlanExplicitlyEmpty(false);
+        setPlanPending(false);
+      },
+    });
+  }, [planRequest, calculatePlan, amount]);
 
-  const digitsOnly = (s: string) => s.replace(/\D+/g, "");
-  const handleIFChange = (v: string) => setFreeInput(digitsOnly(v));
+  const today = new Date().toISOString().split("T")[0];
+  const hasDueToday = calculatedPlan?.data?.splitPayments?.some((p: any) => p?.dueDate === today) ?? false;
 
-  const buildCommonFields = useCallback(() => {
-    const splits = buildSplitsFromMock();
-
-    const mappedSupers = (props.superchargeDetails ?? []).map((s) => ({
-      amount: Number(parseFloat(s.amount) || 0),
-      paymentMethodId: s.paymentMethodId,
+  const buildSplits = useCallback((plan: any | null): SplitPaymentDetailDTO[] => {
+    if (!plan?.splitPayments) return [];
+    return plan.splitPayments.map((p: any) => ({
+      dueDate: p?.dueDate,
+      amount: Number(p?.amount ?? 0),
+      originalAmount: Number(p?.originalAmount ?? 0),
+      interestFreeSlice: Number(p?.interestFreeSlice ?? 0),
+      interestRate: Number(p?.interestRate ?? 0),
+      interestAmount: Number(p?.interestAmount ?? 0),
+      originalInterestAmount: Number(p?.originalInterestAmount ?? 0),
     }));
+  }, []);
 
-    const superSum = mappedSupers.reduce((acc, s) => acc + (Number(s.amount) || 0), 0);
-    const schemeTotalAmount = Number((purchaseAmount + superSum).toFixed(2));
+  type CommonWithDiscounts = {
+    paymentFrequency?: any;
+    numberOfPayments?: number;
+    offsetStartDate?: string;
+    instantAmount?: number;
+    yearlyAmount?: number;
+    selectedPaymentMethod?: string;
+    superchargeDetails?: { amount: number; paymentMethodId: string }[];
+    splitSuperchargeDetails?: { amount: number; paymentMethodId: string }[];
+    selfPayActive?: boolean;
+    totalPlanAmount?: number;
+    interestFreeUsed?: number;
+    interestRate?: number;
+    apr?: number;
+    originalTotalInterest?: number;
+    currentTotalInterest?: number;
+    schemeAmount?: number;
+    schemeTotalAmount?: number;
+    splitPaymentsList?: SplitPaymentDetailDTO[];
+    otherUsers?: { userId: string; amount: number }[];
+    discountIds?: string[];
+  };
 
-    // use the exclusion-filtered list directly
-    const others =
-      isSplitFlow && splitUsersExcludingSelf.length > 0
-        ? splitUsersExcludingSelf.map((u) => ({ userId: u.userId, amount: Number(u.amount) || 0 }))
+  const buildCommonFields = useCallback(
+    (plan: any | null): CommonWithDiscounts => {
+      const splits = buildSplits(plan);
+
+      const mappedSupercharges = (superchargeDetails || []).map((s) => ({
+        amount: Number(s.amount),
+        paymentMethodId: s.paymentMethodId,
+      }));
+
+      const schemeTotalAmount = Number(totalWithSupercharge.toFixed(2));
+
+      const others = isSplitFlow
+        ? otherUsersNormalized.map((u) => ({
+            userId: u.userId,
+            amount: Number(u.amount) || 0,
+          }))
         : undefined;
 
-    return {
-      paymentFrequency: (isYearlyMode ? "MONTHLY" : frequency) as Frequency,
-      numberOfPayments: splits.length || mockPayments.length || 1,
-      offsetStartDate: mockPayments[0]?.dueDate || today,
+      const discountIds = hasDiscounts ? parsedDiscountIds : undefined;
 
-      instantAmount: Number(isYearlyMode ? 0 : purchaseAmount.toFixed(2)),
-      yearlyAmount: Number(isYearlyMode ? purchaseAmount.toFixed(2) : 0),
+      const origTI = Number(plan?.originalTotalInterest);
+      const currTI = Number(plan?.currentTotalInterest);
+      const haveOrigTI = Number.isFinite(origTI);
+      const haveCurrTI = Number.isFinite(currTI);
 
-      selectedPaymentMethod: selectedPaymentMethod?.id,
-      superchargeDetails: mappedSupers,
-      splitSuperchargeDetails: [],
+      const common: CommonWithDiscounts = {
+        paymentFrequency: selectedPlan.frequency,
+        numberOfPayments: splits.length || selectedPlan.periods || 1,
+        offsetStartDate: startDate,
+        instantAmount: !isYearlyMode ? Number(amount.toFixed(2)) : 0,
+        yearlyAmount: isYearlyMode ? Number(amount.toFixed(2)) : 0,
+        selectedPaymentMethod: selectedPaymentMethod?.id,
+        superchargeDetails: mappedSupercharges,
+        splitSuperchargeDetails: [],
+        selfPayActive: false,
+        totalPlanAmount: Number((calculatedPlan?.data?.totalAmount ?? amount).toFixed(2)),
+        interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
+        interestRate: Number(calculatedPlan?.data?.periodInterestRate ?? 0),
+        apr: Number(calculatedPlan?.data?.apr ?? 0),
+        schemeAmount: schemeTotalAmount,
+        schemeTotalAmount,
+        splitPaymentsList: splits,
+        otherUsers: others,
+        discountIds,
+      };
 
-      selfPayActive: false,
-      totalPlanAmount: Number(((plan?.totalAmount ?? purchaseAmount)).toFixed(2)),
-      interestFreeUsed: Number(interestFreeUsed.toFixed(2)),
-      interestRate: Number(plan?.periodInterestRate ?? 0),
-      apr: Number(plan?.apr ?? 0),
-      schemeAmount: schemeTotalAmount, // ✅ renamed key to match new DTO
+      if (haveOrigTI) common.originalTotalInterest = origTI;
+      if (haveCurrTI) common.currentTotalInterest = currTI;
 
-      splitPaymentsList: splits,
-      otherUsers: others,
-
-      ...(hasDiscounts ? { discountIds: parsedDiscountIds } : {}),
-    };
-  }, [
-    buildSplitsFromMock,
-    props.superchargeDetails,
-    purchaseAmount,
-    isYearlyMode,
-    frequency,
-    mockPayments,
-    selectedPaymentMethod?.id,
-    plan?.totalAmount,
-    interestFreeUsed,
-    plan?.periodInterestRate,
-    plan?.apr,
-    isSplitFlow,
-    splitUsersExcludingSelf,
-    hasDiscounts,
-    parsedDiscountIds,
-  ]);
+      return common;
+    },
+    [
+      buildSplits,
+      superchargeDetails,
+      totalWithSupercharge,
+      isSplitFlow,
+      otherUsersNormalized,
+      selectedPlan,
+      startDate,
+      selectedPaymentMethod?.id,
+      calculatedPlan?.data?.totalAmount,
+      calculatedPlan?.data?.periodInterestRate,
+      calculatedPlan?.data?.apr,
+      hasDiscounts,
+      parsedDiscountIds,
+      interestFreeUsed,
+      isYearlyMode,
+      amount,
+      calculatedPlan?.data,
+    ]
+  );
 
   const buildVirtualCardOptions = useCallback((): VirtualCardOptions => {
-    // Keep minimal; backend defaults apply
     return {};
   }, []);
 
@@ -426,7 +445,7 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       delete out.soteriaPayload;
       delete out.soteriaPaymentTotalAmount;
     }
-    if (type === "ACCEPT_REQUEST" || type === "ACCEPT_SPLIT_REQUEST") {
+    if (type === "SEND" || type === "ACCEPT_REQUEST" || type === "ACCEPT_SPLIT_REQUEST") {
       delete out.checkout;
       delete out.card;
       delete out.virtualCard;
@@ -447,11 +466,10 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
       delete out.card;
       delete out.virtualCard;
       delete out.paymentId;
-      // keep either soteriaPaymentTotalAmount or paymentTotalAmount + common
     }
     if (out.checkout && Object.keys(out.checkout).length === 0) delete out.checkout;
     if (out.card && Object.keys(out.card).length === 0) delete out.card;
-    if (out.virtualCard && Object.keys(out.virtualCard).length === 0) delete out.virtualCard;
+    if (out.virtualCard && Object.keys(out.virtualCard ?? {}).length === 0) delete out.virtualCard;
     return out as T;
   }
 
@@ -459,16 +477,14 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     try {
       const clone = JSON.parse(JSON.stringify(req));
       const json = JSON.stringify(clone, null, 2);
-      // eslint-disable-next-line no-console
       console.log(`[UnifiedSmartPaymentPlans/web] Sending ${op} request:\n${json}`);
     } catch {
-      // eslint-disable-next-line no-console
       console.log(`[UnifiedSmartPaymentPlans/web] Sending ${op} request (stringify failed).`, req);
     }
   }, []);
 
-  // ⛳ Navigate helper to the SuccessPayment route (passes optional checkoutToken)
-  //    ⬇️ UPDATED: add split=true if there are other split users (excluding self), else false.
+  const displayTotal: number = Number((calculatedPlan?.data?.totalAmount ?? totalAmountParam ?? amount).toFixed(2));
+
   const navigateSuccess = (amt: number | string, checkoutToken?: string) => {
     const num = typeof amt === "number" ? amt : Number(amt || 0);
     const amountText = Number.isFinite(num) ? num.toFixed(2) : "0.00";
@@ -481,186 +497,24 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     navigate(`/SuccessPayment?${params.toString()}`);
   };
 
-  const buildRequestForCustomize = useCallback((): UnifiedCommerceRequest | null => {
-    if (!transactionType) return null;
-
-    const firstSplitDueDate = (mockPayments?.[0]?.dueDate) ?? today;
-
-    switch (transactionType) {
-      case "VIRTUAL_CARD": {
-        if (!merchantId) return null;
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-        const virtualCard: VirtualCardOptions = buildVirtualCardOptions();
-        let req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, common);
-        return sanitizeForType("VIRTUAL_CARD", req);
-      }
-      case "CHECKOUT": {
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-
-        // ✅ include session checkout token (if present) when customizing
-        const sessionCheckoutToken = getSession("checkoutToken");
-        console.log("[UnifiedSmartPaymentPlans/Customize] Using checkoutToken from session:", sessionCheckoutToken);
-
-        // ⛔ removed checkoutTotalAmount per new interface
-        let req = buildCheckoutRequest(
-          {
-            checkoutMerchantId: merchantId,
-            checkoutType: "ONLINE",
-            checkoutRedirectUrl: null,
-            checkoutReference: null,
-            checkoutDetails: null,
-            checkoutToken: sessionCheckoutToken ?? null,
-          },
-          common
-        );
-        return sanitizeForType("CHECKOUT", req);
-      }
-      case "PAYMENT": {
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-        let req = buildPaymentRequest(
-          {
-            merchantId,
-            paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-          },
-          common
-        );
-        return sanitizeForType("PAYMENT", req);
-      }
-      case "ACCEPT_REQUEST": {
-        if (!requestId) return null;
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-        let req = buildAcceptRequest(requestId, common);
-        return sanitizeForType("ACCEPT_REQUEST", req);
-      }
-      case "ACCEPT_SPLIT_REQUEST": {
-        if (!requestId) return null;
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-        let req = buildAcceptSplitRequest(requestId, common);
-        return sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
-      }
-      case "SOTERIA_PAYMENT": {
-        const common: any = { ...buildCommonFields(), offsetStartDate: firstSplitDueDate };
-        let req = buildSoteriaPaymentRequest(
-          {
-            merchantId,
-            soteriaPaymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-            paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" }, // compat
-            ...(paymentPlanId ? { paymentPlanId } : {}),
-            ...(paymentSchemeId ? { paymentSchemeId } : {}),
-            ...(splitPaymentId ? { splitPaymentId } : {}),
-            soteriaPayload: {
-              ...(paymentPlanId ? { paymentPlanId } : {}),
-              ...(paymentSchemeId ? { paymentSchemeId } : {}),
-              ...(splitPaymentId ? { splitPaymentId } : {}),
-            },
-          },
-          common
-        );
-        return sanitizeForType("SOTERIA_PAYMENT", req);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    transactionType,
-    merchantId,
-    purchaseAmount,
-    buildCommonFields,
-    buildVirtualCardOptions,
-    mockPayments,
-    requestId,
-    paymentPlanId,
-    paymentSchemeId,
-    splitPaymentId,
-  ]);
-
-  // ---------- AFTER all hooks: now it’s safe to early-return ----------
-  if (
-    userLoading ||
-    methodsLoading ||
-    creditLoading ||
-    prefLoading ||
-    incomesLoading ||
-    detailedLoading
-  ) {
-    return <CenterSpinner />;
-  }
-
-  if (!userRes || userError) {
-    return (
-      <div className="flex items-center justify-center h-screen p-4 bg-white">
-        <p className="text-red-500 text-center">Failed to load user details</p>
-      </div>
-    );
-  }
-
-  if (!smartEnabled) {
-    return (
-      <div className="flex items-center justify-center h-screen p-4 bg-white">
-        <p className="text-red-500 text-center">
-          Smart Pay is unavailable. Please add income, preferences, and a linked credit institution.
-        </p>
-      </div>
-    );
-  }
-
-  // ── Handlers not using hooks ───────────────────────────────────────────────
-  const onDateSelect = (date: Date) => {
-    const iso = date.toISOString().split("T")[0];
-
-    setSelectedDetails({
-      date: iso,
-      splitPayments: (splitPayments || [])
-        .filter((p: any) => p.date === iso)
-        .map((p: any) => ({ dueDate: p.date, amount: p.amount })),
-      incomeEvents: (incomeEvents || []).filter((e: any) => e.date === iso),
-      liabilityEvents: (liabilityEvents || []).filter((l: any) => l.date === iso),
-      rentEvents: (rentEvents || []).filter((r: any) => r.date === iso),
-      paymentPlanPayments: (planEvents || [])
-        .filter((evt: any) => evt.plannedPaymentDate === iso)
-        .map((evt: any) => ({ dueDate: evt.plannedPaymentDate, amount: evt.allocatedPayment })),
-      isAvoided: !!(avoidedDates || []).find((r: any) => {
-        const s = new Date(r.startDate),
-          e = new Date(r.endDate);
-        return date >= s && date <= e;
-      })!,
-      avoidedRangeName: (avoidedDates || []).find((r: any) => {
-        const s = new Date(r.startDate),
-          e = new Date(r.endDate);
-        return date >= s && date <= e;
-      })?.name,
-      avoidedRangeId: (avoidedDates || []).find((r: any) => {
-        const s = new Date(r.startDate),
-          e = new Date(r.endDate);
-        return date >= s && date <= e;
-      })?.id,
-    });
-
-    setRotation((r) => (r === 0 ? 180 : 0));
-  };
-
-  // Stats & IF helpers
-  const periodRate = Number(plan?.periodInterestRate ?? 0);
-  const apr = Number(plan?.apr ?? 0);
-  const totalAmount = Number(plan?.totalAmount ?? purchaseAmount);
-
-  const freeAmountNum = Number(freeInput || "0");
-  const applyFree = () => {
-    const availableIF = Number(userRes?.data?.interestFreeCreditAmount ?? 0);
-    const capped = Math.min(freeAmountNum || 0, availableIF, totalAmount);
-    setInterestFreeUsed(capped);
-    setIsIFModalOpen(false);
-  };
-
   const handleConfirm = async () => {
     if (!transactionType) {
       toast.info("Missing transactionType param.");
       return;
     }
-
+    if (!merchantId && transactionType !== "SEND") {
+      toast.info("Missing merchantId.");
+      return;
+    }
+    if (!calculatedPlan?.data && transactionType !== "SEND" && transactionType !== "SOTERIA_PAYMENT") {
+      toast.info("Wait for plan calculation to finish.");
+      return;
+    }
     if (
       !selectedPaymentMethod &&
       transactionType !== "ACCEPT_REQUEST" &&
       transactionType !== "ACCEPT_SPLIT_REQUEST" &&
+      transactionType !== "SEND" &&
       transactionType !== "SOTERIA_PAYMENT"
     ) {
       toast.info("Select a payment method.");
@@ -670,45 +524,25 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
     try {
       switch (transactionType) {
         case "VIRTUAL_CARD": {
-          if (!merchantId) {
-            toast.info("Missing merchantId for virtual card.");
-            return;
-          }
-          const commonAny: any = buildCommonFields();
-          const virtualCard = buildVirtualCardOptions();
-
-          let req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, commonAny);
+          const common: any = buildCommonFields(calculatedPlan?.data);
+          const virtualCard: VirtualCardOptions = buildVirtualCardOptions();
+          let req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, common);
           req = sanitizeForType("VIRTUAL_CARD", req);
           logUnifiedPayload("VIRTUAL_CARD", req);
-
           await runUnified(req);
+
+          if (isSplitFlow) {
+            navigateSuccess(displayTotal);
+            break;
+          }
           navigate("/card-details");
           break;
         }
-        case "PAYMENT": {
-          const common = buildCommonFields();
-          let req = buildPaymentRequest(
-            {
-              merchantId,
-              paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-            },
-            common
-          );
-          req = sanitizeForType("PAYMENT", req);
-          logUnifiedPayload("PAYMENT", req);
 
-          await runUnified(req);
-          navigateSuccess(purchaseAmount);
-          break;
-        }
         case "CHECKOUT": {
-          const common = buildCommonFields();
-
-          // ✅ include existing token from session (if any) to maintain continuity
+          const common: any = buildCommonFields(calculatedPlan?.data);
           const sessionCheckoutToken = getSession("checkoutToken");
-          console.log("[UnifiedSmartPaymentPlans] Using checkoutToken from session:", sessionCheckoutToken);
 
-          // ⛔ removed checkoutTotalAmount per new interface
           let req = buildCheckoutRequest(
             {
               checkoutMerchantId: merchantId,
@@ -720,276 +554,259 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
             },
             common
           );
+
+          if (common.otherUsers && !("otherUsers" in (req as any))) {
+            (req as any).otherUsers = common.otherUsers;
+          }
+
           req = sanitizeForType("CHECKOUT", req);
           logUnifiedPayload("CHECKOUT", req);
+          const res = await runUnified(req);
 
-          const res: any = await runUnified(req);
           const token =
-            res?.data?.checkoutToken ??
-            res?.data?.checkout?.token ??
-            res?.checkoutToken ??
+            res?.checkout?.checkoutToken ??
             res?.checkout?.token ??
+            (res as any)?.checkoutToken ??
+            (res as any)?.token ??
             undefined;
 
-          // ✅ persist returned token for future requests
           if (token) {
             try {
               setSession("checkoutToken", String(token));
-              console.log("[UnifiedSmartPaymentPlans] Saved checkoutToken to session:", token);
             } catch {}
           }
 
-          navigateSuccess(purchaseAmount, token);
+          navigateSuccess(displayTotal, token);
           break;
         }
+
+        case "PAYMENT": {
+          const common: any = buildCommonFields(calculatedPlan?.data);
+          let req = buildPaymentRequest(
+            {
+              merchantId,
+              paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
+            },
+            common as any
+          );
+          req = sanitizeForType("PAYMENT", req);
+          logUnifiedPayload("PAYMENT", req);
+          await runUnified(req);
+          navigateSuccess(displayTotal);
+          break;
+        }
+
+        case "SEND": {
+          if (!recipientObj) {
+            toast.info("Provide a valid single recipient JSON.");
+            return;
+          }
+          const common: any = buildCommonFields(calculatedPlan?.data);
+          let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
+          req = sanitizeForType("SEND", req);
+          logUnifiedPayload("SEND", req);
+          await runUnified(req);
+          navigateSuccess(Number(recipientObj.amount));
+          break;
+        }
+
         case "ACCEPT_REQUEST": {
           if (!requestId) {
             toast.info("Missing requestId for ACCEPT_REQUEST.");
             return;
           }
-          const common = buildCommonFields();
+          const common: any = buildCommonFields(calculatedPlan?.data);
           let req = buildAcceptRequest(requestId, common);
           req = sanitizeForType("ACCEPT_REQUEST", req);
           logUnifiedPayload("ACCEPT_REQUEST", req);
-
           await runUnified(req);
-          navigateSuccess(purchaseAmount);
+          navigateSuccess(displayTotal);
           break;
         }
+
         case "ACCEPT_SPLIT_REQUEST": {
           if (!requestId) {
             toast.info("Missing requestId for ACCEPT_SPLIT_REQUEST.");
             return;
           }
-          const common = buildCommonFields();
+          const common: any = buildCommonFields(calculatedPlan?.data);
           let req = buildAcceptSplitRequest(requestId, common);
           req = sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
           logUnifiedPayload("ACCEPT_SPLIT_REQUEST", req);
-
           await runUnified(req);
-          navigateSuccess(purchaseAmount);
+          navigateSuccess(displayTotal);
           break;
         }
-        case "SOTERIA_PAYMENT": {
-          const common = buildCommonFields();
-          const soteriaPayload = {
-            ...(paymentPlanId ? { paymentPlanId } : {}),
-            ...(paymentSchemeId ? { paymentSchemeId } : {}),
-            ...(splitPaymentId ? { splitPaymentId } : {}),
-          };
 
+        case "SOTERIA_PAYMENT": {
+          if (!paymentPlanId || !splitPaymentId) {
+            toast.error(!paymentPlanId ? "paymentPlanId is required." : "splitPaymentId is required.");
+            return;
+          }
+          const common: any = buildCommonFields(calculatedPlan?.data);
+          const soteriaPayload = {
+            paymentPlanId,
+            ...(paymentSchemeId ? { paymentSchemeId } : {}),
+            splitPaymentId,
+          };
           let req = buildSoteriaPaymentRequest(
             {
               merchantId,
-              soteriaPaymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" },
-              paymentTotalAmount: { amount: Number(purchaseAmount.toFixed(2)), currency: "USD" }, // compat
-              soteriaPayload,
+              soteriaPaymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
+              paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
               ...(paymentPlanId ? { paymentPlanId } : {}),
               ...(paymentSchemeId ? { paymentSchemeId } : {}),
               ...(splitPaymentId ? { splitPaymentId } : {}),
+              soteriaPayload,
             },
             common
           );
           req = sanitizeForType("SOTERIA_PAYMENT", req);
           logUnifiedPayload("SOTERIA_PAYMENT", req);
-
           await runUnified(req);
-          navigateSuccess(purchaseAmount);
+          navigateSuccess(displayTotal);
           break;
         }
       }
     } catch (e: any) {
-      // eslint-disable-next-line no-console
-      console.error("Unified SmartPlans (web) error:", e?.message || e);
+      console.error("Unified error:", e?.message || e);
       toast.error("Operation failed. Try again.");
     }
   };
 
-  const handleCustomize = () => {
-    if (!transactionType) {
-      toast.info("Missing transactionType");
-      return;
-    }
-    if (transactionType === "VIRTUAL_CARD" && !selectedPaymentMethod) {
-      toast.info("Select payment method before customizing.");
-      return;
-    }
-    if ((transactionType === "ACCEPT_REQUEST" || transactionType === "ACCEPT_SPLIT_REQUEST") && !requestId) {
-      toast.info("Missing requestId.");
-      return;
-    }
+  const uiPayments = useMemo(
+    () =>
+      calculatedPlan?.data?.splitPayments?.map((p: any) => ({
+        amount: Number(Number(p?.amount ?? 0).toFixed(2)),
+        dueDate: p?.dueDate,
+        percentage: p?.percentage,
+      })) ?? [],
+    [calculatedPlan]
+  );
 
-    const req = buildRequestForCustomize();
-    if (!req) {
-      toast.error("Could not build customize request");
-      return;
-    }
-    try {
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("unified_customize_payload", JSON.stringify(req));
-      }
-    } catch {}
-    const data = encodeURIComponent(JSON.stringify(req));
-    // Match the mobile customize screen route and pass payload
-    navigate(`/UnifiedPayCustomizeScreen?data=${data}`);
+  if (methodsLoading) return <CenterSpinner />;
+
+  const showNoPlan = !planPending && planExplicitlyEmpty && amount > 0;
+
+  const applyFree = () => {
+    const val = Math.min(Number(freeInput || "0") || 0, availableIF, displayTotal);
+    setInterestFreeUsed(val);
+    setIsIFOpen(false);
   };
 
   return (
     <>
-      <div className="min-h-screen bg-white overflow-y-auto p-4">
-        {/* Summary + interest-free chip */}
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold">Summary</h1>
-          <button
-            onClick={() => setIsIFModalOpen(true)}
-            className="bg-[#E6F7FF] text-[#007AFF] font-bold rounded-xl px-3 py-1.5"
-          >
-            ⚡ ${interestFreeUsed.toFixed(2)}
-          </button>
-        </div>
+      <div className="flex flex-col p-4 bg-white min-h-screen">
+        <h1 className="text-2xl font-bold mb-6">
+          {`${displayName ? `${displayName} — ` : ""}Smart Plans $${displayTotal.toFixed(2)}`}
+        </h1>
 
-        {/* Stats strip (scrollbar hidden) */}
-        <div className="overflow-x-auto whitespace-nowrap py-3 -mx-1 mb-2 scrollbar-hide">
-          <div className="inline-flex px-1 space-x-3">
-            {[
-              { label: "Payments", value: String(mockPayments.length) },
-              { label: "Purchase", value: `$${purchaseAmount.toFixed(2)}` },
-              { label: "Interest/p", value: `${(Number(periodRate) * 100).toFixed(2)}%` },
-              { label: "APR", value: `${(Number(apr) * 100).toFixed(2)}%` },
-              { label: "Total", value: `$${Number(totalAmount).toFixed(2)}` },
-            ].map((s) => (
-              <div
-                key={s.label}
-                className="bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 w-[140px] inline-flex flex-col items-center"
+        {/* ✅ Supercharge Summary Container (parity with mobile) */}
+        {totalSupercharge > 0 && (
+          <div className="bg-sky-50 p-3 rounded-lg mb-4 border border-sky-200">
+            <p className="text-sm text-sky-700 font-medium">
+              Supercharge: ${totalSupercharge.toFixed(2)} • Total: ${totalWithSupercharge.toFixed(2)}
+            </p>
+          </div>
+        )}
+
+        {/* ✅ Smart Plan Selection Cards */}
+        <div className="mb-6">
+          <h2 className="text-xl font-semibold mb-3">Choose a Plan</h2>
+          <div className="grid grid-cols-2 gap-3">
+            {SMART_PLAN_OPTIONS.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                onClick={() => setSelectedPlan(plan)}
+                className={`p-4 rounded-lg border-2 text-left transition-all ${
+                  selectedPlan.id === plan.id ? "border-sky-500 bg-sky-50" : "border-gray-200 bg-white hover:border-gray-300"
+                }`}
               >
-                <span className="text-sm text-gray-600">{s.label}</span>
-                <span className="text-base font-bold mt-1">{s.value}</span>
-              </div>
+                <p className="font-semibold text-sm">{plan.label}</p>
+                <p className="text-xs text-gray-500 mt-1">{plan.description}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {plan.periods}x {plan.frequency === "BI_WEEKLY" ? "bi-weekly" : "monthly"}
+                </p>
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Payment circles */}
-        <div className="flex space-x-4 overflow-x-auto mb-6 scrollbar-hide">
-          {mockPayments.map((item: any) => {
-            const d = new Date(item.dueDate);
-            return (
-              <PaymentCircle
-                key={item.dueDate}
-                day={d.getDate()}
-                month={d.toLocaleString("default", { month: "long" })}
-                percentage={item.percentage}
-                amount={Number(item.amount).toFixed(2)}
-              />
-            );
-          })}
-        </div>
+        {/* Plan preview */}
+        <div className="mb-6">
+          <h2 className="text-xl font-semibold mb-3">Payment plan</h2>
 
-        {/* Explanation with Show More / Show Less */}
-        {String(explanation || "").trim().length > 0 && (
-          <div className="max-w-3xl mx-auto mb-4 p-3 bg-white border border-gray-200 rounded-lg">
-            <p className="font-semibold mb-1">How we calculated this:</p>
-            <p className={`text-sm text-gray-700 ${showFullExplanation ? "" : "line-clamp-3"}`}>
-              {explanation}
-            </p>
-            <div className="mt-1 flex justify-end">
-              <button
-                onClick={() => setShowFullExplanation((p) => !p)}
-                className="text-sm font-bold hover:underline"
-              >
-                {showFullExplanation ? "Show Less" : "Show More"}
-              </button>
+          {planPending ? (
+            <CenterSpinner />
+          ) : showNoPlan ? (
+            <div className="w-full py-10 flex items-center justify-center">
+              <p className="text-gray-600">No plan available.</p>
             </div>
-          </div>
-        )}
-
-        {/* FlipCard: calendar front / details back */}
-        <div className="w-full max-w-2xl mx-auto mb-4" style={{ height: "85vh" }}>
-          <FlipCard
-            rotation={rotation}
-            frontContent={
-              <CustomCalendar
-                initialDate={new Date()}
-                /* source everything from useSmartpayDetailedPlan */
-                splitPayments={splitPayments}
-                incomeEvents={incomeEvents}
-                liabilityEvents={liabilityEvents}
-                rentEvents={rentEvents}
-                avoidedDates={avoidedDates}
-                planEvents={planEvents}
-                renderSplitPayment={false}
-                readonly
-                onDateSelect={onDateSelect}
-              />
-            }
-            backContent={
-              <div className="h-full overflow-auto p-4">
-                <FlippedContent
-                  details={selectedDetails}
-                  onToggle={() => setRotation((r) => (r === 0 ? 180 : 0))}
-                  readonly
-                />
-              </div>
-            }
-          />
+          ) : uiPayments.length > 0 ? (
+            <PaymentPlanMocking
+              payments={uiPayments}
+              totalAmount={displayTotal}
+              showChangeDateButton
+              isCollapsed={false}
+              initialDate={new Date(startDate)}
+              onDateSelected={(d) => setStartDate(d.toISOString().split("T")[0])}
+              interestFreeEnabled={true}
+              interestFreeUsed={Number(interestFreeUsed.toFixed(2))}
+              interestRate={Number(calculatedPlan?.data?.periodInterestRate ?? 0)}
+              apr={Number(calculatedPlan?.data?.apr ?? 0)}
+              onInterestFreePress={() => setIsIFOpen(true)}
+            />
+          ) : (
+            <div />
+          )}
         </div>
 
-        {/* Payment method selector */}
+        {/* Payment method */}
         <div className="mb-6">
           <h2 className="text-xl font-semibold mb-3">Payment method</h2>
           {methodsError ? (
-            <p className="text-red-500">Error fetching methods</p>
+            <p className="text-red-500">Error fetching methods.</p>
           ) : (
-            <SelectedPaymentMethod
-              selectedMethod={selectedPaymentMethod}
-              onPress={() => setIsMethodModalOpen(true)}
-            />
+            <SelectedPaymentMethod selectedMethod={selectedPaymentMethod} onPress={() => setIsModalOpen(true)} />
           )}
         </div>
 
-        {/* Buttons (Customize + Confirm) */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {hasDueToday && (
-            <button
-              onClick={handleCustomize}
-              className="flex-1 border border-gray-300 rounded-lg py-3 font-bold bg-white"
-            >
-              Customize
-            </button>
-          )}
-
+        {/* Buttons */}
+        <div className="flex gap-3">
           <button
-            onClick={handleConfirm}
+            type="button"
             disabled={
-              unifiedPending ||
-              (!selectedPaymentMethod &&
-                transactionType !== "ACCEPT_REQUEST" &&
-                transactionType !== "ACCEPT_SPLIT_REQUEST" &&
-                transactionType !== "SOTERIA_PAYMENT")
+              !(
+                transactionType != null &&
+                ((!!calculatedPlan?.data || transactionType === "SEND" || transactionType === "SOTERIA_PAYMENT") &&
+                  (transactionType === "ACCEPT_REQUEST" ||
+                  transactionType === "ACCEPT_SPLIT_REQUEST" ||
+                  transactionType === "SEND" ||
+                  transactionType === "SOTERIA_PAYMENT"
+                    ? true
+                    : !!selectedPaymentMethod) &&
+                  !unifiedPending)
+              )
             }
-            className={`flex-1 rounded-lg py-3 font-bold text-white ${
-              unifiedPending ? "bg-gray-500" : "bg-black hover:bg-gray-800"
-            }`}
+            onClick={handleConfirm}
+            className={`flex-1 py-3 rounded-lg font-bold text-white ${unifiedPending ? "bg-gray-500" : "bg-black hover:bg-gray-800"}`}
           >
-            {unifiedPending
-              ? "Processing…"
-              : transactionType === "VIRTUAL_CARD"
-              ? "Pay & Issue Card"
-              : "Pay & Finish"}
+            {unifiedPending ? "Processing…" : hasDueToday ? "Pay & Finish" : "Finish"}
           </button>
         </div>
       </div>
 
-      {/* Payment method picker modal (bottom-sheet vibe) */}
+      {/* Payment method picker modal */}
       <AnimatePresence>
-        {isMethodModalOpen && (
+        {isModalOpen && (
           <>
             <motion.div
               className="fixed inset-0 bg-black bg-opacity-50 z-40"
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsMethodModalOpen(false)}
+              onClick={() => setIsModalOpen(false)}
             />
             <motion.div
               className="fixed inset-x-0 bottom-0 z-50 flex justify-center items-end sm:items-center"
@@ -1003,22 +820,20 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
               >
                 <div className="flex justify-between items-center p-4 border-b">
                   <h3 className="font-bold">Select payment method</h3>
-                  {/* Settings button removed */}
                 </div>
 
                 <div className="p-4 space-y-4">
-                  {methods
-                    .filter((m) => m.type === "card")
-                    .map((method, idx, arr) => (
+                  {(methods ?? [])
+                    .filter((m: PaymentMethod) => m.type === "card")
+                    .map((method: PaymentMethod) => (
                       <PaymentMethodItem
                         key={method.id}
                         method={method}
-                        selectedMethod={selectedPaymentMethod ?? ({} as PaymentMethod)}
+                        selectedMethod={selectedPaymentMethod} // ✅ no fake {} as PaymentMethod
                         onSelect={(m) => {
                           setSelectedPaymentMethod(m);
-                          setIsMethodModalOpen(false);
+                          setIsModalOpen(false);
                         }}
-                        isLastItem={idx === arr.length - 1}
                         GREEN_COLOR={ACCENT}
                       />
                     ))}
@@ -1029,14 +844,13 @@ const UnifiedSmartPaymentPlans: React.FC<UnifiedSmartPaymentPlansProps> = (props
         )}
       </AnimatePresence>
 
-      {/* ✅ Interest-free bottom sheet (web) */}
       <InterestFreeSheet
-        open={isIFModalOpen}
-        onClose={() => setIsIFModalOpen(false)}
-        availableIF={Number(userRes?.data?.interestFreeCreditAmount ?? 0)}
-        originalAmount={Number(plan?.totalAmount ?? purchaseAmount)}
+        open={isIFOpen}
+        onClose={() => setIsIFOpen(false)}
+        availableIF={availableIF}
+        originalAmount={displayTotal}
         freeInput={freeInput}
-        setFreeInput={handleIFChange}
+        setFreeInput={setFreeInput}
         applyFree={applyFree}
       />
 

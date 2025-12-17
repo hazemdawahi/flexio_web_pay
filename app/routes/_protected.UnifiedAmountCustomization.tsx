@@ -1,4 +1,3 @@
-// File: app/routes/UnifiedAmountCustomization.tsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "@remix-run/react";
 import { Toaster, toast } from "sonner";
@@ -13,7 +12,6 @@ import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";
 
-// Unified commerce (builders + sender used only for SUPERCHARGE submit)
 import {
   useUnifiedCommerce,
   buildCheckoutRequest,
@@ -27,7 +25,6 @@ import {
   type SendRecipient,
 } from "~/hooks/useUnifiedCommerce";
 
-/** ---------------- Local Types (match RN & UnifiedPlans expectations) ---------------- */
 type AllowedTransactionType =
   | "CHECKOUT"
   | "PAYMENT"
@@ -37,50 +34,41 @@ type AllowedTransactionType =
   | "VIRTUAL_CARD"
   | "SOTERIA_PAYMENT";
 
-type PowerMode = "INSTANT" | "YEARLY" | "SUPERCHARGE";
+type PowerMode = "INSTANT" | "YEARLY" | "SUPERCHARGE" | "SELFPAY";
 
 interface SuperchargeField {
-  amount: string; // dollars, e.g. "10.00"
+  amount: string;
   selectedPaymentMethod: PaymentMethod | null;
-  /** we keep this id to map -> object after methods load */
   selectedPaymentMethodId?: string | null;
 }
 
-/** ---------------- In-memory (tab) store — NO session/local storage ---------------- */
 type SavedDraft = {
   powerMode: PowerMode;
   instantPowerAmount: string;
   superchargeFields: { amount: string; selectedPaymentMethodId: string | null }[];
 };
 
-// Per-tab singleton. Cleared on full refresh but survives route remounts.
 const __UAC_MEMORY__: Record<string, SavedDraft> = Object.create(null);
 const memKey = (merchantId?: string, tx?: string) =>
   `uac:${merchantId || "nomid"}:${(tx || "NA").toUpperCase()}`;
 
-/** ---------------- Env + URL helpers ---------------- */
 const isBrowser = typeof window !== "undefined";
 
 function resolveBaseUrl(): string {
-  // 1) Prefer explicit env vars when available
   if (typeof process !== "undefined") {
     const env = (process as any).env || {};
-    const fromEnv =
-      env.REACT_APP_BASE_URL ||
-      env.BASE_URL ||
-      env.CUSTOM_API_BASE_URL;
+    const fromEnv = env.REACT_APP_BASE_URL || env.BASE_URL || env.CUSTOM_API_BASE_URL;
     if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
-      return fromEnv.replace(/\/+$/, ""); // strip trailing slashes
+      return fromEnv.replace(/\/+$/, "");
     }
   }
 
-  // 2) If in browser, derive from current host + :8080
   if (isBrowser) {
     try {
       const loc = window.location;
       const protocol = loc.protocol === "https:" ? "https:" : "http:";
       const host = loc.hostname;
-      const port = "8080"; // your backend / asset host port
+      const port = "8080";
       const built = `${protocol}//${host}:${port}`;
       return built;
     } catch (e) {
@@ -88,17 +76,14 @@ function resolveBaseUrl(): string {
     }
   }
 
-  // 3) Final fallback
   return "http://localhost:8080";
 }
 
 const BASE_URL = resolveBaseUrl();
 
 const isAbsoluteUrl = (u?: string | null) => !!u && /^https?:\/\//i.test(u);
-const isDicebearUrl = (u?: string | null) =>
-  !!u && /(^https?:\/\/)?([^/]*\.)?api\.dicebear\.com/i.test(u);
+const isDicebearUrl = (u?: string | null) => !!u && /(^https?:\/\/)?([^/]*\.)?api\.dicebear\.com/i.test(u);
 
-/** Normalize & sanitize URL params */
 const sanitizeParamString = (raw?: string | null) => {
   const s = (raw ?? "").trim();
   if (!s) return "";
@@ -112,7 +97,6 @@ const sanitizeParamString = (raw?: string | null) => {
 const normalizeParam = (v: string | string[] | null, fallback = ""): string =>
   sanitizeParamString(Array.isArray(v) ? v[0] : v ?? fallback);
 
-/** Resolve logo to an absolute URL usable in <img>. */
 function resolveLogoUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
   if (isAbsoluteUrl(path) || isDicebearUrl(path)) return path;
@@ -122,7 +106,6 @@ function resolveLogoUrl(path?: string | null): string | undefined {
   return `${base}${p}`;
 }
 
-/** Canonicalize a discount list into JSON array of unique IDs (as strings). */
 function canonicalizeDiscountList(raw: string): string {
   if (!raw || !raw.trim()) return "[]";
 
@@ -147,7 +130,6 @@ function canonicalizeDiscountList(raw: string): string {
   return "[]";
 }
 
-/** ---------------- Money helpers (cents-first like RN) ---------------- */
 const toCents = (v: string | number): number => {
   const n = typeof v === "number" ? v : parseFloat(v || "0");
   if (!Number.isFinite(n)) return 0;
@@ -155,7 +137,6 @@ const toCents = (v: string | number): number => {
 };
 const centsToMajor = (c: number) => c / 100;
 
-/** ---------------- Safe sessionStorage getter (where setSession saved the token) -------- */
 const getSession = (key: string): string | null => {
   try {
     if (typeof window === "undefined") return null;
@@ -165,7 +146,6 @@ const getSession = (key: string): string | null => {
   }
 };
 
-/** ---------------- Helper to get all used method IDs from supercharge fields ---------------- */
 function getUsedMethodIds(fields: SuperchargeField[], excludeIndex?: number): Set<string> {
   const ids = new Set<string>();
   fields.forEach((f, idx) => {
@@ -177,45 +157,40 @@ function getUsedMethodIds(fields: SuperchargeField[], excludeIndex?: number): Se
   return ids;
 }
 
-/** ======================== Component ======================== */
 const UnifiedAmountCustomization: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  /** -------- Read & normalize params (parity with UnifiedPlansOptions & UnifiedPlans) -------- */
-  // core / totals (dollars-as-strings)
   const merchantId = normalizeParam(searchParams.get("merchantId"), "");
   const amountParam = normalizeParam(searchParams.get("amount"), "");
-  const totalAmount = normalizeParam(searchParams.get("totalAmount"), ""); // forwarded (optional)
-  const orderAmount = normalizeParam(searchParams.get("orderAmount"), ""); // forwarded (optional)
+  const amountParamOverride = normalizeParam(searchParams.get("amountParam"), "");
+  const totalAmount = normalizeParam(searchParams.get("totalAmount"), "");
+  const orderAmount = normalizeParam(searchParams.get("orderAmount"), "");
 
-  // flow context sent by UnifiedPlansOptions
   const discountListRaw = normalizeParam(searchParams.get("discountList"), "[]");
   const powerModeParam = normalizeParam(searchParams.get("powerMode"), "INSTANT");
   const requestId = normalizeParam(searchParams.get("requestId"), "");
   const transactionTypeRaw = normalizeParam(searchParams.get("transactionType"), "");
 
-  // split + send context
   const otherUsersJson = normalizeParam(searchParams.get("otherUsers"), "");
   const recipientJson = normalizeParam(searchParams.get("recipient"), "");
 
-  // branding (param preferred, fallback to merchant)
   const displayLogoParam = normalizeParam(searchParams.get("displayLogo"), "");
   const displayNameParam = normalizeParam(searchParams.get("displayName"), "");
   const logoUriParam = normalizeParam(searchParams.get("logoUri"), "");
 
-  // extras (Soteria and generic passthrough)
   const split = normalizeParam(searchParams.get("split"), "");
   const paymentPlanId = normalizeParam(searchParams.get("paymentPlanId"), "");
   const paymentSchemeId = normalizeParam(searchParams.get("paymentSchemeId"), "");
   const splitPaymentId = normalizeParam(searchParams.get("splitPaymentId"), "");
+  const selfPayParam = normalizeParam(searchParams.get("selfPay"), "false");
 
-  // ---- LOG: show exactly what we received
   useEffect(() => {
     console.groupCollapsed("[UAC] URL Params (normalized]");
     console.table([
       { key: "merchantId", value: merchantId },
       { key: "amount", value: amountParam },
+      { key: "amountParam", value: amountParamOverride },
       { key: "orderAmount", value: orderAmount },
       { key: "totalAmount", value: totalAmount },
       { key: "discountList", value: discountListRaw },
@@ -229,18 +204,24 @@ const UnifiedAmountCustomization: React.FC = () => {
       { key: "paymentPlanId", value: paymentPlanId },
       { key: "paymentSchemeId", value: paymentSchemeId },
       { key: "splitPaymentId", value: splitPaymentId },
+      { key: "selfPay", value: selfPayParam },
       { key: "otherUsers(raw)", value: otherUsersJson ? otherUsersJson : "" },
     ]);
     if (otherUsersJson) {
-      try { console.log("[UAC] otherUsers(parsed):", JSON.parse(otherUsersJson)); } catch {}
+      try {
+        console.log("[UAC] otherUsers(parsed):", JSON.parse(otherUsersJson));
+      } catch {}
     }
     if (recipientJson) {
-      try { console.log("[UAC] recipient(parsed):", JSON.parse(recipientJson)); } catch {}
+      try {
+        console.log("[UAC] recipient(parsed):", JSON.parse(recipientJson));
+      } catch {}
     }
     console.groupEnd();
   }, [
     merchantId,
     amountParam,
+    amountParamOverride,
     orderAmount,
     totalAmount,
     discountListRaw,
@@ -254,29 +235,30 @@ const UnifiedAmountCustomization: React.FC = () => {
     paymentPlanId,
     paymentSchemeId,
     splitPaymentId,
+    selfPayParam,
     otherUsersJson,
     recipientJson,
   ]);
 
-  /** -------- Capabilities & mode -------- */
   const txUpper = (transactionTypeRaw || "").toUpperCase() as AllowedTransactionType | "";
   const isSend = txUpper === "SEND";
-  // Restrict only for ACCEPT_REQUEST (RN parity). ACCEPT_SPLIT_REQUEST is NOT restricted.
   const isAccept = txUpper === "ACCEPT_REQUEST";
+  const isSoteria = txUpper === "SOTERIA_PAYMENT";
 
-  // SEND/ACCEPT_REQUEST force INSTANT; SOTERIA can SUPERCHARGE
   const isRestrictedToInstant = isSend || isAccept;
 
   const rawPower = (powerModeParam || "INSTANT").toUpperCase() as PowerMode;
   const parsedPower: PowerMode =
-    rawPower === "INSTANT" || rawPower === "YEARLY" || rawPower === "SUPERCHARGE" ? rawPower : "INSTANT";
+    rawPower === "INSTANT" || rawPower === "YEARLY" || rawPower === "SUPERCHARGE" || rawPower === "SELFPAY"
+      ? rawPower
+      : "INSTANT";
   const powerMode: PowerMode = isRestrictedToInstant ? "INSTANT" : parsedPower;
   const isSupercharge = powerMode === "SUPERCHARGE";
+  const isSelfPay = powerMode === "SELFPAY" || selfPayParam === "true";
 
   const discountListCanonical = useMemo(() => canonicalizeDiscountList(discountListRaw), [discountListRaw]);
 
-  /** -------- User + methods + merchant branding -------- */
-  const { data: userRes, isLoading: loadingUser } = useUserDetails();
+  const { data: userRes, isLoading: loadingUser, refetch: refetchUser } = useUserDetails();
   const userId: string | undefined = userRes?.data?.user?.id;
   const instantaneousPower = userRes?.data?.user?.instantaneousPower ?? 0;
   const subscribed = userRes?.data?.subscribed ?? false;
@@ -285,6 +267,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     data: methodsArray,
     isLoading: loadingMethods,
     error: methodsError,
+    refetch: refetchMethods,
   } = usePaymentMethods(userId);
 
   const preferParamsBranding = !!(logoUriParam || displayLogoParam);
@@ -292,6 +275,7 @@ const UnifiedAmountCustomization: React.FC = () => {
     data: merchantRes,
     isLoading: loadingMerchant,
     error: merchantError,
+    refetch: refetchMerchant,
   } = useMerchantDetail(preferParamsBranding ? "" : merchantId);
 
   const brandLogoFromMerchant = merchantRes?.data?.brand?.displayLogo ?? null;
@@ -307,7 +291,6 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   const headerName = displayNameParam || brandNameFromMerchant || "";
 
-  /** -------- helpers to parse recipient early so we can log it nicely -------- */
   const parseRecipient = useCallback((): SendRecipient | null => {
     const s = recipientJson;
     if (!s) return null;
@@ -322,8 +305,8 @@ const UnifiedAmountCustomization: React.FC = () => {
     }
   }, [recipientJson]);
 
-  /** -------- Compute "myTarget" (payer's share) — CENTS MATH like RN -------- */
-  const baseCents = toCents(parseFloat(amountParam || "0"));
+  const baseAmount = parseFloat(amountParamOverride || amountParam || "") || 0;
+  const baseCents = toCents(baseAmount);
   const parsedOtherUsers = useMemo(() => {
     if (!otherUsersJson) return undefined;
     try {
@@ -336,7 +319,6 @@ const UnifiedAmountCustomization: React.FC = () => {
         }))
         .filter((u: any) => u.userId && Number.isFinite(u.amount) && u.amount >= 0);
       if (!mapped.length) return undefined;
-      // exclude current user if present so "others" are truly others
       return userId ? mapped.filter((u) => u.userId !== userId) : mapped;
     } catch {
       return undefined;
@@ -365,7 +347,6 @@ const UnifiedAmountCustomization: React.FC = () => {
     console.groupEnd();
   }, [baseCents, hasExplicitOrder, explicitOrderCents, othersSumCents, myTargetCents]);
 
-  /** -------- Extra log: actual parsed parties (others + recipient) -------- */
   const recipientParsed = useMemo(() => parseRecipient(), [parseRecipient]);
   useEffect(() => {
     console.groupCollapsed("[UAC] Parsed parties");
@@ -374,24 +355,22 @@ const UnifiedAmountCustomization: React.FC = () => {
     console.groupEnd();
   }, [parsedOtherUsers, recipientParsed]);
 
-  // Compute split flag based on otherUsers (excluding self)
   const isSplitFlow = (parsedOtherUsers?.length ?? 0) > 0;
   const splitComputed = isSplitFlow ? "true" : "false";
 
-  /** -------- Payment methods (cards only) -------- */
-  const cards: PaymentMethod[] = useMemo(
+  const cardPaymentMethods: PaymentMethod[] = useMemo(
     () => (methodsArray ?? []).filter((m: PaymentMethod) => m.type === "card"),
     [methodsArray]
   );
   const pickPrimaryCard = useCallback(() => {
-    return cards.find((m) => m.card?.primary) || cards[0] || null;
-  }, [cards]);
+    return cardPaymentMethods.find((m) => m.card?.primary) || cardPaymentMethods[0] || null;
+  }, [cardPaymentMethods]);
 
-  /** -------- Local UI & modal state (INITIALIZED FROM IN-MEMORY STORE) -------- */
   const key = memKey(merchantId, txUpper);
   const draft = __UAC_MEMORY__[key];
 
   const [instantPowerAmount, setInstantPowerAmount] = useState<string>(draft?.instantPowerAmount ?? "");
+
   const [superchargeFields, setSuperchargeFields] = useState<SuperchargeField[]>(
     (draft?.superchargeFields && draft.superchargeFields.length > 0
       ? draft.superchargeFields.map((f) => ({
@@ -399,44 +378,36 @@ const UnifiedAmountCustomization: React.FC = () => {
           selectedPaymentMethod: null,
           selectedPaymentMethodId: f.selectedPaymentMethodId ?? null,
         }))
-      : isSupercharge
-      ? [{ amount: "", selectedPaymentMethod: null }]
       : []) as SuperchargeField[]
   );
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeFieldIndex, setActiveFieldIndex] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // After methods load, map stored IDs to actual objects
   useEffect(() => {
     if (loadingMethods) return;
+    if (cardPaymentMethods.length === 0) return;
+
     setSuperchargeFields((prev) => {
-      let next = [...prev];
+      if (!prev.length) return prev;
 
-      // Ensure at least one field exists whenever SUPERCHARGE is active
-      if (isSupercharge && next.length === 0) {
-        next = [{ amount: "", selectedPaymentMethod: pickPrimaryCard() ?? null }];
-      }
-
-      const idMap = new Map(cards.map((c) => [c.id, c]));
-      next = next.map((f) => {
+      const idMap = new Map(cardPaymentMethods.map((c) => [c.id, c]));
+      let next = prev.map((f) => {
         if (f.selectedPaymentMethod) return f;
         const obj = f.selectedPaymentMethodId ? idMap.get(f.selectedPaymentMethodId) ?? null : null;
         return { ...f, selectedPaymentMethod: obj ?? f.selectedPaymentMethod ?? null };
       });
 
-      // Fill any missing methods with primary/first card
-      if (isSupercharge) {
-        for (let i = 0; i < next.length; i++) {
-          if (!next[i].selectedPaymentMethod) {
-            next[i] = { ...next[i], selectedPaymentMethod: pickPrimaryCard() };
-          }
+      for (let i = 0; i < next.length; i++) {
+        if (!next[i].selectedPaymentMethod) {
+          next[i] = { ...next[i], selectedPaymentMethod: pickPrimaryCard() };
         }
       }
       return next;
     });
-  }, [loadingMethods, cards, isSupercharge, pickPrimaryCard]);
+  }, [loadingMethods, cardPaymentMethods, pickPrimaryCard]);
 
-  /** -------- Keep in-memory store updated (no storage APIs) -------- */
   useEffect(() => {
     __UAC_MEMORY__[key] = {
       powerMode,
@@ -448,34 +419,28 @@ const UnifiedAmountCustomization: React.FC = () => {
     };
   }, [key, powerMode, instantPowerAmount, superchargeFields]);
 
-  /** -------- Track used payment method IDs (excluding current picker field) -------- */
   const usedMethodIds = useMemo(() => {
     return getUsedMethodIds(superchargeFields, activeFieldIndex ?? undefined);
   }, [superchargeFields, activeFieldIndex]);
 
-  /** -------- Count how many card methods are still available -------- */
   const canAddMoreSupercharge = useMemo(() => {
     const allUsedIds = getUsedMethodIds(superchargeFields);
-    const availableCount = cards.filter((m) => !allUsedIds.has(m.id)).length;
+    const availableCount = cardPaymentMethods.filter((m) => !allUsedIds.has(m.id)).length;
     return availableCount > 0;
-  }, [superchargeFields, cards]);
+  }, [superchargeFields, cardPaymentMethods]);
 
-  /** -------- SUPERCHARGE field handlers -------- */
-  // Add field with first available (unused) method - computed inside setState for correctness
   const addField = useCallback(() => {
     setSuperchargeFields((prev) => {
       const currentUsedIds = getUsedMethodIds(prev);
-      const availableMethod = cards.find((m) => !currentUsedIds.has(m.id)) ?? null;
-      
-      // Do not add if no method available
+      const availableMethod = cardPaymentMethods.find((m) => !currentUsedIds.has(m.id)) ?? null;
+
       if (!availableMethod) return prev;
-      
+
       return [...prev, { amount: "", selectedPaymentMethod: availableMethod }];
     });
-  }, [cards]);
+  }, [cardPaymentMethods]);
 
   const updateFieldAmount = (idx: number, val: string) => {
-    // allow digits + single dot, max 2 decimals (or empty)
     if (!/^\d*(\.\d{0,2})?$/.test(val)) return;
     setSuperchargeFields((prev) => {
       const next = [...prev];
@@ -498,41 +463,73 @@ const UnifiedAmountCustomization: React.FC = () => {
     [activeFieldIndex]
   );
 
-  /** -------- Validation / disable logic (cents) -------- */
+  const resetLocalState = useCallback(() => {
+    setInstantPowerAmount("");
+    setSuperchargeFields([]);
+    setActiveFieldIndex(null);
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      resetLocalState();
+      const tasks: Promise<any>[] = [];
+      if (typeof refetchUser === "function") tasks.push(refetchUser());
+      if (typeof refetchMethods === "function") tasks.push(refetchMethods());
+      if (!preferParamsBranding && typeof refetchMerchant === "function") {
+        tasks.push(refetchMerchant());
+      }
+      if (tasks.length) await Promise.allSettled(tasks);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchUser, refetchMethods, refetchMerchant, resetLocalState, preferParamsBranding]);
+
   const fieldsWithPositive = superchargeFields.filter((f) => toCents(f.amount) > 0);
   const sumSuperchargeCents = fieldsWithPositive.reduce((acc, f) => acc + toCents(f.amount), 0);
-  const enteredInstantCents = isSupercharge ? 0 : toCents(instantPowerAmount);
+  const enteredInstantCents = isSupercharge || isSelfPay ? 0 : toCents(instantPowerAmount);
   const totalEnteredCents = enteredInstantCents + sumSuperchargeCents;
 
-  const hasEmptyInstant = isSupercharge ? false : instantPowerAmount.trim() === "";
+  // Self-pay remaining calculation (mobile parity)
+  const selfPayRemainingCents = isSelfPay ? Math.max(0, myTargetCents - sumSuperchargeCents) : 0;
+
+  const hasEmptyInstant = isSupercharge || isSelfPay ? false : instantPowerAmount.trim() === "";
   const noPositiveSupercharges = fieldsWithPositive.length === 0;
   const hasMissingCard = fieldsWithPositive.some((f) => !f.selectedPaymentMethod?.id);
-  const exactMatch = totalEnteredCents === myTargetCents;
 
-  // ===== NEW: 10% minimum rule =====
-  const MIN_PERCENT = 0.10;
+  // Self-pay validation: supercharge must be less than total (mobile parity)
+  const selfPayValid = isSelfPay ? sumSuperchargeCents < myTargetCents && selfPayRemainingCents > 0 : true;
+
+  const exactMatch = isSelfPay ? true : totalEnteredCents === myTargetCents;
+
+  const MIN_PERCENT = 0.1;
   const minRequiredCents = Math.ceil(myTargetCents * MIN_PERCENT);
   const meetsMinContribution = isSupercharge
     ? sumSuperchargeCents >= minRequiredCents
+    : isSelfPay
+    ? selfPayRemainingCents > 0
     : enteredInstantCents >= minRequiredCents;
 
-  const disabled =
-    (isSupercharge ? noPositiveSupercharges || hasMissingCard : hasEmptyInstant || hasMissingCard) ||
-    !exactMatch ||
-    !meetsMinContribution;
+  const disabled = isSelfPay
+    ? !selfPayValid || (fieldsWithPositive.length > 0 && hasMissingCard)
+    : isSupercharge
+    ? noPositiveSupercharges || hasMissingCard || !exactMatch || !meetsMinContribution
+    : hasEmptyInstant || hasMissingCard || !exactMatch || !meetsMinContribution;
 
-  // Disable Add Supercharge if no more methods available
   const addDisabled = !canAddMoreSupercharge;
 
   useEffect(() => {
     console.groupCollapsed("[UAC] Entry/Validation (cents)");
     console.table([
       { key: "isSupercharge", value: isSupercharge },
+      { key: "isSelfPay", value: isSelfPay },
       { key: "instantPowerAmount", value: instantPowerAmount },
       { key: "fieldsWithPositive", value: fieldsWithPositive.length },
       { key: "sumSuperchargeCents", value: sumSuperchargeCents },
       { key: "enteredInstantCents", value: enteredInstantCents },
       { key: "totalEnteredCents", value: totalEnteredCents },
+      { key: "selfPayRemainingCents", value: selfPayRemainingCents },
+      { key: "selfPayValid", value: selfPayValid },
       { key: "hasMissingCard", value: hasMissingCard },
       { key: "exactMatch", value: exactMatch },
       { key: "minRequiredCents", value: minRequiredCents },
@@ -544,11 +541,14 @@ const UnifiedAmountCustomization: React.FC = () => {
     console.groupEnd();
   }, [
     isSupercharge,
+    isSelfPay,
     instantPowerAmount,
     fieldsWithPositive,
     sumSuperchargeCents,
     enteredInstantCents,
     totalEnteredCents,
+    selfPayRemainingCents,
+    selfPayValid,
     hasMissingCard,
     exactMatch,
     disabled,
@@ -558,9 +558,9 @@ const UnifiedAmountCustomization: React.FC = () => {
     canAddMoreSupercharge,
   ]);
 
-  /** -------- Navigate to UnifiedPlans (non-SUPERCHARGE) -------- */
+  // Navigate to UnifiedPlans (non-SELFPAY) or UnifiedSelfPayPaymentPlan (SELFPAY)
   const goContinue = () => {
-    if (!meetsMinContribution) {
+    if (!isSelfPay && !meetsMinContribution) {
       toast.info(
         `Please enter at least ${(MIN_PERCENT * 100).toFixed(0)}% ($${centsToMajor(minRequiredCents).toFixed(
           2
@@ -568,69 +568,97 @@ const UnifiedAmountCustomization: React.FC = () => {
       );
       return;
     }
-    if (disabled) {
+
+    if (isSelfPay && selfPayRemainingCents <= 0) {
+      toast.info("Supercharge amount cannot equal or exceed the total. Some amount must remain for Self-Pay.");
+      return;
+    }
+
+    if (isSelfPay && fieldsWithPositive.length > 0 && hasMissingCard) {
+      toast.info("Please select a card for each supercharge amount.");
+      return;
+    }
+
+    if (!isSelfPay && disabled) {
       toast.info("Please complete the amounts and card selections first.");
       return;
     }
 
-    // UnifiedPlans expects superchargeDetails with amount as string "10.00"
-    const details = superchargeFields
-      .filter((f) => toCents(f.amount) > 0)
-      .map((f) => ({
-        amount: (toCents(f.amount) / 100).toFixed(2),
-        paymentMethodId: f.selectedPaymentMethod!.id,
-      }));
+    // Build supercharge details with amount as string "10.00" (mobile parity)
+    const details = fieldsWithPositive.map((f) => ({
+      amount: (toCents(f.amount) / 100).toFixed(2),
+      paymentMethodId: f.selectedPaymentMethod!.id,
+    }));
 
-    // ONLY send the INSTANT/YEARLY amount as the "amount" field (string with 2 decimals).
-    const forwardAmount = isSupercharge
+    // Compute the amount to forward (mobile parity)
+    // - SUPERCHARGE: full target amount
+    // - SELFPAY: remaining after supercharge (this is the self-pay amount)
+    // - INSTANT/YEARLY: the entered instant amount
+    const amountToFlex = isSupercharge
       ? centsToMajor(myTargetCents).toFixed(2)
+      : isSelfPay
+      ? centsToMajor(selfPayRemainingCents).toFixed(2)
       : (toCents(instantPowerAmount) / 100).toFixed(2);
 
+    // Forward correct branding even when it comes from merchant fallback
+    const forwardedDisplayName = displayNameParam || headerName || "";
+    const forwardedDisplayLogo = displayLogoParam || (brandLogoFromMerchant ? String(brandLogoFromMerchant) : "") || "";
+    const forwardedLogoUri = computedLogoUri || logoUriParam || "";
+
     const baseParams = new URLSearchParams({
-      // core
       merchantId,
-      amount: forwardAmount, // <- what UnifiedPlans reads as amount
+      amount: amountToFlex, // <- self-pay amount for SELFPAY, instant for INSTANT, full for SUPERCHARGE
+      amountParam: amountParamOverride || amountParam, // <- original total amount
       powerMode,
 
-      // flow context
-      superchargeDetails: JSON.stringify(details.length ? details : []), // <- UnifiedPlans reads this JSON
+      superchargeDetails: JSON.stringify(details.length ? details : []),
       discountList: discountListCanonical,
       requestId,
       transactionType: transactionTypeRaw,
 
-      // split + send
-      otherUsers: otherUsersJson, // keep raw JSON; UnifiedPlans tolerates "otherUsers"
+      otherUsers: otherUsersJson,
       recipient: recipientJson,
 
-      // totals / branding
       totalAmount,
       orderAmount,
-      displayLogo: displayLogoParam,
-      displayName: displayNameParam,
+      displayLogo: forwardedDisplayLogo,
+      displayName: forwardedDisplayName,
 
-      // extras
-      // Use computed split flag (ignore incoming split param)
+      selfPay: isSelfPay ? "true" : "false",
+
       split: splitComputed,
-      logoUri: logoUriParam,
+      logoUri: forwardedLogoUri,
       paymentPlanId,
       paymentSchemeId,
       splitPaymentId,
     });
 
-    console.groupCollapsed("[UAC] NAV -> /UnifiedPlans");
+    console.groupCollapsed(`[UAC] NAV -> ${isSelfPay ? "/UnifiedSelfPayPaymentPlan" : "/UnifiedPlans"}`);
     console.log("query (raw):", Object.fromEntries(baseParams.entries()));
     console.log("split(computed):", splitComputed);
-    if (otherUsersJson) { try { console.log("otherUsers(parsed):", JSON.parse(otherUsersJson)); } catch {} }
-    if (recipientJson) { try { console.log("recipient(parsed):", JSON.parse(recipientJson)); } catch {} }
+    console.log("amountToFlex:", amountToFlex);
+    console.log("superchargeDetails:", details);
+    if (otherUsersJson) {
+      try {
+        console.log("otherUsers(parsed):", JSON.parse(otherUsersJson));
+      } catch {}
+    }
+    if (recipientJson) {
+      try {
+        console.log("recipient(parsed):", JSON.parse(recipientJson));
+      } catch {}
+    }
     console.groupEnd();
 
-    navigate(`/UnifiedPlans?${baseParams.toString()}`);
+    if (isSelfPay) {
+      navigate(`/UnifiedSelfPayPaymentPlan?${baseParams.toString()}`);
+    } else {
+      navigate(`/UnifiedPlans?${baseParams.toString()}`);
+    }
   };
 
-  /** -------- SUPERCHARGE immediate submit (uses useUnifiedCommerce + builders) -------- */
   const { mutateAsync: runUnified, isPending: unifiedPending } = useUnifiedCommerce();
 
-  // Parse discount ids to string[]
   const parseDiscountIds = (): string[] => {
     try {
       const arr = JSON.parse(discountListCanonical);
@@ -640,7 +668,6 @@ const UnifiedAmountCustomization: React.FC = () => {
     }
   };
 
-  // Enhanced sender: logs payload (pretty) before sending
   const sendByType = async (type: AllowedTransactionType, payload: any) => {
     const start = Date.now();
     try {
@@ -689,7 +716,6 @@ const UnifiedAmountCustomization: React.FC = () => {
       return;
     }
 
-    // supercharge details as NUMBER major units (rounded to 2) for backend — cents-accurate
     const details = fieldsWithPositive.map((f) => ({
       amount: Number((toCents(f.amount) / 100).toFixed(2)),
       paymentMethodId: f.selectedPaymentMethod!.id,
@@ -699,7 +725,6 @@ const UnifiedAmountCustomization: React.FC = () => {
     const discountIds = parseDiscountIds();
     const hasDiscounts = discountIds.length > 0;
 
-    // Common block for SUPERCHARGE only: instant/yearly = 0; rest in superchargeDetails
     const common: any = {
       paymentFrequency: "MONTHLY",
       numberOfPayments: 1,
@@ -708,7 +733,7 @@ const UnifiedAmountCustomization: React.FC = () => {
       yearlyAmount: 0,
       superchargeDetails: details,
       selfPayActive: false,
-      totalPlanAmount: centsToMajor(myTargetCents), // payer share
+      totalPlanAmount: centsToMajor(myTargetCents),
       interestFreeUsed: 0,
       interestRate: 0,
       apr: 0,
@@ -728,7 +753,6 @@ const UnifiedAmountCustomization: React.FC = () => {
     try {
       switch (transactionType) {
         case "CHECKOUT": {
-          // Pull the checkout token from sessionStorage
           const sessionCheckoutToken = getSession("checkoutToken");
           console.log("[UAC] Using checkoutToken from session:", sessionCheckoutToken);
 
@@ -835,7 +859,6 @@ const UnifiedAmountCustomization: React.FC = () => {
             splitPaymentId,
             displayLogo: displayLogoParam || undefined,
             displayName: displayNameParam || undefined,
-            // Stamp computed split flag here
             split: splitComputed,
             logoUri: logoUriParam || undefined,
           };
@@ -844,7 +867,7 @@ const UnifiedAmountCustomization: React.FC = () => {
             {
               merchantId,
               soteriaPaymentTotalAmount: { amount: centsToMajor(myTargetCents), currency: "USD" },
-              paymentTotalAmount: { amount: centsToMajor(myTargetCents), currency: "USD" }, // compat alias
+              paymentTotalAmount: { amount: centsToMajor(myTargetCents), currency: "USD" },
               soteriaPayload,
               paymentPlanId,
               paymentSchemeId,
@@ -888,7 +911,6 @@ const UnifiedAmountCustomization: React.FC = () => {
     splitComputed,
   ]);
 
-  /** -------- Loading states -------- */
   if ((!preferParamsBranding && loadingMerchant) || loadingUser || loadingMethods) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
@@ -899,15 +921,10 @@ const UnifiedAmountCustomization: React.FC = () => {
 
   const errorMsg = (merchantError as any)?.message || (methodsError as any)?.message || "";
 
-  /** -------- Render -------- */
   return (
     <div className="min-h-screen bg-white">
-      {/* Header matches UnifiedPlans: flex + items-center + p-4 */}
       <header className="flex items-center p-4">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center text-gray-700 hover:text-gray-900"
-        >
+        <button onClick={() => navigate(-1)} className="flex items-center text-gray-700 hover:text-gray-900">
           <IoIosArrowBack className="mr-2" size={24} />
           Back
         </button>
@@ -931,15 +948,14 @@ const UnifiedAmountCustomization: React.FC = () => {
 
         {errorMsg ? <div className="text-center text-red-600 mb-3">{errorMsg}</div> : null}
 
-        {/* Increased bottom margin from mb-1 -> mb-4 for a bit more space */}
         <h1 className="text-xl font-bold mb-4">
           {headerName
             ? `Customize Your $${centsToMajor(myTargetCents).toFixed(2)} for ${headerName}`
             : `Customize Your $${centsToMajor(myTargetCents).toFixed(2)}`}
         </h1>
 
-        {/* Instant (or Yearly) input – hidden for SUPERCHARGE. */}
-        {!isSupercharge && (
+        {/* Instant (or Yearly) input – hidden for SUPERCHARGE and SELFPAY */}
+        {!isSupercharge && !isSelfPay && (
           <FloatingLabelInputWithInstant
             key={`instant-${key}`}
             label={powerMode === "YEARLY" ? "Yearly Power Amount" : "Instant Power Amount"}
@@ -952,6 +968,26 @@ const UnifiedAmountCustomization: React.FC = () => {
           />
         )}
 
+        {/* Self-Pay info container (mobile parity) */}
+        {isSelfPay && (
+          <div className="bg-gray-100 p-4 rounded-xl mb-4">
+            <p className="text-lg font-semibold text-black">
+              Self-Pay Amount: ${centsToMajor(selfPayRemainingCents).toFixed(2)}
+            </p>
+            {sumSuperchargeCents > 0 && (
+              <p className="text-sm text-gray-600">
+                Supercharge: ${centsToMajor(sumSuperchargeCents).toFixed(2)} • Total: $
+                {centsToMajor(myTargetCents).toFixed(2)}
+              </p>
+            )}
+            {sumSuperchargeCents === 0 && (
+              <p className="text-sm text-gray-600">
+                Add supercharge below to pay part upfront, or continue with full Self-Pay.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Supercharge fields */}
         {superchargeFields.map((f, i) => (
           <div key={`sc-${key}-${i}`} className="mt-4">
@@ -961,13 +997,13 @@ const UnifiedAmountCustomization: React.FC = () => {
               onChangeText={(v) => updateFieldAmount(i, v)}
               selectedMethod={f.selectedPaymentMethod}
               onPaymentMethodPress={() => {
-                if (!f.selectedPaymentMethod) {
-                  setSuperchargeFields((prev) => {
-                    const next = [...prev];
+                setSuperchargeFields((prev) => {
+                  const next = [...prev];
+                  if (!next[i]?.selectedPaymentMethod) {
                     next[i] = { ...next[i], selectedPaymentMethod: pickPrimaryCard() };
-                    return next;
-                  });
-                }
+                  }
+                  return next;
+                });
                 setActiveFieldIndex(i);
                 setIsModalOpen(true);
               }}
@@ -975,21 +1011,19 @@ const UnifiedAmountCustomization: React.FC = () => {
           </div>
         ))}
 
-        {/* CTA row — two buttons same width (when both present) */}
+        {/* CTA row */}
         <div className="mt-6">
           <div className="flex items-center gap-3">
-            {subscribed && !isRestrictedToInstant && (
-              <button
-                onClick={addField}
-                type="button"
-                disabled={addDisabled}
-                className={`flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc] ${
-                  addDisabled ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-              >
-                Add Supercharge
-              </button>
-            )}
+            <button
+              onClick={addField}
+              type="button"
+              disabled={addDisabled}
+              className={`flex-1 px-4 py-3 rounded-lg font-bold bg-white text-black border border-[#ccc] ${
+                addDisabled ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              Add Supercharge
+            </button>
 
             {!isSupercharge ? (
               <button
@@ -1011,32 +1045,28 @@ const UnifiedAmountCustomization: React.FC = () => {
                     : "bg-black text-white hover:bg-gray-900"
                 }`}
               >
-                {unifiedPending
-                  ? "Processing..."
-                  : txUpper === "VIRTUAL_CARD"
-                  ? "Pay & Issue Card"
-                  : "Pay & Finish"}
+                {unifiedPending ? "Processing..." : txUpper === "VIRTUAL_CARD" ? "Pay & Issue Card" : "Pay & Finish"}
               </button>
             )}
           </div>
 
-          {/* Helper text when Add is disabled */}
-          {addDisabled && subscribed && !isRestrictedToInstant && (
+          {addDisabled && <p className="text-xs text-gray-500 mt-2">All payment methods are already in use.</p>}
+
+          {!meetsMinContribution && !addDisabled && !isSelfPay && (
             <p className="text-xs text-gray-500 mt-2">
-              All payment methods are already in use.
+              Minimum required: ${centsToMajor(minRequiredCents).toFixed(2)} (10% of total)
             </p>
           )}
 
-          {/* Hint placed under the buttons */}
-          {!meetsMinContribution && !addDisabled && (
-            <p className="text-xs text-gray-500 mt-2">
-              Minimum required: ${centsToMajor(minRequiredCents).toFixed(2)} (10% of total)
+          {isSelfPay && sumSuperchargeCents >= myTargetCents && (
+            <p className="text-xs text-red-600 mt-2">
+              Supercharge amount must be less than total. Remaining Self-Pay amount must be greater than $0.
             </p>
           )}
         </div>
       </div>
 
-      {/* Card Picker Modal (framer-motion) */}
+      {/* Card Picker Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <>
@@ -1055,26 +1085,19 @@ const UnifiedAmountCustomization: React.FC = () => {
               exit={{ y: "100%", opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <div className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max_h_[75vh] max-h-[75vh] overflow-y-auto p-4">
-                {/* Payment Settings button kept but hidden */}
-                <button
-                  onClick={() => navigate("/payment-settings")}
-                  className="mb-4 bg-black text-white px-4 py-2 rounded-lg hidden"
-                >
-                  Payment Settings
-                </button>
+              <div className="w-full sm:max-w-md bg-white rounded-t-lg sm:rounded-lg shadow-lg max-h-[75vh] overflow-y-auto p-4">
+                {(cardPaymentMethods ?? []).length === 0 && (
+                  <p className="text-center text-gray-600">No payment methods available.</p>
+                )}
 
-                {(cards ?? []).map((m: PaymentMethod, idx: number, arr: PaymentMethod[]) => (
+                {(cardPaymentMethods ?? []).map((m: PaymentMethod) => (
                   <PaymentMethodItem
                     key={m.id}
                     method={m}
                     selectedMethod={
-                      activeFieldIndex != null
-                        ? superchargeFields[activeFieldIndex]?.selectedPaymentMethod ?? null
-                        : null
+                      activeFieldIndex != null ? superchargeFields[activeFieldIndex]?.selectedPaymentMethod ?? null : null
                     }
                     onSelect={handleMethodSelect}
-                    isLastItem={idx === arr.length - 1}
                     disabled={usedMethodIds.has(m.id)}
                   />
                 ))}

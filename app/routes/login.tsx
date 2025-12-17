@@ -1,13 +1,12 @@
 // ~/routes/login.tsx
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "@remix-run/react";
 import { useLogin } from "~/hooks/useLogin";
 import { useVerifyLogin } from "~/hooks/useVerifyLogin";
 import { useSession } from "~/context/SessionContext";
 import FloatingLabelInput from "~/compoments/Floatinglabelinpunt";
 import { useUserDetails } from "~/hooks/useUserDetails";
-import { usePaymentMethods } from "~/hooks/usePaymentMethods";
 
 export const clientLoader = async () => {
   return null;
@@ -32,17 +31,6 @@ export default function LoginPage() {
   const { data: userResp, isLoading: userLoading } = useUserDetails();
   const userId = userResp?.data?.user?.id as string | undefined;
 
-  const {
-    data: paymentMethods,
-    isLoading: pmLoading,
-    error: pmError,
-  } = usePaymentMethods(userId);
-
-  const hasCard = useMemo(() => {
-    if (!paymentMethods || !Array.isArray(paymentMethods)) return false;
-    return paymentMethods.some((pm) => pm.type === "card" && pm.card);
-  }, [paymentMethods]);
-
   useEffect(() => {
     if (!initialized) return;
     if (isAuthenticated) {
@@ -52,6 +40,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isConnecting && !justLoggedIn) return;
+
     if (!isAuthenticated) {
       setIsConnecting(false);
       setJustLoggedIn(false);
@@ -60,28 +49,19 @@ export default function LoginPage() {
 
     if (userLoading) return;
     if (!userId) return;
-    if (pmLoading) return;
 
-    if (pmError) {
-      navigate("/AddCardRequired", { replace: true, state: { source } });
-      setIsConnecting(false);
-      setJustLoggedIn(false);
-      return;
-    }
+    const target =
+      source && typeof source === "string" && source.startsWith("/")
+        ? source
+        : "/UnifiedOptionsPage";
 
-    if (hasCard) {
-      navigate("/UnifiedOptionsPage", { replace: true, state: { source } });
-    } else {
-      navigate("/AddCardRequired", { replace: true, state: { source } });
-    }
+    navigate(target, { replace: true, state: { source } });
+
     setIsConnecting(false);
     setJustLoggedIn(false);
   }, [
     userId,
     userLoading,
-    pmLoading,
-    pmError,
-    hasCard,
     navigate,
     source,
     isConnecting,
@@ -150,7 +130,7 @@ export default function LoginPage() {
     loginMutation.isPending ||
     verifyLoginMutation.isPending ||
     isConnecting ||
-    (justLoggedIn && (userLoading || pmLoading));
+    (justLoggedIn && userLoading);
 
   return (
     <div className="max-w-md mx-auto px-5 py-10 bg-white font-sans">
@@ -188,7 +168,6 @@ export default function LoginPage() {
             editable={!isLoading}
             type="text"
             maxLength={6}
-
           />
         </>
       )}

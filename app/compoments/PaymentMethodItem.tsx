@@ -1,4 +1,4 @@
-// File: app/compoments/PaymentMethodItem.tsx
+// File: app/components/PaymentMethodItem.tsx
 import React from "react";
 import type { PaymentMethod } from "~/hooks/usePaymentMethods";
 
@@ -21,7 +21,6 @@ interface PaymentMethodItemProps {
   method: PaymentMethod;
   selectedMethod: PaymentMethod | null;
   onSelect: (method: PaymentMethod) => void;
-  isLastItem?: boolean;
   GREEN_COLOR?: string;
   disabled?: boolean;
 }
@@ -34,7 +33,6 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
   method,
   selectedMethod,
   onSelect,
-  isLastItem = false,
   GREEN_COLOR = "#4cd964",
   disabled = false,
 }) => {
@@ -66,7 +64,6 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
           src={getCardImage(card.brand)}
           alt={card.brand || "Card"}
           className="w-12 h-8 object-contain mr-4"
-          style={disabled ? { filter: "grayscale(100%)", opacity: DISABLED_OPACITY } : undefined}
         />
       );
     }
@@ -78,17 +75,15 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
             src={`data:image/png;base64,${bankLogoBase64}`}
             alt={bankName}
             className="w-12 h-8 object-contain mr-4"
-            style={disabled ? { filter: "grayscale(100%)", opacity: DISABLED_OPACITY } : undefined}
           />
         );
       }
       return (
         <svg
-          className="w-10 h-8 mr-4"
+          className="w-10 h-10 mr-4"
           fill="none"
           stroke={disabled ? "#999" : "currentColor"}
           viewBox="0 0 24 24"
-          style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
         >
           <path
             strokeLinecap="round"
@@ -102,11 +97,10 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
 
     return (
       <svg
-        className="w-10 h-8 mr-4"
+        className="w-10 h-10 mr-4"
         fill="none"
         stroke={disabled ? "#999" : "currentColor"}
         viewBox="0 0 24 24"
-        style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
       >
         <path
           strokeLinecap="round"
@@ -122,10 +116,7 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
     if (card) {
       return (
         <div className="flex flex-col">
-          <span
-            className={`font-semibold ${disabled ? "text-gray-400" : "text-black"}`}
-            style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
-          >
+          <span className={`text-base font-bold ${disabled ? "text-gray-400" : "text-black"}`}>
             {card.brand} ****{card.last4}
           </span>
           {disabled && (
@@ -138,16 +129,10 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
     if (isBank) {
       return (
         <div className="flex flex-col">
-          <span
-            className={`font-semibold ${disabled ? "text-gray-400" : "text-black"}`}
-            style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
-          >
+          <span className={`text-base font-bold ${disabled ? "text-gray-400" : "text-black"}`}>
             {bankName}
           </span>
-          <span
-            className={`text-sm ${disabled ? "text-gray-400" : "text-gray-600"}`}
-            style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
-          >
+          <span className={`text-sm ${disabled ? "text-gray-400" : "text-gray-600"}`}>
             ****{last4}
           </span>
           {disabled && (
@@ -159,10 +144,7 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
 
     return (
       <div className="flex flex-col">
-        <span
-          className={`font-semibold ${disabled ? "text-gray-400" : "text-black"}`}
-          style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
-        >
+        <span className={`text-base font-bold ${disabled ? "text-gray-400" : "text-black"}`}>
           {method.id}
         </span>
         {disabled && (
@@ -178,23 +160,24 @@ const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
       onClick={handleClick}
       disabled={disabled}
       className={`
-        flex items-center w-full py-3 px-4 rounded-lg
+        flex items-center justify-between w-full py-2.5 px-4 rounded-[10px] my-1.5
         ${disabled ? "bg-gray-50 cursor-not-allowed" : "bg-white hover:bg-gray-50 cursor-pointer"}
-        ${!isLastItem ? "border-b border-gray-200" : ""}
       `}
-      style={disabled ? { opacity: 0.7 } : undefined}
     >
-      <div className="flex items-center flex-1">
+      <div
+        className="flex items-center flex-1"
+        style={disabled ? { opacity: DISABLED_OPACITY } : undefined}
+      >
         {renderIcon()}
-        <div className="flex-1">{renderInfo()}</div>
+        <div className="flex justify-center">{renderInfo()}</div>
       </div>
 
       {/* Radio button */}
       <div
-        className={`
-          w-5 h-5 rounded-full border-2 flex items-center justify-center
-          ${isSelected ? "border-[#00BFFF]" : disabled ? "border-gray-300" : "border-gray-400"}
-        `}
+        className="w-5 h-5 rounded-full border-2 flex items-center justify-center"
+        style={{
+          borderColor: isSelected ? RADIO_COLOR : disabled ? "#ddd" : RADIO_UNCHECKED,
+        }}
       >
         {isSelected && (
           <div

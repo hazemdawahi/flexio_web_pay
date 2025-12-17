@@ -267,12 +267,12 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
     return all;
   }, [methods, payload?.type]);
 
-  // Resolve the best object to display (full method if available, else the stored stub/null).
+  // Resolve the best object to display (full method if available, else null)
   const resolveDisplayMethod = useCallback(
     (sel: Field["selectedMethod"]) => {
       if (!sel) return null;
       const full = (methods as PaymentMethod[]).find((m) => m.id === (sel as any).id);
-      return (full ?? null) as PaymentMethod | null;
+      return full ?? null;
     },
     [methods]
   );
@@ -315,11 +315,10 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
     }
   }, [payload, methods, selectableMethods, fields.length]);
 
-  // Backfill: once selectable methods are available, ensure any null selectedMethod (esp. first row) gets a default
+  // Backfill: once selectable methods are available, ensure any null selectedMethod gets a default
   useEffect(() => {
     if (!fields.length || !selectableMethods.length) return;
 
-    // quick check: if no field is missing selectedMethod, do nothing (prevents extra setState)
     const hasMissing = fields.some((f) => !f.selectedMethod);
     if (!hasMissing) return;
 
@@ -342,10 +341,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
   );
   const mustMatchDue = useMemo(() => dueAmount > 0, [dueAmount]);
 
-  const sumFields = useMemo(
-    () => fields.reduce((sum, f) => sum + (Number(f.value) || 0), 0),
-    [fields]
-  );
+  const sumFields = useMemo(() => fields.reduce((sum, f) => sum + (Number(f.value) || 0), 0), [fields]);
 
   // Compute split by examining otherUsers in payload, excluding the current user (if known)
   const otherUsersAll = useMemo(() => getOtherUsers(payload), [payload]);
@@ -360,9 +356,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   // Track used payment method IDs (excluding current picker field)
-  const usedMethodIds = useMemo(() => {
-    return getUsedMethodIds(fields, activeIndex ?? undefined);
-  }, [fields, activeIndex]);
+  const usedMethodIds = useMemo(() => getUsedMethodIds(fields, activeIndex ?? undefined), [fields, activeIndex]);
 
   // Count how many methods are still available
   const canAddMoreSupercharge = useMemo(() => {
@@ -379,10 +373,10 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
     setFields((prev) => {
       const currentUsedIds = getUsedMethodIds(prev);
       const availableMethod = selectableMethods.find((m) => !currentUsedIds.has(m.id)) ?? null;
-      
+
       // Do not add if no method available
       if (!availableMethod) return prev;
-      
+
       return [
         ...prev,
         {
@@ -457,12 +451,17 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
         } else if (t === "SOTERIA_PAYMENT") {
           const s: any = (res as any)?.soteriaPayment;
           const fromRes =
-            toNumberFromMoneyLike(s?.totalAmount) ||
-            toNumberFromMoneyLike(s?.soteriaPaymentTotalAmount);
+            toNumberFromMoneyLike(s?.totalAmount) || toNumberFromMoneyLike(s?.soteriaPaymentTotalAmount);
           if (fromRes > 0) amount = fromRes;
-        } else if (t === "CHECKOUT" || t === "PAYMENT" || t === "VIRTUAL_CARD" || t === "ACCEPT_REQUEST" || t === "ACCEPT_SPLIT_REQUEST") {
+        } else if (
+          t === "CHECKOUT" ||
+          t === "PAYMENT" ||
+          t === "VIRTUAL_CARD" ||
+          t === "ACCEPT_REQUEST" ||
+          t === "ACCEPT_SPLIT_REQUEST"
+        ) {
           // If backend returned a clear total, prefer it
-          const r: any = (res as any);
+          const r: any = res as any;
           const guess =
             toNumberFromMoneyLike(r?.totalAmount) ||
             toNumberFromMoneyLike(r?.amount) ||
@@ -541,8 +540,8 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
           <p className="text-sm text-gray-700 mb-4">
             {mustMatchDue ? (
               <>
-                Distribute exactly <span className="font-bold">${dueAmount.toFixed(2)}</span> across your
-                payment methods.
+                Distribute exactly <span className="font-bold">${dueAmount.toFixed(2)}</span> across your payment
+                methods.
               </>
             ) : (
               <>Add optional supercharges to split your payment across methods.</>
@@ -559,9 +558,7 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
                     label={f.label}
                     value={f.value}
                     onChangeText={(txt) =>
-                      setFields((curr) =>
-                        curr.map((x) => (x.id === f.id ? { ...x, value: txt, error: "" } : x))
-                      )
+                      setFields((curr) => curr.map((x) => (x.id === f.id ? { ...x, value: txt, error: "" } : x)))
                     }
                     keyboardType="number"
                     selectedMethod={displayMethod as any}
@@ -612,17 +609,14 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
                 className={`flex-1 py-3 rounded-lg font-bold text-white ${
                   disabled ? "bg-gray-400 cursor-not-allowed" : "bg-black hover:bg-gray-800"
                 }`}
+                type="button"
               >
                 {isPending ? "Submitting..." : "Complete"}
               </button>
             </div>
 
             {/* Helper note when Add is disabled */}
-            {addDisabled && (
-              <p className="text-xs text-gray-500 mt-2">
-                All payment methods are already in use.
-              </p>
-            )}
+            {addDisabled && <p className="text-xs text-gray-500 mt-2">All payment methods are already in use.</p>}
           </div>
         </div>
       </div>
@@ -650,7 +644,11 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
               >
                 <div className="flex justify-between items-center p-4 border-b">
                   <h3 className="font-bold">Select payment method</h3>
-                  <button onClick={() => setPickerOpen(false)} className="px-3 py-1 rounded bg-black text-white">
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpen(false)}
+                    className="px-3 py-1 rounded bg-black text-white"
+                  >
                     Close
                   </button>
                 </div>
@@ -660,14 +658,12 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
                     <p className="text-center text-gray-600">No payment methods available.</p>
                   )}
 
-                  {selectableMethods.map((method, idx, arr) => (
+                  {selectableMethods.map((method) => (
                     <PaymentMethodItem
                       key={method.id}
                       method={method}
                       selectedMethod={
-                        activeIndex != null
-                          ? (resolveDisplayMethod(fields[activeIndex]?.selectedMethod) as any)
-                          : ({} as PaymentMethod)
+                        activeIndex != null ? resolveDisplayMethod(fields[activeIndex]?.selectedMethod) : null
                       }
                       onSelect={(m) => {
                         if (activeIndex != null && activeIndex >= 0) {
@@ -683,7 +679,6 @@ const UnifiedPayCustomizeScreen: React.FC = () => {
                         }
                         setPickerOpen(false);
                       }}
-                      isLastItem={idx === arr.length - 1}
                       GREEN_COLOR={ACCENT}
                       disabled={usedMethodIds.has(method.id)}
                     />

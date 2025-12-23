@@ -1,5 +1,5 @@
 // CustomCalendar.tsx
-import React, { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { toast, Toaster } from 'sonner'
 import { GoChevronLeft, GoChevronRight } from 'react-icons/go'
 import { MdCheckCircleOutline, MdCancel } from 'react-icons/md'
@@ -43,7 +43,7 @@ export default function CustomCalendar({
   initialDate,
   onDateSelect,
   onRangeSelect,
-  onRemoveAvoidedDate, // (not used here, but preserved)
+  onRemoveAvoidedDate: _onRemoveAvoidedDate, // preserved for API compatibility
   onDoubleTap,
   renderSplitPayment = true,
   splitPayments,

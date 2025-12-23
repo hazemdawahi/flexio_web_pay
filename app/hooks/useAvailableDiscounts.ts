@@ -1,7 +1,7 @@
 // File: src/hooks/useAvailableDiscounts.ts
 
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import {
   authFetch,
@@ -35,7 +35,9 @@ export function useAvailableDiscounts(merchantId: string, orderAmount: number) {
   const navigate = useNavigate();
 
   const query = useQuery<Discount[], Error>({
-    queryKey: ['availableDiscounts', merchantId, orderAmount, token],
+    // FIXED: Removed token from query key (anti-pattern)
+    // Discounts are keyed by merchant and amount
+    queryKey: ["discounts", "available", { merchantId, orderAmount }],
     queryFn: () =>
       authFetch<Discount[]>(
         `/api/discounts/available/merchant?merchantId=${encodeURIComponent(
@@ -43,8 +45,10 @@ export function useAvailableDiscounts(merchantId: string, orderAmount: number) {
         )}&orderAmount=${encodeURIComponent(String(orderAmount))}`
       ),
     enabled: !!token && !!merchantId && orderAmount > 0 && isBrowser,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    retry: false, // don't spam retries on auth failures
+    staleTime: 1000 * 60 * 2, // 2 minutes for discounts
+    retry: false,
+    // Keep previous discounts while loading new ones
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {

@@ -92,7 +92,7 @@ const FloatingLabelInputWithInstant: React.FC<FloatingLabelInputWithInstantProps
               onFocus={handleFocus}
               onBlur={handleBlur}
               disabled={nokeyboard || !editable}
-              className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none"
+              className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-hidden"
               style={{ paddingTop: 18, paddingBottom: 12, lineHeight: '22px' }}
               {...rest}
             />

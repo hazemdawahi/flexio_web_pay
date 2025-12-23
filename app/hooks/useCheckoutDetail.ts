@@ -1,7 +1,7 @@
 // src/hooks/useCheckoutDetail.ts
 
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import {
   authFetch,
@@ -217,11 +217,15 @@ export function useCheckoutDetail(checkoutToken: string) {
   const navigate = useNavigate();
 
   const query = useQuery<CheckoutDetailResponse, Error>({
-    queryKey: ['checkoutDetail', checkoutToken, token],
+    // FIXED: Removed token from query key (anti-pattern)
+    // Checkout is identified by its token only
+    queryKey: ["checkout", "detail", checkoutToken],
     queryFn: () => fetchCheckoutDetail(checkoutToken),
     enabled: !!checkoutToken && !!token && isBrowser,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-    retry: false,
+    // Shorter stale time for checkout data (2 minutes)
+    staleTime: 1000 * 60 * 2,
+    // Keep previous data while refetching
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {

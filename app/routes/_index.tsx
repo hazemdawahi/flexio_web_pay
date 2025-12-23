@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef } from "react";
 import { useSession } from "~/context/SessionContext";
-import { useNavigate, useSearchParams } from "@remix-run/react";
+import { useNavigate, useSearchParams } from "react-router";
 
 export const clientLoader = async () => {
   return null;

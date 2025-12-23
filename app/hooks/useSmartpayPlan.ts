@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import {
   authFetch,
   isBrowser,
@@ -89,11 +89,15 @@ export function useSmartpayPlan(price: number) {
   const navigate = useNavigate();
 
   const query = useQuery<SmartpayPlanResponse, Error>({
-    queryKey: ["smartpayPlan", price, token],
+    // FIXED: Removed token from query key (anti-pattern)
+    // Keys now follow: [domain, entity, params]
+    queryKey: ["smartpay", "plan", { price }],
     queryFn: () => fetchSmartpayPlanData(price),
-    enabled: !!token && isBrowser,
+    enabled: !!token && isBrowser && price > 0,
     staleTime: 1000 * 60 * 5,
     retry: 3,
+    // Keep previous data while recalculating
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {

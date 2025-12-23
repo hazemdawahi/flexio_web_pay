@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useCallback, useRef } from "react";
-import { useLocation, useNavigate } from "@remix-run/react";
+import { useLocation, useNavigate } from "react-router";
 import { motion, useReducedMotion } from "framer-motion";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 /**
  * Web version of SuccessPayment screen
@@ -156,7 +159,7 @@ export default function SuccessPayment() {
     : {
         initial: { scale: 0.8, opacity: 0.14 },
         animate: { scale: 2.3, opacity: 0 },
-        transition: { duration: 1.0, ease: "easeOut", delay: 0.12 },
+        transition: { duration: 1.0, ease: "easeOut" as const, delay: 0.12 },
       };
 
   const burst = (x: number, y: number, delay: number) =>
@@ -165,7 +168,7 @@ export default function SuccessPayment() {
       : {
           initial: { scale: 0.2, opacity: 0.9, x, y },
           animate: { scale: 1.2, opacity: 0, x, y },
-          transition: { duration: 0.7, ease: "easeOut", delay },
+          transition: { duration: 0.7, ease: "easeOut" as const, delay },
         };
 
   return (
@@ -232,7 +235,7 @@ export default function SuccessPayment() {
             {/* Ripples */}
             <motion.div
               {...rippleA}
-              transition={{ duration: 0.9, ease: "easeOut" }}
+              transition={{ duration: 0.9, ease: "easeOut" as const }}
               style={{
                 position: "absolute",
                 inset: "10px",

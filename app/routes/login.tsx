@@ -1,7 +1,7 @@
 // ~/routes/login.tsx
 
-import React, { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router";
 import { useLogin } from "~/hooks/useLogin";
 import { useVerifyLogin } from "~/hooks/useVerifyLogin";
 import { useSession } from "~/context/SessionContext";
@@ -152,13 +152,14 @@ export default function LoginPage() {
           <p className="text-sm text-gray-500 mb-6">
             We just sent you a temporary login code. Please check your email or
             phone.
-            <span
-              className="text-blue-500 underline cursor-pointer"
+            <button
+              type="button"
+              className="text-blue-500 underline cursor-pointer bg-transparent border-none p-0 font-inherit"
               onClick={handleTryAgain}
             >
               {" "}
-              Can't find it? Try again.
-            </span>
+              Can&apos;t find it? Try again.
+            </button>
           </p>
           <FloatingLabelInput
             label="Enter your code"
@@ -175,7 +176,7 @@ export default function LoginPage() {
       <button
         onClick={isOtpVisible ? handleSecondContinue : handleFirstContinue}
         disabled={isLoading}
-        className={`bg-black rounded-lg py-4 px-5 mb-5 text-white font-bold text-lg w-full border-none cursor-pointer focus:outline-none ${
+        className={`bg-black rounded-lg py-4 px-5 mb-5 text-white font-bold text-lg w-full border-none cursor-pointer focus:outline-hidden ${
           isLoading ? "opacity-50 pointer-events-none" : ""
         }`}
       >
@@ -187,7 +188,7 @@ export default function LoginPage() {
       </button>
 
       <p className="text-xs text-gray-500 text-center w-full">
-        By continuing, I agree to Soteria's Terms of Service and Privacy Policy.
+        By continuing, I agree to Soteria&apos;s Terms of Service and Privacy Policy.
       </p>
     </div>
   );

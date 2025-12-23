@@ -1,7 +1,7 @@
 // src/hooks/useMerchantDetail.ts (web)
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import {
   authFetch,
   AuthError,
@@ -206,16 +206,10 @@ interface MerchantDetailResponseRaw {
 ////////////////////////////////////////////////////////////////////////////////
 
 const pickEnv = () => {
-  const viaVite =
-    (typeof import.meta !== "undefined" &&
-      (import.meta as any)?.env?.VITE_API_HOST) as string | undefined;
-  const viaCRA =
-    (typeof process !== "undefined" &&
-      (process as any)?.env?.REACT_APP_API_HOST) as string | undefined;
-  const viaNode =
-    (typeof process !== "undefined" &&
-      (process as any)?.env?.API_HOST) as string | undefined;
-  return viaVite ?? viaCRA ?? viaNode;
+  // Vite-style env vars only (no process.env in browser)
+  const viaVite = import.meta.env.VITE_API_HOST as string | undefined;
+  const viaBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  return viaVite ?? viaBase;
 };
 
 const sanitizeEnv = (v?: string) => {
@@ -367,8 +361,8 @@ export function useMerchantDetail(merchantId: string) {
     queryKey: ["merchantDetail", merchantId],
     queryFn: () => fetchMerchantDetail(merchantId),
     enabled: !!merchantId && !!token && isBrowser, // require id + token, avoid SSR token read
-    staleTime: 1000 * 60 * 5, // 5 mins
-    retry: false,
+    // Use global staleTime/gcTime from QueryClient config
+    // This ensures consistent caching and prevents refetch on back navigation
   });
 
   useEffect(() => {

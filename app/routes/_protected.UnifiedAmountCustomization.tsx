@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { useNavigate, useSearchParams } from "@remix-run/react";
+import { useNavigate, useSearchParams } from "react-router";
 import { Toaster, toast } from "sonner";
 import { IoIosArrowBack } from "react-icons/io";
 import { motion, AnimatePresence } from "framer-motion";
@@ -11,6 +11,11 @@ import PaymentMethodItem from "~/compoments/PaymentMethodItem";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { usePaymentMethods, type PaymentMethod } from "~/hooks/usePaymentMethods";
+
+// clientLoader for SPA mode - runs before component renders
+export const clientLoader = async () => {
+  return { timestamp: Date.now() };
+};
 
 import {
   useUnifiedCommerce,
@@ -55,12 +60,14 @@ const memKey = (merchantId?: string, tx?: string) =>
 const isBrowser = typeof window !== "undefined";
 
 function resolveBaseUrl(): string {
-  if (typeof process !== "undefined") {
-    const env = (process as any).env || {};
-    const fromEnv = env.REACT_APP_BASE_URL || env.BASE_URL || env.CUSTOM_API_BASE_URL;
-    if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
-      return fromEnv.replace(/\/+$/, "");
-    }
+  // Vite-style env vars
+  const fromEnv =
+    import.meta.env.VITE_API_HOST ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_BASE_URL;
+
+  if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
+    return fromEnv.replace(/\/+$/, "");
   }
 
   if (isBrowser) {
@@ -71,7 +78,7 @@ function resolveBaseUrl(): string {
       const port = "8080";
       const built = `${protocol}//${host}:${port}`;
       return built;
-    } catch (e) {
+    } catch {
       // fallback
     }
   }
@@ -393,7 +400,7 @@ const UnifiedAmountCustomization: React.FC = () => {
       if (!prev.length) return prev;
 
       const idMap = new Map(cardPaymentMethods.map((c) => [c.id, c]));
-      let next = prev.map((f) => {
+      const next = prev.map((f) => {
         if (f.selectedPaymentMethod) return f;
         const obj = f.selectedPaymentMethodId ? idMap.get(f.selectedPaymentMethodId) ?? null : null;
         return { ...f, selectedPaymentMethod: obj ?? f.selectedPaymentMethod ?? null };

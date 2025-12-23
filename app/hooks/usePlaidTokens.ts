@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import {
   authFetch,
   isBrowser,

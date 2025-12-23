@@ -1,8 +1,12 @@
 // File: src/routes/UnifiedPlans.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useLocation } from '@remix-run/react';
+import { useNavigate, useLocation } from 'react-router';
 import { IoIosArrowBack } from 'react-icons/io';
 import { motion } from 'framer-motion';
+import { CenterSpinner } from '~/components/ui/spinner';
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 import PaymentPlan from '~/routes/_protected.UnifiedPaymentPlan';
 import SmartPaymentPlans from '~/routes/_protected.UnifiedSmartPaymentPlans';
@@ -109,20 +113,6 @@ const resolvePaymentType = (
 // Restrict Smart tab for SEND / ACCEPT / SOTERIA flows (RN parity)
 const txIsRestricted = (tx: AllowedTx) =>
   tx === 'SEND' || tx === 'ACCEPT_REQUEST' || tx === 'ACCEPT_SPLIT_REQUEST' || tx === 'SOTERIA_PAYMENT';
-
-/** ---------------- UI bits ---------------- */
-const CenterSpinner: React.FC = () => (
-  <div className="min-h-screen bg-white flex items-center justify-center">
-    <motion.div
-      role="status"
-      aria-label="Loading"
-      className="w-10 h-10 rounded-full border-4 border-gray-300"
-      style={{ borderTopColor: '#000' }}
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, ease: 'linear', duration: 0.9 }}
-    />
-  </div>
-);
 
 /** ======================== Component ======================== */
 const UnifiedPlans: React.FC = () => {
@@ -375,13 +365,13 @@ const UnifiedPlans: React.FC = () => {
   // ---------------- Renderers ----------------
   const renderManualOrYearly = () => {
     if (isYearly) {
-      // YearlyPaymentPlan expects string-typed props (JSON for arrays)
+      // YearlyPaymentPlan accepts arrays directly
       return (
         <YearlyPaymentPlan
-          amount={amount}
-          superchargeDetails={JSON.stringify(superchargeDetails ?? [])}
-          otherUsers={JSON.stringify(otherUserAmounts ?? [])}
-          discountList={JSON.stringify(selectedDiscounts ?? [])}
+          instantPowerAmount={amount}
+          superchargeDetails={superchargeDetails ?? []}
+          otherUserAmounts={otherUserAmounts ?? []}
+          selectedDiscounts={selectedDiscounts ?? []}
         />
       );
     }
@@ -399,25 +389,10 @@ const UnifiedPlans: React.FC = () => {
   // ✅ Pass enriched props to Smart (aligned with app/routes/UnifiedSmartPaymentPlans.tsx)
   const renderSmart = () => (
     <SmartPaymentPlans
-      // core
-      merchantId={merchantId}
-      amount={amount}
-      powerMode={isYearly ? 'YEARLY' : 'INSTANT'}
-
-      // flow context
-      superchargeDetails={superchargeDetails}
-      otherUserAmounts={otherUserAmounts}
-      selectedDiscounts={selectedDiscounts}
-      requestId={normalizeParam(params.get('requestId'), '')}
-      transactionType={transactionTypeRaw}
-
-      // split flag
-      split={splitQP}
-
-      // identifiers (Soteria + split)
-      paymentPlanId={paymentPlanIdQP}
-      paymentSchemeId={paymentSchemeIdQP}
-      splitPaymentId={splitPaymentIdQP}
+      instantPowerAmount={amount}
+      superchargeDetails={superchargeDetails ?? []}
+      otherUserAmounts={otherUserAmounts ?? []}
+      selectedDiscounts={selectedDiscounts ?? []}
     />
   );
 

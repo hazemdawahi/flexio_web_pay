@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "@remix-run/react";
+import { useLocation, useNavigate } from "react-router";
 import { motion, useReducedMotion } from "framer-motion";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 /**
  * SuccessMonitor

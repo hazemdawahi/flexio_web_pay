@@ -1,6 +1,6 @@
 // CompactSelectedPaymentMethod.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { PaymentMethod, usePaymentMethods } from "~/hooks/usePaymentMethods";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { getCardImage } from "~/lib/utils";
@@ -45,7 +45,7 @@ const CompactSelectedPaymentMethod: React.FC<CompactSelectedPaymentMethodProps> 
       onClick={handlePress}
       className={`flex-[0.6] h-full bg-white rounded-r-lg flex items-center justify-start px-2.5 ${
         error ? "border border-l-0 border-red-500" : "border border-l-0 border-gray-300"
-      } focus:outline-none`}
+      } focus:outline-hidden`}
       style={{
         boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
       }}

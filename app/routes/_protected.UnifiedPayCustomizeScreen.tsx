@@ -1,9 +1,12 @@
 // File: app/routes/UnifiedPayCustomizeScreen.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useNavigate, useLocation } from "react-router";
 import { toast, Toaster } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { IoIosArrowBack } from "react-icons/io";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 // Hooks
 import { useUserDetails } from "~/hooks/useUserDetails";

@@ -1,9 +1,13 @@
 // File: src/routes/UnifiedPaymentPlan.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useNavigate, useLocation } from "react-router";
 import { toast, Toaster } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { CenterSpinner } from "~/components/ui/spinner";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 import { useCalculatePaymentPlan } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -91,20 +95,6 @@ const extractDiscountIds = (raw: string | string[] | undefined): string[] => {
   }
   return [];
 };
-
-/** Center spinner */
-const CenterSpinner: React.FC = () => (
-  <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
-    <motion.div
-      role="status"
-      aria-label="Loading"
-      className="w-10 h-10 rounded-full border-4 border-gray-300"
-      style={{ borderTopColor: "#000" }}
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, ease: "linear", duration: 0.9 }}
-    />
-  </div>
-);
 
 // Allowed Unified operation types (parity with RN)
 const ALLOWED_TYPES = [
@@ -837,7 +827,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         };
 
         const virtualCard: VirtualCardOptions = buildVirtualCardOptions();
-        let req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, common);
+        const req = buildVirtualCardRequestWithOptions(merchantId, virtualCard, common);
         return sanitizeForType("VIRTUAL_CARD", req);
       }
 
@@ -847,7 +837,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
         const sessionCheckoutToken = getSession("checkoutToken");
         console.log("[UnifiedPaymentPlan/Customize] Using checkoutToken from session:", sessionCheckoutToken);
 
-        let req = buildCheckoutRequest(
+        const req = buildCheckoutRequest(
           {
             checkoutMerchantId: merchantId,
             checkoutType: "ONLINE",
@@ -868,7 +858,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
 
       case "PAYMENT": {
         const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
-        let req = buildPaymentRequest(
+        const req = buildPaymentRequest(
           {
             merchantId,
             paymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
@@ -881,21 +871,21 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
       case "SEND": {
         if (!recipientObj) return null;
         const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
-        let req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
+        const req = buildSendRequest(recipientObj, { senderId: "", note: "Transfer" }, common);
         return sanitizeForType("SEND", req);
       }
 
       case "ACCEPT_REQUEST": {
         if (!requestId) return null;
         const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
-        let req = buildAcceptRequest(requestId, common);
+        const req = buildAcceptRequest(requestId, common);
         return sanitizeForType("ACCEPT_REQUEST", req);
       }
 
       case "ACCEPT_SPLIT_REQUEST": {
         if (!requestId) return null;
         const common: any = { ...buildCommonFields(calculatedPlan?.data), offsetStartDate: firstSplitDueDate };
-        let req = buildAcceptSplitRequest(requestId, common);
+        const req = buildAcceptSplitRequest(requestId, common);
         return sanitizeForType("ACCEPT_SPLIT_REQUEST", req);
       }
 
@@ -906,7 +896,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
           ...(paymentSchemeId ? { paymentSchemeId } : {}),
           ...(splitPaymentId ? { splitPaymentId } : {}),
         };
-        let req = buildSoteriaPaymentRequest(
+        const req = buildSoteriaPaymentRequest(
           {
             merchantId,
             soteriaPaymentTotalAmount: { amount: Number(totalWithSupercharge.toFixed(2)), currency: "USD" },
@@ -1012,7 +1002,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             <select
               value={numberOfPeriods}
               onChange={(e) => setNumberOfPeriods(e.target.value)}
-              className="w-full p-2 border rounded-md shadow-sm focus:ring-black focus:border-black"
+              className="w-full p-2 border rounded-md shadow-xs focus:ring-black focus:border-black"
             >
               {Array.from(
                 {
@@ -1036,7 +1026,7 @@ const UnifiedPaymentPlan: React.FC<UnifiedPaymentPlanProps> = ({
             <select
               value={paymentFrequency}
               onChange={(e) => setPaymentFrequency(e.target.value as PaymentFrequency)}
-              className="w-full p-2 border rounded-md shadow-sm focus:ring-black focus:border-black"
+              className="w-full p-2 border rounded-md shadow-xs focus:ring-black focus:border-black"
             >
               <option value="BI_WEEKLY">Bi-weekly</option>
               <option value="MONTHLY">Monthly</option>

@@ -2,7 +2,11 @@
 
 import { refresh } from "./refresh";
 
-export const API_BASE = "http://192.168.1.121:8080";
+// API base URL from environment variable, with fallback for development
+export const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_HOST ||
+  "http://192.168.1.121:8080";
 
 const isBrowser = typeof window !== "undefined";
 
@@ -61,7 +65,7 @@ export async function authFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  let token = getAccessToken();
+  const token = getAccessToken();
 
   if (!token) {
     clearAccessToken();

@@ -1,7 +1,7 @@
 // File: src/hooks/usePaymentPlanTerms.ts
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { authFetch, AuthError } from "~/lib/auth/apiClient";
 
 /* ---------------- Request / Response Types ---------------- */

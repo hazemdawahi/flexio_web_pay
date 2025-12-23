@@ -1,10 +1,13 @@
 // File: src/pages/ProductDetailsPage.tsx
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { IoIosArrowBack } from "react-icons/io";
 import { useMonitoredProduct } from "../hooks/useMonitoredProduct";
 import { useMonitorProduct } from "../hooks/useMonitorProduct";
 import { useIsProductMonitored } from "../hooks/useIsProductMonitored";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 const ProductDetailsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -83,7 +86,7 @@ const ProductDetailsPage: React.FC = () => {
     if (!productId || isAlreadyMonitored) return;
 
     monitorMutation.mutate(productId, {
-      onSuccess: (_data) => {
+      onSuccess: () => {
         console.log("Product monitoring successful");
 
         // ❗️Do NOT postMessage here. Let SuccessMonitor show animation first,
@@ -112,7 +115,7 @@ const ProductDetailsPage: React.FC = () => {
         <header className="mb-4 sm:mb-6">
           <button
             onClick={() => navigate(-1)}
-            className="inline-flex items-center rounded px-2 py-1 text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10"
+            className="inline-flex items-center rounded px-2 py-1 text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-black/10"
             aria-label="Go back"
           >
             <IoIosArrowBack className="mr-2" size={22} />
@@ -127,7 +130,7 @@ const ProductDetailsPage: React.FC = () => {
         <div className="flex flex-col items-start gap-4 sm:gap-6 md:flex-row">
           {/* Image Section on the Left */}
           <div className="w-full md:w-auto md:flex-shrink-0">
-            <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-sm">
+            <div className="rounded-lg border border-gray-100 bg-white p-2 shadow-xs">
               <img
                 src={product.productImageUrl}
                 alt={product.productName}

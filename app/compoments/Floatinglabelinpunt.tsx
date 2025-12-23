@@ -1,4 +1,4 @@
-import React, { useState, InputHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import { useState, InputHTMLAttributes } from 'react';
 
 type Variant = 'notched' | 'default';
 
@@ -121,7 +121,7 @@ const FloatingLabelInput: React.FC<FloatingLabelInputProps> = ({
             onBlur={handleBlur}
             disabled={nokeyboard || !editable}
             rows={numberOfLines}
-            className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none resize-none"
+            className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-hidden resize-none"
             style={{ paddingTop: 8, paddingBottom: 8, lineHeight: '22px', height: '100%', ...inputStyle }}
           />
         ) : (
@@ -132,7 +132,7 @@ const FloatingLabelInput: React.FC<FloatingLabelInputProps> = ({
             onFocus={handleFocus}
             onBlur={handleBlur}
             disabled={nokeyboard || !editable}
-            className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-none"
+            className="w-full text-base text-black px-3 rounded-lg font-normal bg-transparent focus:outline-hidden"
             style={{ paddingTop: 18, paddingBottom: 12, lineHeight: '22px', ...inputStyle }}
             {...rest}
           />

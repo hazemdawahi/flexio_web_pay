@@ -1,7 +1,7 @@
 // File: src/hooks/useUnifiedCommerce.ts
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { isBrowser, getAccessToken, AuthError } from "~/lib/auth/apiClient";
 
 /** =========================
@@ -23,12 +23,9 @@ function pickValidApiHost(...candidates: Array<unknown>): string | undefined {
 function getApiBase(): string {
   return (
     pickValidApiHost(
-      (typeof import.meta !== "undefined" &&
-        (import.meta as any).env?.VITE_API_HOST) as string | undefined,
-      (typeof process !== "undefined" &&
-        (process as any).env?.REACT_APP_API_HOST) as string | undefined,
-      (typeof process !== "undefined" &&
-        (process as any).env?.API_HOST) as string | undefined
+      import.meta.env.VITE_API_HOST as string | undefined,
+      import.meta.env.VITE_API_BASE_URL as string | undefined,
+      import.meta.env.VITE_BASE_URL as string | undefined
     ) || "http://localhost:8080"
   );
 }
@@ -579,7 +576,7 @@ async function callUnifiedCommerce(
   try {
     // First try with safe sanitized body
     const safeBody = sanitizeUnifiedRequest(body);
-    let first = await sendOnce(safeBody);
+    const first = await sendOnce(safeBody);
     if (first.ok) {
       return first.data as UnifiedCommerceResponse;
     }

@@ -1,7 +1,7 @@
 // ~/hooks/useLogout.ts
 
 import { useCallback, useRef, useState } from "react";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
  import { useSession } from "~/context/SessionContext";
 import { API_BASE, getAccessToken } from "~/lib/auth/apiClient";

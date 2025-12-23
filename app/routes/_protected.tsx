@@ -1,12 +1,13 @@
 // ~/routes/_protected.tsx
 
-import React, { useEffect } from "react";
-import { Outlet, useNavigate } from "@remix-run/react";
+import { useEffect } from "react";
+import { Outlet, useNavigate } from "react-router";
 import { useSession } from "~/context/SessionContext";
 import { IoMdClose } from "react-icons/io";
 import { FaCreditCard, FaMobileAlt } from "react-icons/fa";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { usePaymentMethods } from "~/hooks/usePaymentMethods";
+import { CenterSpinner } from "~/components/ui/spinner";
 
 export const clientLoader = async () => {
   return null;
@@ -16,7 +17,7 @@ export default function ProtectedLayout() {
   const { inApp, initialized, isAuthenticated } = useSession();
   const navigate = useNavigate();
 
-  const { data: userResp, isLoading: userLoading, isError: userError } = useUserDetails();
+  const { data: userResp, isLoading: userLoading } = useUserDetails();
   const userId = userResp?.data?.user?.id as string | undefined;
 
   const { data: paymentMethods, isLoading: paymentsLoading } = usePaymentMethods(userId);
@@ -45,19 +46,11 @@ export default function ProtectedLayout() {
   };
 
   if (!initialized || userLoading || paymentsLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
-        <p className="text-xl text-gray-700">Loading...</p>
-      </div>
-    );
+    return <CenterSpinner className="min-h-screen" />;
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-white">
-        <p className="text-xl text-gray-700">Redirecting...</p>
-      </div>
-    );
+    return <CenterSpinner className="min-h-screen" />;
   }
 
   if (paymentMethods && paymentMethods.length === 0) {

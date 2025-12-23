@@ -1,5 +1,4 @@
 // File: app/components/PaymentMethodItem.tsx
-import React from "react";
 import type { PaymentMethod } from "~/hooks/usePaymentMethods";
 
 // Card brand images - adjust paths as needed for your project
@@ -29,13 +28,13 @@ const RADIO_COLOR = "#00BFFF";
 const RADIO_UNCHECKED = "#C7CFD9";
 const DISABLED_OPACITY = 0.4;
 
-const PaymentMethodItem: React.FC<PaymentMethodItemProps> = ({
+const PaymentMethodItem = ({
   method,
   selectedMethod,
   onSelect,
-  GREEN_COLOR = "#4cd964",
+  GREEN_COLOR: _GREEN_COLOR = "#4cd964",
   disabled = false,
-}) => {
+}: PaymentMethodItemProps) => {
   const isSelected = !!selectedMethod && selectedMethod.id === method.id;
   const card = method.card;
   const isBank = method.type === "bank";

@@ -1,17 +1,18 @@
 // File: src/hooks/useFetchContactsInfinite.ts
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   useInfiniteQuery,
+  keepPreviousData,
   type QueryFunctionContext,
   type QueryKey,
 } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
-import { authFetch, AuthError, isBrowser } from "~/lib/auth/apiClient";
+import { useNavigate } from "react-router";
+import { authFetch, AuthError, isBrowser, getAccessToken } from "~/lib/auth/apiClient";
 
 /* =========================
  * Types
  * ========================= */
-interface ContactItem {
+export interface ContactItem {
   phoneNumber: string;
   logo: string | null;
   id: string;
@@ -102,21 +103,26 @@ export function useFetchContactsInfinite(
   excludeUserIds?: MaybeArrayOrCSV,
   sort: string = "username,asc"
 ) {
+  const token = isBrowser ? getAccessToken() : null;
   const navigate = useNavigate();
 
-  const query = useInfiniteQuery<ContactResponse, Error>({
-    queryKey: [
-      "contacts",
-      size,
-      // Use stable primitives in the key
-      typeof contacts === "string" ? contacts : JSON.stringify(contacts ?? []),
-      searchTerm ?? "",
-      typeof isSubscribed === "string" ? isSubscribed : isSubscribed ?? "",
-      typeof excludeUserIds === "string"
+  // Memoize filter params for stable query key
+  const filterParams = useMemo(
+    () => ({
+      contacts: typeof contacts === "string" ? contacts : JSON.stringify(contacts ?? []),
+      searchTerm: searchTerm ?? "",
+      isSubscribed: typeof isSubscribed === "string" ? isSubscribed : String(isSubscribed ?? ""),
+      excludeUserIds: typeof excludeUserIds === "string"
         ? excludeUserIds
         : JSON.stringify(excludeUserIds ?? []),
       sort,
-    ],
+    }),
+    [contacts, searchTerm, isSubscribed, excludeUserIds, sort]
+  );
+
+  const query = useInfiniteQuery<ContactResponse, Error>({
+    // Hierarchical query key: [domain, entity, params]
+    queryKey: ["user", "contacts", "infinite", { size, ...filterParams }],
     queryFn: (ctx) =>
       fetchContacts(ctx, size, contacts, searchTerm, isSubscribed, excludeUserIds, sort),
     getNextPageParam: (lastPage) => {
@@ -124,8 +130,18 @@ export function useFetchContactsInfinite(
       const total = lastPage?.data?.pageable.totalPages ?? 0;
       return current + 1 < total ? current + 1 : undefined;
     },
+    getPreviousPageParam: (firstPage) => {
+      const current = firstPage?.data?.pageable.pageNumber ?? 0;
+      return current > 0 ? current - 1 : undefined;
+    },
     initialPageParam: 0,
-    enabled: isBrowser, // avoid running on SSR
+    enabled: isBrowser && !!token,
+    // Cache for 3 minutes
+    staleTime: 1000 * 60 * 3,
+    // Keep previous data while fetching new results (prevents flicker)
+    placeholderData: keepPreviousData,
+    // Limit cached pages to prevent memory issues with large lists
+    maxPages: 5,
   });
 
   useEffect(() => {
@@ -135,4 +151,18 @@ export function useFetchContactsInfinite(
   }, [query.error, navigate]);
 
   return query;
+}
+
+/**
+ * Helper to flatten all pages into a single array of contacts
+ *
+ * @example
+ * const query = useFetchContactsInfinite(20, []);
+ * const allContacts = flattenContactPages(query.data);
+ */
+export function flattenContactPages(
+  data: ReturnType<typeof useFetchContactsInfinite>["data"]
+): ContactItem[] {
+  if (!data?.pages) return [];
+  return data.pages.flatMap((page) => page?.data?.content ?? []);
 }

@@ -6,12 +6,15 @@ import {
   HiOutlineUsers,
   HiOutlineEye,
 } from "react-icons/hi";
-import { useNavigate, useSearchParams } from "@remix-run/react";
+import { useNavigate, useSearchParams } from "react-router";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useLogoutWeb } from "~/hooks/useLogout";
 import { useAvailableDiscounts } from "~/hooks/useAvailableDiscounts";
 import { useSession } from "~/context/SessionContext";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 /** ---------------- Types ---------------- */
 export type UnifiedOperationType = "CHECKOUT";
@@ -21,17 +24,11 @@ export type UnifiedOperationType = "CHECKOUT";
 const isBrowser = typeof window !== "undefined";
 
 function resolveBaseUrl(): string {
-  let fromEnv: string | undefined;
-
-  if (typeof process !== "undefined" && (process as any).env) {
-    const env = (process as any).env;
-    fromEnv =
-      (env.REACT_APP_API_HOST as string | undefined) ||
-      (env.API_HOST as string | undefined) ||
-      (env.REACT_APP_BASE_URL as string | undefined) ||
-      (env.BASE_URL as string | undefined) ||
-      (env.CUSTOM_API_BASE_URL as string | undefined);
-  }
+  // Vite-style env vars
+  const fromEnv =
+    import.meta.env.VITE_API_HOST ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_BASE_URL;
 
   if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return fromEnv.trim().replace(/\/+$/, "");

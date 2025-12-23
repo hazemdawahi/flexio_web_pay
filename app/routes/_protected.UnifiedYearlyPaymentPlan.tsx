@@ -1,9 +1,13 @@
 // File: app/routes/UnifiedYearlyPaymentPlan.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useNavigate, useLocation } from "react-router";
 import { toast, Toaster } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { CenterSpinner } from "~/components/ui/spinner";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 import { useCalculatePaymentPlan } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -83,19 +87,6 @@ const extractDiscountIds = (raw: string | string[] | undefined): string[] => {
   return [];
 };
 
-const CenterSpinner: React.FC = () => (
-  <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
-    <motion.div
-      role="status"
-      aria-label="Loading"
-      className="w-10 h-10 rounded-full border-4 border-gray-300"
-      style={{ borderTopColor: "#000" }}
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, ease: "linear", duration: 0.9 }}
-    />
-  </div>
-);
-
 const ALLOWED_TYPES = [
   "CHECKOUT",
   "PAYMENT",
@@ -129,18 +120,13 @@ const UnifiedYearlyPaymentPlan: React.FC<UnifiedYearlyPaymentPlanProps> = ({
   otherUserAmounts = [],
   selectedDiscounts = [],
   displayName,
-  displayLogo,
+  displayLogo: _displayLogo,
 }) => {
   const navigate = useNavigate();
   const { search } = useLocation();
   const qs = new URLSearchParams(search);
 
   const merchantId = normalizeStr(qs.get("merchantId"), "");
-  const splitFlag = normalizeStr(qs.get("split"), "");
-  const modeSplit = splitFlag === "true";
-
-  // ✅ Force yearly mode for this screen
-  const isYearlyMode = true;
 
   const discountListRawQS = normalizeStr(qs.get("discountList"), "");
   const requestId = normalizeStr(qs.get("requestId"), "");
@@ -720,6 +706,12 @@ const UnifiedYearlyPaymentPlan: React.FC<UnifiedYearlyPaymentPlanProps> = ({
     [calculatedPlan]
   );
 
+  // Calculate per-period payment for slider display (must be before early returns)
+  const perPeriodPayment = useMemo(() => {
+    if (uiPayments.length > 0) return uiPayments[0].amount;
+    return sliderValue > 0 ? amount / sliderValue : amount;
+  }, [uiPayments, amount, sliderValue]);
+
   if (methodsLoading) return <CenterSpinner />;
 
   const showNoPlan = !planPending && planExplicitlyEmpty && amount > 0;
@@ -729,12 +721,6 @@ const UnifiedYearlyPaymentPlan: React.FC<UnifiedYearlyPaymentPlanProps> = ({
     setInterestFreeUsed(val);
     setIsIFOpen(false);
   };
-
-  // ✅ Calculate per-period payment for slider display
-  const perPeriodPayment = useMemo(() => {
-    if (uiPayments.length > 0) return uiPayments[0].amount;
-    return sliderValue > 0 ? amount / sliderValue : amount;
-  }, [uiPayments, amount, sliderValue]);
 
   return (
     <>
@@ -790,7 +776,7 @@ const UnifiedYearlyPaymentPlan: React.FC<UnifiedYearlyPaymentPlanProps> = ({
           <select
             value={paymentFrequency}
             onChange={(e) => setPaymentFrequency(e.target.value as PaymentFrequency)}
-            className="w-full p-2 border rounded-md shadow-sm focus:ring-black focus:border-black"
+            className="w-full p-2 border rounded-md shadow-xs focus:ring-black focus:border-black"
           >
             <option value="MONTHLY">Monthly</option>
             <option value="BI_WEEKLY">Bi-weekly</option>

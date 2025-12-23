@@ -1,9 +1,13 @@
 // File: app/routes/UnifiedSmartPaymentPlans.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useNavigate, useLocation } from "react-router";
 import { toast, Toaster } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { CenterSpinner } from "~/components/ui/spinner";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 import { useCalculatePaymentPlan } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -97,19 +101,6 @@ const extractDiscountIds = (raw: string | string[] | undefined): string[] => {
   }
   return [];
 };
-
-const CenterSpinner: React.FC = () => (
-  <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
-    <motion.div
-      role="status"
-      aria-label="Loading"
-      className="w-10 h-10 rounded-full border-4 border-gray-300"
-      style={{ borderTopColor: "#000" }}
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, ease: "linear", duration: 0.9 }}
-    />
-  </div>
-);
 
 const ALLOWED_TYPES = [
   "CHECKOUT",

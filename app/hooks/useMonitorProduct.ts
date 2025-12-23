@@ -1,7 +1,7 @@
 // ~/hooks/useMonitorProduct.ts
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { authFetch, AuthError } from "~/lib/auth/apiClient";
 
 export interface MonitorProductResponse {
@@ -26,11 +26,13 @@ export function useMonitorProduct() {
           body: JSON.stringify({}),
         }
       ),
-    onSuccess: (data, productId) => {
-      // Refresh monitored list + this product's monitored state
-      queryClient.invalidateQueries({ queryKey: ["monitoredProducts"] });
+    onSuccess: (_data, productId) => {
+      // Invalidate all product monitoring queries
+      // Using hierarchical key allows invalidating all related queries at once
+      queryClient.invalidateQueries({ queryKey: ["products", "monitored"] });
+      // Also specifically invalidate this product
       queryClient.invalidateQueries({
-        queryKey: ["isProductMonitored", productId],
+        queryKey: ["products", "monitored", productId],
       });
     },
     onError: (error) => {

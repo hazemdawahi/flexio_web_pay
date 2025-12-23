@@ -1,6 +1,6 @@
 // src/hooks/usePaymentMethods.ts
 import { useEffect } from "react";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   authFetch,
@@ -93,9 +93,8 @@ export function usePaymentMethods(userId: string | undefined) {
     },
     enabled: !!token && !!userId && isBrowser, // require token + known userId + browser
     placeholderData: keepPreviousData,
-    staleTime: 1000 * 60 * 5, // 5 minutes
-    refetchOnWindowFocus: true,
-    retry: false,
+    // Use global staleTime/gcTime/refetchOnWindowFocus from QueryClient config
+    // This ensures consistent caching and prevents refetch on back navigation
   });
 
   useEffect(() => {

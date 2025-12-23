@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useMemo, useCallback, memo } from 'react';
-import { useNavigate, useSearchParams } from '@remix-run/react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { Toaster, toast } from 'sonner';
 import { IoIosArrowBack } from 'react-icons/io';
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 import FloatingLabelInput from '~/compoments/Floatinglabelinpunt';
 import { useFetchMultipleUserDetails } from '~/hooks/useFetchMultipleUserDetails';
@@ -31,42 +34,23 @@ type Money = {
 const isBrowser = typeof window !== 'undefined';
 
 function resolveBaseUrl(): string {
-  let fromEnv: string | undefined;
-
-  // 1) Prefer Vite-style env vars if present
-  try {
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
-      const vEnv = (import.meta as any).env;
-      fromEnv =
-        (vEnv.VITE_API_HOST as string | undefined) ||
-        (vEnv.VITE_BASE_URL as string | undefined);
-    }
-  } catch {
-    // ignore
-  }
-
-  // 2) Fall back to Node-style env vars
-  if (!fromEnv && typeof process !== 'undefined' && (process as any).env) {
-    const env = (process as any).env;
-    fromEnv =
-      (env.REACT_APP_API_HOST as string | undefined) ||
-      (env.API_HOST as string | undefined) ||
-      (env.REACT_APP_BASE_URL as string | undefined) ||
-      (env.BASE_URL as string | undefined) ||
-      (env.CUSTOM_API_BASE_URL as string | undefined);
-  }
+  // Vite-style env vars
+  const fromEnv =
+    import.meta.env.VITE_API_HOST ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_BASE_URL;
 
   if (fromEnv && typeof fromEnv === 'string' && fromEnv.trim().length > 0) {
-    return fromEnv.trim().replace(/\/+$/, ''); // strip trailing slashes
+    return fromEnv.trim().replace(/\/+$/, '');
   }
 
-  // 3) If in the browser, derive from current hostname + :8080
+  // If in the browser, derive from current hostname + :8080
   if (isBrowser) {
     try {
       const loc = window.location;
       const protocol = loc.protocol === 'https:' ? 'https:' : 'http:';
       const host = loc.hostname;
-      const port = '8080'; // backend port
+      const port = '8080';
       const built = `${protocol}//${host}:${port}`;
       return built;
     } catch {
@@ -74,7 +58,7 @@ function resolveBaseUrl(): string {
     }
   }
 
-  // 4) Final fallback
+  // Final fallback
   return 'http://localhost:8080';
 }
 

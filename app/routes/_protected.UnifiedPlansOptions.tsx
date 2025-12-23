@@ -3,12 +3,18 @@ import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { HiOutlineLightningBolt, HiOutlineCalendar } from "react-icons/hi";
 import { FaCreditCard } from "react-icons/fa";
 import { IoIosArrowBack } from "react-icons/io";
-import { useLocation, useNavigate, useSearchParams } from "@remix-run/react";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import ProtectedRoute from "~/compoments/ProtectedRoute";
 import { useUserDetails } from "~/hooks/useUserDetails";
 import { useMerchantDetail } from "~/hooks/useMerchantDetail";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
 import { toast, Toaster } from "sonner";
+
+// clientLoader for SPA mode - signals route is ready
+// Data fetching happens via React Query hooks with caching
+export const clientLoader = async () => {
+  return { timestamp: Date.now() };
+};
 
 /** ---------------- Small helpers (non-logic) ---------------- */
 const mask = (s?: string | null) => {
@@ -22,18 +28,11 @@ const safeNum = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v
 const isBrowser = typeof window !== "undefined";
 
 function resolveBaseUrl(): string {
-  let fromEnv: string | undefined;
-
-  // 1) Node-style env vars (Remix/server)
-  if (typeof process !== "undefined" && (process as any).env) {
-    const env = (process as any).env;
-    fromEnv =
-      (env.REACT_APP_API_HOST as string | undefined) ||
-      (env.API_HOST as string | undefined) ||
-      (env.REACT_APP_BASE_URL as string | undefined) ||
-      (env.BASE_URL as string | undefined) ||
-      (env.CUSTOM_API_BASE_URL as string | undefined);
-  }
+  // 1) Vite-style env vars (import.meta.env)
+  const fromEnv =
+    import.meta.env.VITE_API_HOST ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_BASE_URL;
 
   if (fromEnv && typeof fromEnv === "string" && fromEnv.trim().length > 0) {
     return fromEnv.trim().replace(/\/+$/, "");

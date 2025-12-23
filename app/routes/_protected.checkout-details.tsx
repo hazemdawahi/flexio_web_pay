@@ -1,7 +1,10 @@
 // src/routes/checkout-details.tsx
 import React from "react";
 import { useCheckoutDetail } from "~/hooks/useCheckoutDetail";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useNavigate, useLocation } from "react-router";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 const CheckoutDetails: React.FC = () => {
   // Log the user's browser information

@@ -7,13 +7,16 @@ import React, {
 import { FaCheck } from 'react-icons/fa';
 import { IoIosArrowBack } from 'react-icons/io';
 import { FiSend } from 'react-icons/fi';
-import { useNavigate, useSearchParams } from '@remix-run/react';
+import { useNavigate, useSearchParams } from 'react-router';
 import debounce from 'lodash.debounce';
 import InfiniteScroll from 'react-infinite-scroll-component';
 import { Toaster, toast } from 'sonner';
 import { useFetchContactsInfinite } from '~/hooks/useFetchContactsInfinite';
 import { useUserDetails } from '~/hooks/useUserDetails';
 import ContactItem from '~/compoments/ContactItem';
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 /** ---------------- Types (match ContactItem expectations exactly) ---------------- */
 type UIContact = {
@@ -307,7 +310,7 @@ const UnifiedSplitWithContacts: React.FC = () => {
           type="text"
           onChange={handleSearchChange}
           placeholder="Search for users or contacts"
-          className="flex-grow h-12 px-4 border border-gray-300 rounded-l-lg focus:outline-none"
+          className="flex-grow h-12 px-4 border border-gray-300 rounded-l-lg focus:outline-hidden"
         />
         <button
           onClick={handleSend}

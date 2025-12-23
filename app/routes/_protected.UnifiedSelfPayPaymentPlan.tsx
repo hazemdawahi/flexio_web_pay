@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useNavigate, useLocation } from "@remix-run/react";
+import { useNavigate, useLocation } from "react-router";
 import { toast, Toaster } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { CenterSpinner } from "~/components/ui/spinner";
 import { IoIosArrowBack } from "react-icons/io";
+
+// SPA mode clientLoader - enables route module optimization
+export const clientLoader = async () => null;
 
 import { useCalculatePaymentPlan } from "~/hooks/useCalculatePaymentPlan";
 import { useUserDetails } from "~/hooks/useUserDetails";
@@ -73,19 +77,6 @@ const extractDiscountIds = (raw: string | string[] | undefined): string[] => {
   }
   return [];
 };
-
-const CenterSpinner: React.FC = () => (
-  <div className="min-h-[40vh] w-full flex items-center justify-center bg-white">
-    <motion.div
-      role="status"
-      aria-label="Loading"
-      className="w-10 h-10 rounded-full border-4 border-gray-300"
-      style={{ borderTopColor: "#000" }}
-      animate={{ rotate: 360 }}
-      transition={{ repeat: Infinity, ease: "linear", duration: 0.9 }}
-    />
-  </div>
-);
 
 const ALLOWED_TYPES = [
   "CHECKOUT",
@@ -214,10 +205,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
   const selfPayAmountStr = (amountFromParams || "0").toString().replace(/[$,\s]/g, "");
   const selfPayAmount = parseFloat(selfPayAmountStr) || 0;
 
-  const amountParamOverride = normalizeStr(qs.get("amountParam"), "");
-  const originalTotalStr = (amountParamOverride || amountFromParams || "0").toString().replace(/[$,\s]/g, "");
-  const originalTotalAmount = parseFloat(originalTotalStr) || 0;
-
   const effectiveAmount = selfPayAmount;
   const amount = Number(effectiveAmount.toFixed(2));
 
@@ -278,29 +265,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
   const totalAmountParam = parseMoneyParam(qs.get("totalAmount"));
 
-  useEffect(() => {
-    try {
-      console.log("[SelfPay/Soteria][Amount Resolution]", {
-        amountParamOverride,
-        amountFromParams,
-        selfPayAmount,
-        originalTotalAmount,
-        effectiveAmount,
-        superchargeTotal,
-        totalWithSupercharge,
-        superchargeDetails,
-      });
-    } catch {}
-  }, [
-    amountParamOverride,
-    amountFromParams,
-    selfPayAmount,
-    originalTotalAmount,
-    effectiveAmount,
-    superchargeTotal,
-    totalWithSupercharge,
-    superchargeDetails,
-  ]);
 
   const { data: userDetailsData, isLoading: userLoading } = useUserDetails();
   const currentUserId: string | undefined = userDetailsData?.data?.user?.id;
@@ -319,7 +283,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     error: merchantErrorObj,
   } = useMerchantDetail(merchantId);
 
-  const { mutate: calculatePlan, data: calculatedPlan } = useCalculatePaymentPlan();
+  const { mutateAsync: calculatePlanAsync, data: calculatedPlan } = useCalculatePaymentPlan();
   const { mutateAsync: runUnified, isPending: unifiedPending } = useUnifiedCommerce();
 
   const cfg = merchantResp?.data?.configuration;
@@ -465,15 +429,19 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
   useEffect(() => {
     const isSoteria = transactionType === "SOTERIA_PAYMENT";
+    const eligible = fallbackSelfPayEnabled ? amount > 0 : withinMin && withinMax && fitsAnyTier;
+
     if (isSoteria) {
       setPlanPending(false);
       setPlanExplicitlyEmpty(false);
       return;
     }
 
-    if (!selfPayEnabled) return;
+    if (!selfPayEnabled) {
+      setPlanPending(false);
+      return;
+    }
 
-    const eligible = fallbackSelfPayEnabled ? amount > 0 : withinMin && withinMax && fitsAnyTier;
     if (!eligible) {
       setPlanPending(false);
       setPlanExplicitlyEmpty(false);
@@ -490,25 +458,28 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
       2
     )}|${planRequest.startDate}|${planRequest.interestFreeAmt.toFixed(2)}|${isYearlyMode ? "Y" : "N"}`;
 
-    if (lastCalcSig.current === sig) return;
+    if (lastCalcSig.current === sig) {
+      return;
+    }
     lastCalcSig.current = sig;
 
     setPlanPending(true);
     setPlanExplicitlyEmpty(false);
 
-    calculatePlan(planRequest, {
-      onSuccess: (res: any) => {
+    (async () => {
+      try {
+        const res = await calculatePlanAsync(planRequest);
         const empty =
           !res?.data || !Array.isArray(res?.data?.splitPayments) || res?.data?.splitPayments.length === 0;
         setPlanExplicitlyEmpty(empty);
         setPlanPending(false);
-      },
-      onError: () => {
+      } catch (err: any) {
+        console.error("Payment plan calculation failed:", err);
         toast.error("Could not calculate plan.");
         setPlanExplicitlyEmpty(false);
         setPlanPending(false);
-      },
-    });
+      }
+    })();
   }, [
     transactionType,
     selfPayEnabled,
@@ -518,7 +489,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     fitsAnyTier,
     amount,
     planRequest,
-    calculatePlan,
+    calculatePlanAsync,
     isYearlyMode,
   ]);
 
@@ -609,15 +580,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
       if (haveOrigTI) common.originalTotalInterest = origTI;
       if (haveCurrTI) common.currentTotalInterest = currTI;
-
-      try {
-        console.debug("[SelfPay] CommonFields:", {
-          superchargeDetails: common.superchargeDetails,
-          selfPayPlanAmount,
-          schemeTotalAmount,
-          discountIds: hasDiscounts ? parsedDiscountIds : "(none)",
-        });
-      } catch {}
 
       return common;
     },
@@ -998,6 +960,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
 
   const isSoteria = transactionType === "SOTERIA_PAYMENT";
 
+  // Only use planPending (manually managed) - calcPending has timing issues with React Query
   const isBootLoading =
     userLoading || methodsLoading || merchantLoading || (!isSoteria && planPending) || unifiedPending;
 
@@ -1010,40 +973,6 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
     (!selfPayEnabled || !(fallbackSelfPayEnabled ? amount > 0 : withinMin && withinMax && fitsAnyTier));
 
   const showNoPlan = !isSoteria && !planPending && planExplicitlyEmpty && amount > 0;
-
-  useEffect(() => {
-    try {
-      console.log("[SelfPay][Availability Check]", {
-        effectiveAmount,
-        superchargeTotal,
-        totalWithSupercharge,
-        enableSelfPay: cfg?.enableSelfPay,
-        fallbackSelfPayEnabled,
-        hasMerchantData,
-        minAmount,
-        maxAmount,
-        withinMin,
-        withinMax,
-        tiers,
-        fitsAnyTier,
-        isSoteria,
-      });
-    } catch {}
-  }, [
-    effectiveAmount,
-    superchargeTotal,
-    totalWithSupercharge,
-    cfg?.enableSelfPay,
-    fallbackSelfPayEnabled,
-    hasMerchantData,
-    minAmount,
-    maxAmount,
-    withinMin,
-    withinMax,
-    tiers,
-    fitsAnyTier,
-    isSoteria,
-  ]);
 
   const applyFree = () => {
     const val = Math.min(Number(freeInput || "0") || 0, availableIF, displayPlanTotal);
@@ -1130,7 +1059,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                 <select
                   value={numberOfPeriods}
                   onChange={(e) => setNumberOfPeriods(e.target.value)}
-                  className="w-full p-2 border rounded-md shadow-sm focus:ring-black focus:border-black"
+                  className="w-full p-2 border rounded-md shadow-xs focus:ring-black focus:border-black"
                 >
                   {Array.from({ length: maxTerm - minTerm + 1 }, (_, i) => i + minTerm).map((v) => (
                     <option key={v} value={String(v)}>
@@ -1149,7 +1078,7 @@ const UnifiedSelfPayPaymentPlan: React.FC = () => {
                 <select
                   value={paymentFrequency}
                   onChange={(e) => setPaymentFrequency(e.target.value as PaymentFrequency)}
-                  className="w-full p-2 border rounded-md shadow-sm focus:ring-black focus:border-black"
+                  className="w-full p-2 border rounded-md shadow-xs focus:ring-black focus:border-black"
                 >
                   {allowedFrequencies.map((f) => (
                     <option key={f} value={f}>

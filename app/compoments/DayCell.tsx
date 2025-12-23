@@ -1,5 +1,5 @@
 // DayCell.tsx
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 
 interface EventMap {
   [day: number]: {
@@ -35,8 +35,8 @@ export default function DayCell({
   onDoubleTap,
   onLongPress
 }: Props) {
-  const clickRef = useRef<NodeJS.Timeout | null>(null)
-  const longRef  = useRef<NodeJS.Timeout | null>(null)
+  const clickRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handlePointerDown = () => {
     longRef.current = setTimeout(() => onLongPress(day), 350)

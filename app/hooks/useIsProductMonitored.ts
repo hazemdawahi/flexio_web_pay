@@ -1,7 +1,7 @@
 // ~/hooks/useIsProductMonitored.ts
 
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { useEffect } from "react";
  import { getAccessToken, authFetch, AuthError, isBrowser } from "~/lib/auth/apiClient";
  
@@ -21,7 +21,8 @@ export function useIsProductMonitored(productId: string) {
   const navigate = useNavigate();
 
   const query = useQuery<IsMonitoredResponse, Error>({
-    queryKey: ["isProductMonitored", productId],
+    // Hierarchical key: [domain, entity, id]
+    queryKey: ["products", "monitored", productId],
     queryFn: async () => {
       if (!productId) {
         throw new Error("productId is required");
@@ -50,6 +51,8 @@ export function useIsProductMonitored(productId: string) {
     enabled: !!productId && !!token && isBrowser,
     staleTime: 1000 * 60 * 5,
     retry: false,
+    // Keep previous state while checking
+    placeholderData: (previousData) => previousData,
   });
 
   // Handle auth error

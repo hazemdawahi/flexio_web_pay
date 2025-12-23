@@ -1,6 +1,6 @@
 // src/hooks/useCreditAccounts.ts
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { useEffect } from 'react';
 import {
   authFetch,
@@ -62,12 +62,18 @@ export function useCreditAccounts() {
   const navigate = useNavigate();
 
   const query = useQuery<CreditAccountsResponse, Error>({
-    queryKey: ['creditAccounts', token],
+    // FIXED: Removed token from query key (anti-pattern)
+    // Use descriptive hierarchical keys: [domain, entity]
+    queryKey: ["creditAccounts", "list"],
     queryFn: fetchCreditAccounts,
+    // Refetch on window focus since this is sensitive financial data
     refetchOnWindowFocus: true,
-    enabled: !!token && isBrowser, // avoid accessing storage during SSR
-    staleTime: 1000 * 60 * 5, // cache for 5 minutes
+    enabled: !!token && isBrowser,
+    // Short stale time for financial data (1 minute)
+    staleTime: 1000 * 60 * 1,
     retry: false,
+    // Keep previous data while fetching
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {

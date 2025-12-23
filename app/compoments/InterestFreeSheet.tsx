@@ -74,7 +74,7 @@ const InterestFreeSheet: React.FC<InterestFreeSheetProps> = ({
                   inputMode="numeric"
                   pattern="[0-9]*"
                   placeholder="0"
-                  className="w-full p-3 border rounded-md shadow-sm focus:ring-black focus:border-black"
+                  className="w-full p-3 border rounded-md shadow-xs focus:ring-black focus:border-black"
                 />
                 <p className="text-xs text-gray-500 mt-2">
                   Digits only. Max ${Math.min(availableIF, originalAmount).toFixed(2)}.

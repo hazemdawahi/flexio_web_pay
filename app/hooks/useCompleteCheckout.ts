@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from '@remix-run/react';
+import { useNavigate } from 'react-router';
 import { authFetch, AuthError } from '~/lib/auth/apiClient';
 
 // Define the payload structure for the complete checkout endpoint.
@@ -50,9 +50,16 @@ export function useCompleteCheckout() {
 
   return useMutation<CompleteCheckoutResponse, Error, CompleteCheckoutPayload>({
     mutationFn: (payload: CompleteCheckoutPayload) => completeCheckout(payload),
-    onSuccess: () => {
-      // Optionally, invalidate queries related to checkout to refresh data.
-      queryClient.invalidateQueries({ queryKey: ['checkout'] });
+    onSuccess: (_data, variables) => {
+      // Invalidate checkout-related queries using hierarchical keys
+      queryClient.invalidateQueries({ queryKey: ["checkout"] });
+      queryClient.invalidateQueries({
+        queryKey: ["checkout", "detail", variables.checkoutToken],
+      });
+      // Refresh user data since checkout affects balances
+      queryClient.invalidateQueries({ queryKey: ["user", "details"] });
+      queryClient.invalidateQueries({ queryKey: ["paymentMethods"] });
+      queryClient.invalidateQueries({ queryKey: ["creditAccounts"] });
     },
     onError: (error) => {
       if (error instanceof AuthError) {

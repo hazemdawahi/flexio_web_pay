@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import {
   authFetch,
   isBrowser,
@@ -109,11 +109,14 @@ export function useSmartpayPreferencesMe() {
   const navigate = useNavigate();
 
   const query = useQuery<SmartpayPreferences, Error>({
-    queryKey: ["smartpayPreferencesMe", token],
+    // FIXED: Removed token from query key (anti-pattern)
+    queryKey: ["smartpay", "preferences"],
     queryFn: fetchSmartpayPreferencesMe,
-    enabled: !!token && isBrowser, // avoid SSR & require auth
+    enabled: !!token && isBrowser,
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: false,
+    // Keep previous data while fetching
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {
@@ -148,8 +151,8 @@ export function useCreateSmartpayPreferences() {
   return useMutation<SmartpayPreferences, Error, CreateSmartpayPreferencesRequest>({
     mutationFn: createSmartpayPreferences,
     onSuccess: () => {
-      // refresh the "me" query so UI reflects latest preferences
-      queryClient.invalidateQueries({ queryKey: ["smartpayPreferencesMe"] });
+      // Invalidate all SmartPay queries since preferences affect plans
+      queryClient.invalidateQueries({ queryKey: ["smartpay"] });
     },
     onError: (error) => {
       if (error instanceof AuthError) {

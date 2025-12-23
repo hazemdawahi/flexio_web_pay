@@ -1,7 +1,7 @@
 // ~/hooks/useUserDetails.ts
 
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import { useEffect } from "react";
 import {
   getAccessToken,
@@ -77,12 +77,17 @@ export function useUserDetails() {
   const navigate = useNavigate();
 
   const query = useQuery<UserDetailsResponse, Error>({
-    queryKey: ["userDetails", token],
+    // FIXED: Removed token from query key (anti-pattern)
+    // Query keys should only contain data dependencies, not auth state
+    // Use `enabled` to control when queries run based on auth
+    queryKey: ["user", "details"],
     queryFn: () =>
       authFetch<UserDetailsResponse>("/api/user/user-details"),
     enabled: !!token && isBrowser,
-    staleTime: 1000 * 60 * 5,
-    retry: false,
+    // Cache user details for 10 minutes
+    staleTime: 1000 * 60 * 10,
+    // Keep previous data while refetching
+    placeholderData: (previousData) => previousData,
   });
 
   // Handle auth error by redirecting to login

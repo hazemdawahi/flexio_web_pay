@@ -1,18 +1,31 @@
 /**
- * By default, Remix will handle hydrating your app on the client for you.
- * You are free to delete this file if you'd like to, but if you ever want it revealed again, you can run `npx remix reveal` ✨
- * For more information, see https://remix.run/file-conventions/entry.client
+ * Client Entry Point
+ *
+ * This is the entry point for the client-side application.
+ * It hydrates the React application in the browser.
+ *
+ * For SPA mode (ssr: false), this renders the initial application.
+ *
+ * @see https://reactrouter.com/start/framework/installation
  */
 
-import { RemixBrowser } from "@remix-run/react";
+import { HydratedRouter } from "react-router/dom";
 import { startTransition, StrictMode } from "react";
 import { hydrateRoot } from "react-dom/client";
 
+/**
+ * Hydrate the application
+ *
+ * Uses startTransition for non-blocking hydration, which:
+ * - Allows the browser to handle events during hydration
+ * - Prevents the UI from freezing on slow devices
+ * - Provides a better user experience
+ */
 startTransition(() => {
   hydrateRoot(
     document,
     <StrictMode>
-      <RemixBrowser />
+      <HydratedRouter />
     </StrictMode>
   );
 });

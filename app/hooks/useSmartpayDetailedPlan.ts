@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@remix-run/react";
+import { useNavigate } from "react-router";
 import type { Frequency } from "./useFinancialCalendarPlan";
 import {
   authFetch,
@@ -169,14 +169,12 @@ export function useSmartpayDetailedPlan(
   const navigate = useNavigate();
 
   const query = useQuery<SmartpayDetailedResponse, Error>({
+    // FIXED: Removed token from query key (anti-pattern)
+    // Use structured params object for better cache management
     queryKey: [
-      "smartpayDetailedPlan",
-      price,
-      frequency,
-      instantaneous,
-      yearly,
-      interestFreeTotal,
-      token,
+      "smartpay",
+      "detailedPlan",
+      { price, frequency, instantaneous, yearly, interestFreeTotal },
     ],
     queryFn: () =>
       fetchSmartpayDetailedPlanData(
@@ -186,9 +184,11 @@ export function useSmartpayDetailedPlan(
         yearly,
         interestFreeTotal
       ),
-    enabled: !!token && isBrowser, // avoid SSR + require auth
+    enabled: !!token && isBrowser && price > 0,
     staleTime: 1000 * 60 * 5, // cache for 5 minutes
     retry: 3,
+    // Keep previous data while recalculating
+    placeholderData: (previousData) => previousData,
   });
 
   useEffect(() => {

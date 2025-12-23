@@ -2,36 +2,40 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { authFetch, AuthError } from "~/lib/auth/apiClient";
 
-// Define the structure of the response for detaching a payment method
-interface DetachPaymentMethodResponse {
+// Define the structure of the response for attaching a payment method
+interface AttachPaymentMethodResponse {
   success: boolean;
-  data: string | null;
+  data: {
+    id: string;
+    type: string;
+    [key: string]: unknown;
+  } | null;
   error: string | null;
 }
 
-// Define the request parameters for detaching a payment method
-interface DetachPaymentMethodParams {
+// Define the request parameters for attaching a payment method
+interface AttachPaymentMethodParams {
   paymentMethodId: string;
 }
 
-// Function to detach the payment method from the customer (authenticated)
-async function detachPaymentMethod(
-  { paymentMethodId }: DetachPaymentMethodParams
-): Promise<DetachPaymentMethodResponse> {
+// Function to attach the payment method to the customer (authenticated)
+async function attachPaymentMethod(
+  { paymentMethodId }: AttachPaymentMethodParams
+): Promise<AttachPaymentMethodResponse> {
   // authFetch automatically attaches the access token and handles refresh / AuthError
-  return authFetch<DetachPaymentMethodResponse>("/api/customer/detach-payment-method", {
+  return authFetch<AttachPaymentMethodResponse>("/api/customer/attach-payment-method", {
     method: "POST",
     body: JSON.stringify({ paymentMethodId }),
   });
 }
 
 // Custom hook to use in your component
-export function useDetachPaymentMethod() {
+export function useAttachPaymentMethod() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  return useMutation<DetachPaymentMethodResponse, Error, DetachPaymentMethodParams>({
-    mutationFn: (params) => detachPaymentMethod(params),
+  return useMutation<AttachPaymentMethodResponse, Error, AttachPaymentMethodParams>({
+    mutationFn: (params) => attachPaymentMethod(params),
     onSuccess: () => {
       // Invalidate the 'paymentMethods' query to refresh the list
       queryClient.invalidateQueries({ queryKey: ["paymentMethods"] });
@@ -41,7 +45,7 @@ export function useDetachPaymentMethod() {
         navigate("/login", { replace: true });
         return;
       }
-      console.error("Error detaching payment method:", error.message);
+      console.error("Error attaching payment method:", error.message);
     },
   });
 }

@@ -1,7 +1,7 @@
 // ~/compoments/ProtectedRoute.tsx
 
 import React from "react";
-import { Navigate, useLocation } from "@remix-run/react";
+import { Navigate, useLocation } from "react-router";
 import { useSession } from "~/context/SessionContext";
 
 const PUBLIC_ROUTES = new Set([
